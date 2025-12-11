@@ -1,166 +1,336 @@
-# Null-Lang Parser
+# NullVM - Virtual Machine for Super-Bit Programs
 
-An English-like programming language parser built with Lark.
-
-## Overview
-
-Null-Lang is a simple, readable programming language with English-like syntax. This parser provides lexing, parsing, and AST construction capabilities.
+A TypeScript implementation of a virtual machine that executes super-bit programs with support for instruction decoding, execution contexts, memory management, and binary frame emission.
 
 ## Features
 
-- **Commands**: SET, ADD, IF, SHOW, REPEAT, DEFINE
-- **Literals**: TEXT (strings), NUM (numbers), BOOL (true/false)
-- **Collections**: ARRAY, OBJECT
-- **Operators**: Arithmetic (PLUS, MINUS, TIMES, DIVIDED BY), Comparisons (IS, IS GREATER THAN, etc.), Logical (AND, OR, NOT)
-- **Control Flow**: IF-THEN-ELSE, REPEAT loops
-- **Functions**: DEFINE functions with parameters, CALL functions
-- **Member Access**: Property access (obj.prop) and indexing (array[0])
-- **Null-Lib Annotations**: Inline library calls with @lib.function syntax
-- **Detailed Error Reporting**: Syntax and semantic errors with source location information
-
-## Installation
-
-```bash
-pip install -r requirements.txt
-```
-
-## Usage
-
-### Parse a Program
-
-```python
-from src.null_system.lang import parse
-
-source = """
-SET x TO 42
-SHOW x
-"""
-
-ast = parse(source)
-```
-
-### Parse a Single Statement
-
-```python
-from src.null_system.lang import parse_statement
-
-statement = parse_statement('SET x TO 10')
-```
-
-### Error Handling
-
-```python
-from src.null_system.lang import parse, SyntaxError
-
-try:
-    ast = parse('SET x TO')
-except SyntaxError as e:
-    print(f"Parse error: {e}")
-    print(f"Location: Line {e.span.start_line}, Column {e.span.start_col}")
-```
-
-## Language Syntax Examples
-
-### Variable Assignment
-```null
-SET x TO 42
-SET name TO "Alice"
-SET active TO TRUE
-```
-
-### Arithmetic
-```null
-SET result TO 10 PLUS 5
-SET result TO 20 MINUS 7
-SET result TO 4 TIMES 3
-SET result TO 15 DIVIDED BY 3
-```
-
-### Collections
-```null
-SET numbers TO [1, 2, 3, 4, 5]
-SET person TO { name: "Alice", age: 30 }
-SHOW person.name
-SHOW numbers[0]
-```
-
-### Control Flow
-```null
-IF x IS GREATER THAN 10 THEN
-    SHOW "x is large"
-ELSE
-    SHOW "x is small"
-END IF
-
-REPEAT 5 TIMES
-    SHOW "Hello"
-END REPEAT
-```
-
-### Functions
-```null
-DEFINE greet WITH name
-    SHOW "Hello"
-    SHOW name
-END DEFINE
-
-CALL greet WITH "Alice"
-```
-
-### Null-Lib Annotations
-```null
-SET data TO @http.get("https://api.example.com")
-SET result TO @math.calculate("sum", 10, 20, 30)
-```
-
-## Testing
-
-Run the test suite:
-
-```bash
-pytest tests/
-```
-
-Run tests with verbose output:
-
-```bash
-pytest tests/ -v
-```
+- **Instruction Set Support**: SET, ADD, SHOW, IF, REPEAT, DEFINE, CALL, RETURN, JMP, NOP
+- **Memory Model**: Registers, stack, and heap abstractions
+- **Control Flow**: Conditional execution (IF) and loops (REPEAT)
+- **Function Definitions**: Define and call custom functions with proper call stack management
+- **Binary Bridge**: Emit binary frames for output and register state tracking
+- **Error Handling**: Structured error propagation with detailed error types
+- **Tracing Hooks**: Hook into execution events for debugging and monitoring
+- **Fuzzy Bit Evaluation**: Stubs for probabilistic evaluation support
 
 ## Project Structure
 
 ```
-src/null_system/lang/
-├── __init__.py           # Module exports
-├── ast_nodes.py          # AST node definitions
-├── errors.py             # Error classes with detailed reporting
-├── grammar.lark          # Lark grammar definition
-└── parser.py             # Parser implementation
-
-tests/lang/
-└── test_parser.py        # Comprehensive parser tests
-
-fixtures/lang/
-├── simple_statements.null      # Basic statement examples
-├── control_flow.null           # IF and REPEAT examples
-├── functions.null              # Function definition examples
-├── collections.null            # Array and object examples
-├── expressions.null            # Expression examples
-├── null_lib_annotations.null   # Null-Lib annotation examples
-└── complete_program.null       # Complete program example
+src/
+├── null_system/
+│   └── vm/
+│       ├── null_vm.ts              # Main NullVM class
+│       ├── instructions.ts          # Instruction definitions and opcodes
+│       ├── decoder.ts               # Super-bit program decoder
+│       ├── memory.ts                # Memory model (registers, stack, heap)
+│       ├── execution_context.ts     # Execution state and call stack management
+│       ├── binary_bridge.ts         # Binary frame emission
+│       ├── fuzzy_bits.ts            # Fuzzy/probabilistic evaluation stubs
+│       ├── errors.ts                # Error types and handling
+│       ├── index.ts                 # Module exports
+│       └── __tests__/               # Unit tests for VM components
+├── examples/
+│   ├── sample_program.ts            # Sample super-bit programs
+│   └── __tests__/                   # End-to-end tests
+└── index.ts                         # Main package exports
 ```
 
-## AST Structure
+## Installation
 
-The parser produces a typed AST with the following node types:
+```bash
+npm install
+```
 
-- **Program**: Top-level node containing all statements
-- **Literals**: TextLiteral, NumLiteral, BoolLiteral, ArrayLiteral, ObjectLiteral
-- **Commands**: SetCommand, AddCommand, IfCommand, ShowCommand, RepeatCommand, DefineCommand
-- **Expressions**: BinaryExpression, UnaryExpression, ComparisonExpression
-- **Other**: Identifier, MemberAccess, FunctionCall, NullLibAnnotation, Comment
+## Usage
 
-Each AST node includes a `span` attribute with source location information for error reporting.
+### Running the Sample Program
+
+```bash
+npx ts-node src/examples/sample_program.ts
+```
+
+### Using the NullVM in Your Code
+
+```typescript
+import { NullVM, OpCode } from './null_system/vm';
+
+// Create a VM instance
+const vm = new NullVM();
+
+// Define a program
+const program = [
+  { opcode: OpCode.SET, args: ['x', 10] },
+  { opcode: OpCode.ADD, args: ['x', 5] },
+  { opcode: OpCode.SHOW, args: ['x'] },
+];
+
+// Execute the program
+vm.execute(program);
+
+// Access results
+const state = vm.getState();
+console.log('Result:', state.memory.registers.x); // 15
+```
+
+## Instruction Reference
+
+### SET - Set Register Value
+```javascript
+{ opcode: 'SET', args: ['register_name', value] }
+```
+
+### ADD - Add to Register
+```javascript
+{ opcode: 'ADD', args: ['register_name', value_or_register] }
+```
+
+### SHOW - Output Register Value
+```javascript
+{ opcode: 'SHOW', args: ['register_name'] }
+```
+
+### IF - Conditional Execution
+```javascript
+{
+  opcode: 'IF',
+  args: ['condition_register', operator, instructions_array]
+}
+// Operators: '>', '<', '==', '!=', '>=', '<='
+```
+
+### REPEAT - Loop Execution
+```javascript
+{
+  opcode: 'REPEAT',
+  args: ['count_register', instructions_array]
+}
+```
+
+### DEFINE - Define Function
+```javascript
+{
+  opcode: 'DEFINE',
+  args: ['function_name', instructions_array]
+}
+```
+
+### CALL - Call Function
+```javascript
+{ opcode: 'CALL', args: ['function_name'] }
+```
+
+### RETURN - Return from Function
+```javascript
+{ opcode: 'RETURN', args: [] }
+```
+
+### NOP - No Operation
+```javascript
+{ opcode: 'NOP', args: [] }
+```
+
+## API Documentation
+
+### NullVM
+
+Main virtual machine class for executing super-bit programs.
+
+```typescript
+class NullVM {
+  constructor(config?: NullVMConfig)
+  execute(program: SuperBitProgram | unknown[]): void
+  getMemory(): Memory
+  getContext(): ExecutionContext
+  getBinaryBridge(): BinaryBridge
+  getFuzzyBitEvaluator(): FuzzyBitEvaluator
+  reset(): void
+  getExecutionCycle(): number
+  getState(): object
+}
+```
+
+### Memory
+
+Manages registers, stack, and heap.
+
+```typescript
+class Memory {
+  setRegister(name: string, value: number): void
+  getRegister(name: string): number
+  pushStack(value: number): void
+  popStack(): number
+  peekStack(): number
+  writeHeap(offset: number, value: number): void
+  readHeap(offset: number): number
+  allocateHeap(size: number): number
+  reset(): void
+  getSnapshot(): object
+}
+```
+
+### ExecutionContext
+
+Manages program execution state, call stack, and function definitions.
+
+```typescript
+class ExecutionContext {
+  setProgram(instructions: Instruction[]): void
+  getCurrentInstruction(): Instruction | null
+  advanceProgramCounter(): void
+  setProgramCounter(address: number): void
+  pushCallFrame(functionName: string, returnAddress: number, stackPointer: number): void
+  popCallFrame(): StackFrame
+  defineFunction(name: string, instructions: Instruction[]): void
+  getFunction(name: string): Instruction[] | null
+  addTraceHook(hook: TraceHook): void
+  emitTrace(event: string, data: object): void
+  reset(): void
+  getSnapshot(): object
+}
+```
+
+### BinaryBridge
+
+Emits binary frames for output and register state tracking.
+
+```typescript
+class BinaryBridge {
+  emitFrame(frameType: string, data: Buffer): void
+  emitOutput(label: string, value: number): void
+  emitRegisterState(name: string, value: number): void
+  emitControlFlow(event: string, data?: object): void
+  getFrames(): BinaryFrame[]
+  getFrameCount(): number
+  clearFrames(): void
+}
+```
+
+## Development
+
+### Run Tests
+```bash
+npm test
+```
+
+### Build TypeScript
+```bash
+npm run build
+```
+
+### Run Linter
+```bash
+npm run lint
+```
+
+### Format Code
+```bash
+npm run format
+```
+
+## Test Coverage
+
+The project includes comprehensive test suites:
+
+- **NullVM Tests** (142 tests):
+  - Basic operations (SET, ADD, SHOW)
+  - Control flow (IF, REPEAT)
+  - Function definitions and calls
+  - Complex scenarios with nested control structures
+  - Error handling
+  - State management and reset
+  - Fuzzy bit evaluation
+
+- **Component Tests**:
+  - Memory: Register, stack, and heap operations
+  - ExecutionContext: Program counter, call stack, function definitions
+  - Decoder: Program parsing and validation
+  - BinaryBridge: Frame emission and management
+  - Sample Programs: End-to-end execution tests
+
+## Example Programs
+
+### Simple Arithmetic
+```typescript
+const program = [
+  { opcode: OpCode.SET, args: ['a', 10] },
+  { opcode: OpCode.SET, args: ['b', 20] },
+  { opcode: OpCode.ADD, args: ['a', 'b'] },
+  { opcode: OpCode.SHOW, args: ['a'] },
+];
+```
+
+### Conditional Logic
+```typescript
+const program = [
+  { opcode: OpCode.SET, args: ['x', 5] },
+  {
+    opcode: OpCode.IF,
+    args: ['x', '>', [
+      { opcode: OpCode.SET, args: ['result', 100] },
+    ]],
+  },
+  { opcode: OpCode.SHOW, args: ['result'] },
+];
+```
+
+### Loops
+```typescript
+const program = [
+  { opcode: OpCode.SET, args: ['counter', 0] },
+  { opcode: OpCode.SET, args: ['iterations', 5] },
+  {
+    opcode: OpCode.REPEAT,
+    args: ['iterations', [
+      { opcode: OpCode.ADD, args: ['counter', 1] },
+    ]],
+  },
+  { opcode: OpCode.SHOW, args: ['counter'] },
+];
+```
+
+### Function Definition and Call
+```typescript
+const program = [
+  {
+    opcode: OpCode.DEFINE,
+    args: ['increment', [
+      { opcode: OpCode.ADD, args: ['x', 1] },
+    ]],
+  },
+  { opcode: OpCode.SET, args: ['x', 0] },
+  { opcode: OpCode.CALL, args: ['increment'] },
+  { opcode: OpCode.CALL, args: ['increment'] },
+  { opcode: OpCode.SHOW, args: ['x'] },
+];
+```
+
+## Error Handling
+
+The VM provides detailed error information with error types:
+
+- `INVALID_INSTRUCTION`: Invalid opcode or instruction format
+- `INVALID_REGISTER`: Invalid register name or value type
+- `STACK_UNDERFLOW`: Attempting to pop from empty stack
+- `STACK_OVERFLOW`: Stack limit exceeded
+- `HEAP_OUT_OF_BOUNDS`: Heap memory access out of bounds
+- `UNDEFINED_FUNCTION`: Attempting to call undefined function
+- `INVALID_PROGRAM`: Program has invalid structure
+- `EXECUTION_ERROR`: Runtime execution error
+
+## Configuration
+
+```typescript
+interface NullVMConfig {
+  maxCycles?: number;           // Max execution cycles (default: 10000)
+  enableTracing?: boolean;       // Enable execution tracing (default: false)
+  fuzzyBitConfig?: FuzzyBitConfig;
+}
+
+interface FuzzyBitConfig {
+  probabilityThreshold?: number; // Probability threshold (default: 0.5)
+  noiseLevel?: number;          // Noise level (default: 0)
+}
+```
 
 ## License
 
