@@ -1,0 +1,15 @@
+# Basic arithmetic operations
+set x to 10
+set y to 5
+
+# Addition
+add x and y
+print x
+
+# Subtraction
+subtract x and y
+print x
+
+# Multiplication
+multiply x and 2
+print x

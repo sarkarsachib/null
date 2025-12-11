@@ -1,0 +1,16 @@
+# Control flow examples
+
+# IF statement
+SET x TO 10
+IF x IS GREATER THAN 5 THEN
+    SHOW "x is large"
+ELSE
+    SHOW "x is small"
+END IF
+
+# REPEAT loop
+SET counter TO 0
+REPEAT 5 TIMES
+    SHOW counter
+    SET counter TO counter PLUS 1
+END REPEAT

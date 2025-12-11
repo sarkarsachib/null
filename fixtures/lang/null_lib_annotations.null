@@ -1,0 +1,15 @@
+# Null-Lib annotation examples
+
+# Basic annotation
+SET data TO @http.get("https://api.example.com/data")
+
+# Annotation with multiple arguments
+SET result TO @math.calculate("sum", 10, 20, 30)
+
+# Annotation in expression
+IF @validation.check(user_input) THEN
+    SHOW "Valid input"
+END IF
+
+# Annotation in function call
+CALL process WITH @file.read("data.txt")

@@ -1,0 +1,141 @@
+// Null-Lang Grammar Definition
+// English-like syntax for the Null-Lang programming language
+
+?start: program
+
+program: statement*
+
+?statement: set_statement
+          | add_statement
+          | if_statement
+          | show_statement
+          | repeat_statement
+          | define_statement
+          | expression_statement
+          | comment
+
+// Commands
+
+set_statement: "SET" target "TO" expression -> set_cmd
+target: identifier
+      | member_access
+
+add_statement: "ADD" comparison_expression ("AND" comparison_expression)+ -> add_cmd
+
+if_statement: "IF" expression "THEN" block ("ELSE" block)? "END" "IF" -> if_cmd
+
+show_statement: "SHOW" expression -> show_cmd
+
+repeat_statement: "REPEAT" atom "TIMES" block "END" "REPEAT" -> repeat_cmd
+
+define_statement: "DEFINE" identifier ("WITH" parameter_list)? block "END" "DEFINE" -> define_cmd
+
+expression_statement: expression
+
+block: statement+
+
+parameter_list: identifier ("," identifier)*
+
+// Expressions
+
+?expression: or_expression
+
+?or_expression: and_expression
+              | or_expression "OR" and_expression
+
+?and_expression: comparison_expression
+               | and_expression "AND" comparison_expression
+
+?comparison_expression: arithmetic_expression
+                      | arithmetic_expression comparison_op arithmetic_expression
+
+?arithmetic_expression: not_expression
+                      | arithmetic_expression "PLUS" not_expression -> add_expr
+                      | arithmetic_expression "MINUS" not_expression -> subtract_expr
+
+?not_expression: term
+               | "NOT" term -> not_expr
+
+comparison_op: "IS" "NOT" -> is_not
+             | "IS" "GREATER" "THAN" -> is_greater
+             | "IS" "LESS" "THAN" -> is_less
+             | "IS" "GREATER" "OR" "EQUAL" "TO" -> is_greater_equal
+             | "IS" "LESS" "OR" "EQUAL" "TO" -> is_less_equal
+             | "IS" -> is_equal
+             | "EQUALS" -> equals
+             | "NOT" "EQUALS" -> not_equals
+
+?term: factor
+     | term "TIMES" factor -> multiply_expr
+     | term "DIVIDED" "BY" factor -> divide_expr
+
+?factor: atom
+       | "MINUS" factor -> negate_expr
+
+?atom: literal
+     | identifier
+     | member_access
+     | function_call
+     | null_lib_annotation
+     | "(" expression ")"
+
+// Literals
+
+literal: text_literal
+       | num_literal
+       | bool_literal
+       | array_literal
+       | object_literal
+
+text_literal: ESCAPED_STRING
+
+num_literal: NUMBER
+
+bool_literal: "TRUE" -> true_literal
+            | "FALSE" -> false_literal
+
+array_literal: "ARRAY" "[" (expression ("," expression)*)? "]"
+             | "[" (expression ("," expression)*)? "]"
+
+object_literal: "OBJECT" "{" (object_pair ("," object_pair)*)? "}"
+              | "{" (object_pair ("," object_pair)*)? "}"
+
+object_pair: (identifier | ESCAPED_STRING) ":" expression
+
+// Member Access
+
+member_access: atom "." identifier -> property_access
+             | atom "[" expression "]" -> index_access
+
+// Function Calls
+
+function_call: "CALL" identifier ("WITH" argument_list)? -> call_func
+             | identifier "(" (argument_list)? ")" -> call_func_parens
+
+argument_list: expression ("," expression)*
+
+// Null-Lib Annotations
+
+null_lib_annotation: "@" identifier "." identifier ("(" (argument_list)? ")")? -> null_lib_call
+
+// Identifiers
+
+identifier: NAME
+
+// Comments
+
+comment: COMMENT
+
+// Terminals
+
+NAME: /[a-zA-Z_][a-zA-Z0-9_]*/
+NUMBER: /[0-9]+(\.[0-9]+)?/
+ESCAPED_STRING: /"([^"\\]|\\.)*"/
+                | /'([^'\\]|\\.)*'/
+
+COMMENT: /#[^\n]*/
+
+// Whitespace
+%import common.WS
+%ignore WS
+%ignore COMMENT
