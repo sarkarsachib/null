@@ -1,0 +1,43 @@
+# Complete Null-Lang Program Example
+# This demonstrates various language features
+
+# Define a function to calculate factorial
+DEFINE factorial WITH n
+    IF n IS LESS OR EQUAL TO 1 THEN
+        SET result TO 1
+    ELSE
+        SET result TO n TIMES @math.factorial(n MINUS 1)
+    END IF
+    SHOW result
+END DEFINE
+
+# Main program
+SET numbers TO ARRAY [5, 10, 15, 20]
+SET sum TO 0
+
+# Iterate through numbers
+REPEAT 4 TIMES
+    SET current TO numbers[sum]
+    SET sum TO sum PLUS current
+    SHOW "Current sum: "
+    SHOW sum
+END REPEAT
+
+# Check result
+IF sum IS GREATER THAN 40 THEN
+    SHOW "Sum is large!"
+    SET status TO "high"
+ELSE
+    SHOW "Sum is moderate"
+    SET status TO "normal"
+END IF
+
+# Create a configuration object
+SET config TO OBJECT {
+    total: sum,
+    status: status,
+    timestamp: @time.now()
+}
+
+# Display configuration
+SHOW config
