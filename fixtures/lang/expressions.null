@@ -1,0 +1,35 @@
+# Expression examples
+
+# Arithmetic
+SET result TO 10 PLUS 5
+SET result TO 20 MINUS 7
+SET result TO 4 TIMES 3
+SET result TO 15 DIVIDED BY 3
+
+# Comparisons
+IF x IS 10 THEN
+    SHOW "x is 10"
+END IF
+
+IF x IS NOT 0 THEN
+    SHOW "x is not zero"
+END IF
+
+IF age IS GREATER THAN 18 THEN
+    SHOW "Adult"
+END IF
+
+# Logical operations
+IF x IS GREATER THAN 5 AND y IS LESS THAN 10 THEN
+    SHOW "Both conditions true"
+END IF
+
+IF status IS TRUE OR backup IS TRUE THEN
+    SHOW "At least one is true"
+END IF
+
+# Negation
+SET opposite TO NOT TRUE
+IF NOT is_finished THEN
+    SHOW "Still working"
+END IF
