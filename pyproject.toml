@@ -1,0 +1,9 @@
+[project]
+name = "null-system"
+version = "0.0.0"
+description = "Reference Null System standard library and registry"
+readme = "README.md"
+requires-python = ">=3.10"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
