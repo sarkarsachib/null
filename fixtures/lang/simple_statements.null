@@ -1,0 +1,13 @@
+# Simple Null-Lang statements
+
+# Variable assignment
+SET x TO 42
+SET name TO "Alice"
+SET is_active TO TRUE
+
+# Show commands
+SHOW "Hello, World!"
+SHOW x
+
+# Add commands
+ADD 5 AND 10 AND 3
