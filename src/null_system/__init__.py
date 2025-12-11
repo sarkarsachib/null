@@ -1,3 +1,10 @@
-"""Null-Lang compiler and virtual machine system."""
+from .compiler import compile_program
+from .vm import VirtualMachine
+from .lib.registry import default_registry, LibraryRegistry
 
-__version__ = "0.1.0"
+__all__ = [
+    "compile_program",
+    "VirtualMachine",
+    "default_registry",
+    "LibraryRegistry",
+]
