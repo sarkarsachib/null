@@ -22,11 +22,10 @@ wheels/
 
 # Virtual environments
 venv/
-ENV/
 env/
-.venv
+ENV/
 
-# IDEs
+# IDE
 .vscode/
 .idea/
 *.swp
@@ -39,6 +38,8 @@ env/
 htmlcov/
 .tox/
 
-# OS
-.DS_Store
-Thumbs.db
+# Null compiler artifacts
+*.null.ast
+*.null.sb
+*.null.bin
+*.null.out

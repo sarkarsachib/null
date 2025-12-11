@@ -1,167 +1,224 @@
-# Null-Lang Parser
+# Null-Lang Compiler System
 
-An English-like programming language parser built with Lark.
-
-## Overview
-
-Null-Lang is a simple, readable programming language with English-like syntax. This parser provides lexing, parsing, and AST construction capabilities.
+A compiler and virtual machine for Null-Lang, an English-based programming language.
 
 ## Features
 
-- **Commands**: SET, ADD, IF, SHOW, REPEAT, DEFINE
-- **Literals**: TEXT (strings), NUM (numbers), BOOL (true/false)
-- **Collections**: ARRAY, OBJECT
-- **Operators**: Arithmetic (PLUS, MINUS, TIMES, DIVIDED BY), Comparisons (IS, IS GREATER THAN, etc.), Logical (AND, OR, NOT)
-- **Control Flow**: IF-THEN-ELSE, REPEAT loops
-- **Functions**: DEFINE functions with parameters, CALL functions
-- **Member Access**: Property access (obj.prop) and indexing (array[0])
-- **Null-Lib Annotations**: Inline library calls with @lib.function syntax
-- **Detailed Error Reporting**: Syntax and semantic errors with source location information
+- **Natural Language Syntax**: Write code in plain English
+- **Multi-stage Compilation**: Parsing → AST → Super-bit → Binary
+- **Virtual Machine**: Execute compiled programs directly
+- **Rich CLI**: Beautiful command-line interface with diagnostics
+- **Optimization**: Configurable optimization passes (deduplication, constant folding)
+- **Comprehensive Testing**: 28+ integration and unit tests
+- **Translation Tables**: Well-documented AST to super-bit mappings
 
 ## Installation
 
 ```bash
-pip install -r requirements.txt
+pip install -e .
+```
+
+For development:
+```bash
+pip install -e ".[dev]"
+```
+
+## Quick Start
+
+Create a simple program (`hello.null`):
+```null
+print 'Hello, World!'
+```
+
+Run it:
+```bash
+nullc run hello.null
 ```
 
 ## Usage
 
-### Parse a Program
-
-```python
-from src.null_system.lang import parse
-
-source = """
-SET x TO 42
-SHOW x
-"""
-
-ast = parse(source)
+### Compile a Null-Lang file:
+```bash
+nullc compile program.null
 ```
 
-### Parse a Single Statement
-
-```python
-from src.null_system.lang import parse_statement
-
-statement = parse_statement('SET x TO 10')
+### Compile with output binary:
+```bash
+nullc compile program.null -o output.bin
 ```
 
-### Error Handling
-
-```python
-from src.null_system.lang import parse, SyntaxError
-
-try:
-    ast = parse('SET x TO')
-except SyntaxError as e:
-    print(f"Parse error: {e}")
-    print(f"Location: Line {e.span.start_line}, Column {e.span.start_col}")
+### Compile and run:
+```bash
+nullc run program.null
 ```
 
-## Language Syntax Examples
+### Show compilation details:
+```bash
+nullc compile program.null --show-ast --show-superbit
+```
 
-### Variable Assignment
+### Disable optimizations:
+```bash
+nullc run program.null --no-optimize
+```
+
+### Get help:
+```bash
+nullc --help
+nullc info
+```
+
+## Null-Lang Syntax
+
+### Variables
 ```null
-SET x TO 42
-SET name TO "Alice"
-SET active TO TRUE
+set x to 5
+set name to 'Alice'
 ```
 
 ### Arithmetic
 ```null
-SET result TO 10 PLUS 5
-SET result TO 20 MINUS 7
-SET result TO 4 TIMES 3
-SET result TO 15 DIVIDED BY 3
+set x to 10
+set y to 5
+add x and y
+subtract x and y
+multiply x and 2
+divide x and 2
 ```
 
-### Collections
+### Printing
 ```null
-SET numbers TO [1, 2, 3, 4, 5]
-SET person TO { name: "Alice", age: 30 }
-SHOW person.name
-SHOW numbers[0]
+set x to 42
+print x
+print 'Hello, World!'
 ```
 
-### Control Flow
+### Conditionals
 ```null
-IF x IS GREATER THAN 10 THEN
-    SHOW "x is large"
-ELSE
-    SHOW "x is small"
-END IF
+set age to 25
+if age is greater than 18 then print 'adult' else print 'minor'
 
-REPEAT 5 TIMES
-    SHOW "Hello"
-END REPEAT
+set x to 10
+if x is less than 20 then print 'small' else print 'big'
+
+set y to 5
+if y is equals 5 then print 'exact' else print 'not exact'
 ```
 
-### Functions
+### Comments
 ```null
-DEFINE greet WITH name
-    SHOW "Hello"
-    SHOW name
-END DEFINE
-
-CALL greet WITH "Alice"
+# This is a comment
+set x to 5  # Comments are ignored
 ```
 
-### Null-Lib Annotations
-```null
-SET data TO @http.get("https://api.example.com")
-SET result TO @math.calculate("sum", 10, 20, 30)
-```
+More examples can be found in the `examples/` directory.
+
+## Architecture
+
+The Null compiler uses a 7-stage compilation pipeline:
+
+1. **Lexical Analysis**: Tokenize English-like source code
+2. **Parsing**: Build Abstract Syntax Tree (AST)
+3. **Validation**: Semantic analysis and error checking
+4. **Super-bit Emission**: Convert AST to intermediate representation
+5. **Optimization**: Apply optimization passes
+6. **Binary Generation**: Produce executable binary frames
+7. **Execution**: Run in NullVM (optional)
+
+See [ARCHITECTURE.md](ARCHITECTURE.md) for detailed documentation.
+
+## Translation Table
+
+The compiler uses a translation table to convert AST nodes to super-bit instructions:
+
+| AST Node | Super-bit Instructions |
+|----------|----------------------|
+| `Literal(5)` | `LOAD_CONST 5` |
+| `Identifier("x")` | `LOAD_VAR x` |
+| `SetStatement("x", 5)` | `LOAD_CONST 5, STORE_VAR x` |
+| `BinaryOp("add", x, y)` | `LOAD_VAR x, LOAD_VAR y, BINARY_ADD` |
+
+See [TRANSLATION_TABLE.md](TRANSLATION_TABLE.md) for complete mappings.
 
 ## Testing
 
 Run the test suite:
-
-```bash
-pytest tests/
-```
-
-Run tests with verbose output:
-
 ```bash
 pytest tests/ -v
 ```
 
+Run with coverage:
+```bash
+pytest tests/ --cov=src/null_system
+```
+
+All tests (28 total):
+- Integration tests: Full compilation pipeline tests
+- Unit tests: Individual component tests
+- Optimization tests: Verify optimization passes work correctly
+
 ## Project Structure
 
 ```
-src/null_system/lang/
-├── __init__.py           # Module exports
-├── ast_nodes.py          # AST node definitions
-├── errors.py             # Error classes with detailed reporting
-├── grammar.lark          # Lark grammar definition
-└── parser.py             # Parser implementation
+src/null_system/
+├── ast/              # AST nodes and validation
+├── parser/           # Lexer and parser
+├── superbit/         # Super-bit emission
+├── binary/           # Binary frame generation
+├── vm/               # Virtual machine
+├── compiler/         # Main compiler orchestration
+└── cli.py            # Command-line interface
 
-tests/lang/
-└── test_parser.py        # Comprehensive parser tests
+tests/
+├── test_integration.py  # Integration tests
+└── test_compiler.py     # Unit tests
 
-fixtures/lang/
-├── simple_statements.null      # Basic statement examples
-├── control_flow.null           # IF and REPEAT examples
-├── functions.null              # Function definition examples
-├── collections.null            # Array and object examples
-├── expressions.null            # Expression examples
-├── null_lib_annotations.null   # Null-Lib annotation examples
-└── complete_program.null       # Complete program example
+examples/
+├── hello.null           # Hello World
+├── arithmetic.null      # Arithmetic operations
+├── conditional.null     # Conditional logic
+└── comprehensive.null   # Full feature demo
 ```
 
-## AST Structure
+## API Usage
 
-The parser produces a typed AST with the following node types:
+```python
+from null_system.compiler import NullCompiler
+from null_system.compiler.optimization import DeduplicationPass, CompressionPass
 
-- **Program**: Top-level node containing all statements
-- **Literals**: TextLiteral, NumLiteral, BoolLiteral, ArrayLiteral, ObjectLiteral
-- **Commands**: SetCommand, AddCommand, IfCommand, ShowCommand, RepeatCommand, DefineCommand
-- **Expressions**: BinaryExpression, UnaryExpression, ComparisonExpression
-- **Other**: Identifier, MemberAccess, FunctionCall, NullLibAnnotation, Comment
+# Create compiler with optimizations
+compiler = NullCompiler(optimization_passes=[
+    DeduplicationPass(),
+    CompressionPass()
+])
 
-Each AST node includes a `span` attribute with source location information for error reporting.
+# Compile source code
+source = """
+set x to 10
+print x
+"""
+artifact = compiler.compile(source)
+
+# Check for errors
+if artifact.is_valid():
+    print(f"Compiled {len(artifact.superbit_stream.tokens)} instructions")
+    print(f"Binary size: {sum(len(f) for f in artifact.binary_frames)} bytes")
+
+# Compile and run
+result = compiler.compile_and_run(source)
+if result.success:
+    print("Output:", result.output)
+    print("Final state:", result.final_state)
+```
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Add tests for new features
+4. Ensure all tests pass
+5. Submit a pull request
 
 ## License
 
-MIT
+MIT License - See LICENSE file for details
