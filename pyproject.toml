@@ -1,0 +1,94 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "null-lang"
+version = "0.1.0"
+description = "An English-like programming language parser with Super-Bit encoding layer"
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [
+    { name = "Null-Lang Contributors" }
+]
+license = { text = "MIT" }
+keywords = ["parser", "language", "null-lang", "encoding"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Compilers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+dependencies = [
+    "lark-parser>=0.12.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "ruff>=0.1.0",
+]
+test = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+]
+
+[project.urls]
+Repository = "https://github.com/null-lang/null-lang"
+Documentation = "https://github.com/null-lang/null-lang#readme"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages]
+find = { where = ["src"] }
+
+[tool.setuptools.package-data]
+"null_system.lang" = ["*.lark"]
+
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v --strict-markers"
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests",
+    "encoding: Super-Bit encoding tests",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "C",    # flake8-comprehensions
+    "B",    # flake8-bugbear
+]
+ignore = [
+    "E501",  # line too long (handled by line-length)
+    "W291",  # trailing whitespace
+]
+
+[tool.ruff.isort]
+known-first-party = ["null_system"]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+include = '\.pyi?$'
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
