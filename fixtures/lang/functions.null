@@ -1,0 +1,16 @@
+# Function definitions
+
+# Simple function
+DEFINE greet
+    SHOW "Hello!"
+END DEFINE
+
+# Function with parameters
+DEFINE add WITH x, y
+    SET result TO x PLUS y
+    SHOW result
+END DEFINE
+
+# Function call
+CALL greet
+CALL add WITH 5, 10

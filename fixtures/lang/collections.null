@@ -1,0 +1,22 @@
+# Collection examples
+
+# Arrays
+SET numbers TO ARRAY [1, 2, 3, 4, 5]
+SET names TO ["Alice", "Bob", "Charlie"]
+
+# Objects
+SET person TO OBJECT {
+    name: "Alice",
+    age: 30,
+    active: TRUE
+}
+
+SET config TO {
+    host: "localhost",
+    port: 8080
+}
+
+# Member access
+SHOW person.name
+SHOW numbers[0]
+SET person.age TO 31

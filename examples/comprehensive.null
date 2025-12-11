@@ -1,0 +1,38 @@
+# Comprehensive example demonstrating all Null-Lang features
+
+# Variable assignment
+set x to 10
+set y to 20
+
+# Arithmetic operations
+add x and y
+set sum to 30
+
+subtract y and x
+set diff to 10
+
+multiply x and 3
+set product to 30
+
+# String operations
+print 'Starting calculation...'
+
+# Printing values
+print sum
+print diff
+print product
+
+# Conditionals
+if sum is greater than 25 then print 'Sum is large' else print 'Sum is small'
+
+if diff is less than 15 then print 'Diff is small' else print 'Diff is large'
+
+if product is equals 30 then print 'Product is exactly 30' else print 'Product is not 30'
+
+# Complex expression
+set a to 5
+set b to 3
+add a and b
+print a
+
+print 'Calculation complete!'
