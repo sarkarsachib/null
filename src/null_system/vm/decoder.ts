@@ -161,6 +161,72 @@ export class Decoder {
         }
         break;
 
+      case OpCode.SECURE_ENC:
+      case OpCode.SECURE_DEC:
+        if (args.length < 2 || typeof args[0] !== 'string' || typeof args[1] !== 'string') {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'SECURE_ENC/SECURE_DEC requires two arguments: register (string) and key_id (string)',
+            { lineno, args }
+          );
+        }
+        break;
+
+      case OpCode.SECURE_EVAL:
+        if (
+          args.length < 3 ||
+          typeof args[0] !== 'string' ||
+          typeof args[1] !== 'string' ||
+          typeof args[2] !== 'string'
+        ) {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'SECURE_EVAL requires three arguments: operation (string), source_register (string), dest_register (string)',
+            { lineno, args }
+          );
+        }
+        break;
+
+      case OpCode.ZK_PROVE:
+        if (args.length < 1 || typeof args[0] !== 'string') {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'ZK_PROVE requires one argument: trace_id (string)',
+            { lineno, args }
+          );
+        }
+        break;
+
+      case OpCode.ZK_VERIFY:
+        if (args.length < 2 || typeof args[0] !== 'string' || typeof args[1] !== 'string') {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'ZK_VERIFY requires two arguments: proof_id (string) and digest_id (string)',
+            { lineno, args }
+          );
+        }
+        break;
+
+      case OpCode.SMPC_SHARE:
+        if (args.length < 2 || typeof args[0] !== 'string' || typeof args[1] !== 'number') {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'SMPC_SHARE requires two arguments: secret_id (string) and threshold (number)',
+            { lineno, args }
+          );
+        }
+        break;
+
+      case OpCode.SMPC_COMBINE:
+        if (args.length < 2 || typeof args[0] !== 'string' || !Array.isArray(args[1])) {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'SMPC_COMBINE requires two arguments: secret_id (string) and share_ids (array)',
+            { lineno, args }
+          );
+        }
+        break;
+
       default:
         throw createError(ErrorType.InvalidInstruction, `Unknown opcode: ${opcode}`, {
           lineno,

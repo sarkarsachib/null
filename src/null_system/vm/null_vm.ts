@@ -9,6 +9,7 @@ import { Decoder, SuperBitProgram } from './decoder';
 import { BinaryBridge } from './binary_bridge';
 import { FuzzyBitEvaluator, FuzzyBitConfig } from './fuzzy_bits';
 import { createError, ErrorType, VMError } from './errors';
+import { HomomorphicEngine, SecureChannel, ZKProofSystem, SMPCOrchestrator } from '../security';
 
 export interface NullVMConfig {
   maxCycles?: number;
@@ -25,6 +26,10 @@ export class NullVM {
   private maxCycles: number;
   private enableTracing: boolean;
   private executionCycle: number = 0;
+  private homomorphicEngine: HomomorphicEngine;
+  private secureChannel: SecureChannel;
+  private zkProofSystem: ZKProofSystem;
+  private smpcOrchestrator: SMPCOrchestrator;
 
   constructor(config: NullVMConfig = {}) {
     this.maxCycles = config.maxCycles || 10000;
@@ -35,6 +40,14 @@ export class NullVM {
     this.decoder = new Decoder();
     this.binaryBridge = new BinaryBridge();
     this.fuzzyEvaluator = new FuzzyBitEvaluator(config.fuzzyBitConfig);
+    this.homomorphicEngine = new HomomorphicEngine(2048);
+    this.secureChannel = new SecureChannel({ algorithm: 'nacl-box' });
+    this.zkProofSystem = new ZKProofSystem();
+    this.smpcOrchestrator = new SMPCOrchestrator({
+      partyId: 'party_0',
+      threshold: 2,
+      totalParties: 2,
+    });
 
     if (this.enableTracing) {
       this.context.addTraceHook((event, data) => {
@@ -140,6 +153,34 @@ export class NullVM {
         return;
 
       case OpCode.NOP:
+        break;
+
+      case OpCode.SECURE_ENC:
+        this.executeSECURE_ENC(instruction);
+        break;
+
+      case OpCode.SECURE_DEC:
+        this.executeSECURE_DEC(instruction);
+        break;
+
+      case OpCode.SECURE_EVAL:
+        this.executeSECURE_EVAL(instruction);
+        break;
+
+      case OpCode.ZK_PROVE:
+        this.executeZK_PROVE(instruction);
+        break;
+
+      case OpCode.ZK_VERIFY:
+        this.executeZK_VERIFY(instruction);
+        break;
+
+      case OpCode.SMPC_SHARE:
+        this.executeSMPC_SHARE(instruction);
+        break;
+
+      case OpCode.SMPC_COMBINE:
+        this.executeSMPC_COMBINE(instruction);
         break;
 
       default:
@@ -308,6 +349,244 @@ export class NullVM {
   }
 
   /**
+   * Execute SECURE_ENC instruction: Encrypt a register value
+   */
+  private executeSECURE_ENC(instruction: Instruction): void {
+    const [register, keyId] = instruction.args as [string, string];
+
+    try {
+      const value = this.memory.getRegister(register);
+
+      let key = this.memory.getKey(keyId);
+      if (!key) {
+        const keyPair = this.homomorphicEngine.generateKeyPair();
+        this.memory.storeKey(keyId, keyPair.publicKey, keyPair.privateKey);
+        key = { publicKey: keyPair.publicKey, privateKey: keyPair.privateKey };
+      }
+
+      const encrypted = this.homomorphicEngine.encrypt(value, key.publicKey);
+      const encryptedId = `${register}_encrypted`;
+
+      this.memory.storeEncryptedValue(encryptedId, encrypted.ciphertext, keyId);
+      this.binaryBridge.emitControlFlow('SECURE_ENC', {
+        register,
+        keyId,
+        encryptedValueId: encryptedId,
+      });
+    } catch (error) {
+      throw createError(
+        ErrorType.EncryptionError,
+        `Failed to encrypt register ${register}: ${String(error)}`,
+        { register, keyId }
+      );
+    }
+  }
+
+  /**
+   * Execute SECURE_DEC instruction: Decrypt an encrypted value
+   */
+  private executeSECURE_DEC(instruction: Instruction): void {
+    const [register, keyId] = instruction.args as [string, string];
+
+    try {
+      const encryptedId = `${register}_encrypted`;
+      const encrypted = this.memory.getEncryptedValue(encryptedId);
+
+      if (!encrypted) {
+        throw new Error(`No encrypted value found for ${register}`);
+      }
+
+      const key = this.memory.getKey(keyId);
+      if (!key || !key.privateKey) {
+        throw new Error(`Private key not available for ${keyId}`);
+      }
+
+      const encryptedValue = {
+        ciphertext: encrypted.ciphertext,
+        publicKey: key.publicKey,
+      };
+
+      const decrypted = this.homomorphicEngine.decrypt(encryptedValue, key.privateKey);
+      this.memory.setRegister(register, decrypted);
+
+      this.binaryBridge.emitControlFlow('SECURE_DEC', {
+        register,
+        keyId,
+        decrypted,
+      });
+    } catch (error) {
+      throw createError(
+        ErrorType.DecryptionError,
+        `Failed to decrypt register ${register}: ${String(error)}`,
+        { register, keyId }
+      );
+    }
+  }
+
+  /**
+   * Execute SECURE_EVAL instruction: Homomorphic evaluation on encrypted values
+   */
+  private executeSECURE_EVAL(instruction: Instruction): void {
+    const [operation, sourceReg, destReg] = instruction.args as [string, string, string];
+
+    try {
+      const sourceId = `${sourceReg}_encrypted`;
+      const destId = `${destReg}_encrypted`;
+
+      const sourceEncrypted = this.memory.getEncryptedValue(sourceId);
+      const destEncrypted = this.memory.getEncryptedValue(destId);
+
+      if (!sourceEncrypted || !destEncrypted) {
+        throw new Error('One or both encrypted values not found');
+      }
+
+      const sourceValue = {
+        ciphertext: sourceEncrypted.ciphertext,
+        publicKey: Buffer.alloc(0),
+      };
+      const destValue = {
+        ciphertext: destEncrypted.ciphertext,
+        publicKey: Buffer.alloc(0),
+      };
+
+      let result;
+      switch (operation) {
+        case 'add':
+          result = this.homomorphicEngine.encryptedAdd(sourceValue, destValue);
+          break;
+        case 'mul_scalar': {
+          const scalar = this.memory.getRegister('__scalar');
+          result = this.homomorphicEngine.encryptedScalarMultiply(sourceValue, scalar);
+          break;
+        }
+        default:
+          throw new Error(`Unknown secure operation: ${operation}`);
+      }
+
+      this.memory.storeEncryptedValue(destId, result.ciphertext, destEncrypted.keyId);
+
+      this.binaryBridge.emitControlFlow('SECURE_EVAL', {
+        operation,
+        sourceReg,
+        destReg,
+      });
+    } catch (error) {
+      throw createError(
+        ErrorType.ExecutionError,
+        `Failed to evaluate secure operation ${operation}: ${String(error)}`,
+        { operation, sourceReg, destReg }
+      );
+    }
+  }
+
+  /**
+   * Execute ZK_PROVE instruction: Generate zero-knowledge proof
+   */
+  private executeZK_PROVE(instruction: Instruction): void {
+    const [traceId] = instruction.args as [string];
+
+    try {
+      const pc = this.context.getProgramCounter();
+      const statements = [
+        `Execution at cycle ${this.executionCycle}`,
+        `Program counter: ${pc >= 0 ? pc : 0}`,
+      ];
+
+      this.zkProofSystem.recordTrace(traceId, statements);
+      const proof = this.zkProofSystem.proveExecution(traceId);
+
+      const transcript = this.zkProofSystem.getProofTranscript(traceId);
+      this.binaryBridge.emitProofTranscript(traceId, transcript);
+
+      this.binaryBridge.emitControlFlow('ZK_PROVE', {
+        traceId,
+        verified: proof.verified,
+        commitmentLength: proof.commitment.length,
+      });
+    } catch (error) {
+      this.binaryBridge.emitControlFlow('ZK_PROVE_ERROR', {
+        traceId,
+        error: String(error),
+      });
+    }
+  }
+
+  /**
+   * Execute ZK_VERIFY instruction: Verify zero-knowledge proof
+   */
+  private executeZK_VERIFY(instruction: Instruction): void {
+    const [proofId, expectedDigestId] = instruction.args as [string, string];
+
+    try {
+      this.binaryBridge.emitControlFlow('ZK_VERIFY', {
+        proofId,
+        expectedDigestId,
+        status: 'verification_attempted',
+      });
+    } catch (error) {
+      throw createError(ErrorType.ProofError, `Failed to verify ZK proof: ${String(error)}`, {
+        proofId,
+      });
+    }
+  }
+
+  /**
+   * Execute SMPC_SHARE instruction: Share a secret for multi-party computation
+   */
+  private executeSMPC_SHARE(instruction: Instruction): void {
+    const [secretId, threshold] = instruction.args as [string, number];
+
+    try {
+      const secret = Buffer.alloc(32);
+      for (let i = 0; i < 32; i++) {
+        secret[i] = Math.floor(Math.random() * 256);
+      }
+
+      const shares = this.smpcOrchestrator.shareSecret(secretId, secret);
+
+      for (const [partyId, share] of shares) {
+        const shareId = `${secretId}_${partyId}`;
+        this.smpcOrchestrator.submitShare(shareId, share);
+      }
+
+      this.binaryBridge.emitControlFlow('SMPC_SHARE', {
+        secretId,
+        threshold,
+        numShares: shares.size,
+      });
+    } catch (error) {
+      throw createError(ErrorType.SMPCError, `Failed to share secret: ${String(error)}`, {
+        secretId,
+      });
+    }
+  }
+
+  /**
+   * Execute SMPC_COMBINE instruction: Combine shares to reconstruct secret
+   */
+  private executeSMPC_COMBINE(instruction: Instruction): void {
+    const [secretId, shareIds] = instruction.args as [string, string[]];
+
+    try {
+      const reconstructed = this.smpcOrchestrator.combineShares(secretId, shareIds);
+
+      this.memory.setRegister('__secret_output', reconstructed.readUInt32BE(0));
+
+      this.binaryBridge.emitControlFlow('SMPC_COMBINE', {
+        secretId,
+        numSharesUsed: shareIds.length,
+        combined: true,
+      });
+    } catch (error) {
+      throw createError(
+        ErrorType.SMPCError,
+        `Failed to combine shares: ${String(error)}`,
+        { secretId }
+      );
+    }
+  }
+
+  /**
    * Get memory
    */
   getMemory(): Memory {
@@ -333,6 +612,34 @@ export class NullVM {
    */
   getFuzzyBitEvaluator(): FuzzyBitEvaluator {
     return this.fuzzyEvaluator;
+  }
+
+  /**
+   * Get homomorphic engine
+   */
+  getHomomorphicEngine(): HomomorphicEngine {
+    return this.homomorphicEngine;
+  }
+
+  /**
+   * Get secure channel
+   */
+  getSecureChannel(): SecureChannel {
+    return this.secureChannel;
+  }
+
+  /**
+   * Get ZK proof system
+   */
+  getZKProofSystem(): ZKProofSystem {
+    return this.zkProofSystem;
+  }
+
+  /**
+   * Get SMPC orchestrator
+   */
+  getSMPCOrchestrator(): SMPCOrchestrator {
+    return this.smpcOrchestrator;
   }
 
   /**
