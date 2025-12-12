@@ -9,11 +9,23 @@ import { Decoder, SuperBitProgram } from './decoder';
 import { BinaryBridge } from './binary_bridge';
 import { FuzzyBitEvaluator, FuzzyBitConfig } from './fuzzy_bits';
 import { createError, ErrorType, VMError } from './errors';
+import {
+  HybridExecutionManager,
+  HybridExecutionConfig,
+  VMCapabilities,
+} from './hybrid_runtime';
 
 export interface NullVMConfig {
   maxCycles?: number;
   enableTracing?: boolean;
   fuzzyBitConfig?: FuzzyBitConfig;
+  vmId?: string;
+  hybridRuntime?: {
+    enabled: boolean;
+    manager?: HybridExecutionManager;
+    capabilities?: Partial<VMCapabilities>;
+    config?: HybridExecutionConfig;
+  };
 }
 
 export class NullVM {
@@ -25,10 +37,15 @@ export class NullVM {
   private maxCycles: number;
   private enableTracing: boolean;
   private executionCycle: number = 0;
+  private vmId: string;
+  private hybridRuntimeManager?: HybridExecutionManager;
+  private childVMs: Map<string, NullVM> = new Map();
+  private messageQueue: Array<{ messageType: string; payload: unknown; timestamp: number }> = [];
 
   constructor(config: NullVMConfig = {}) {
     this.maxCycles = config.maxCycles || 10000;
     this.enableTracing = config.enableTracing || false;
+    this.vmId = config.vmId || `vm-${Date.now()}-${Math.random().toString(36).substring(7)}`;
 
     this.memory = new Memory();
     this.context = new ExecutionContext();
@@ -39,6 +56,25 @@ export class NullVM {
     if (this.enableTracing) {
       this.context.addTraceHook((event, data) => {
         console.log(`[TRACE] ${event}:`, data);
+      });
+    }
+
+    if (config.hybridRuntime?.enabled && config.hybridRuntime.manager) {
+      this.hybridRuntimeManager = config.hybridRuntime.manager;
+      
+      const vmCapabilities: VMCapabilities = {
+        vmId: this.vmId,
+        maxConcurrentTasks: config.hybridRuntime.capabilities?.maxConcurrentTasks || 10,
+        supportedMessageTypes: config.hybridRuntime.capabilities?.supportedMessageTypes || ['WORK_ASSIGNMENT', 'DATA', 'CONTROL'],
+        customMetadata: config.hybridRuntime.capabilities?.customMetadata,
+      };
+      
+      this.hybridRuntimeManager.registerVM(this.vmId, vmCapabilities).catch((err) => {
+        console.error(`Failed to register VM ${this.vmId}:`, err);
+      });
+
+      this.hybridRuntimeManager.registerLogHook((message, data) => {
+        this.binaryBridge.emitControlFlow(`HYBRID_LOG: ${message}`, data as Record<string, unknown>);
       });
     }
   }
@@ -140,6 +176,22 @@ export class NullVM {
         return;
 
       case OpCode.NOP:
+        break;
+
+      case OpCode.SPAWN_VM:
+        this.executeSPAWN_VM(instruction);
+        break;
+
+      case OpCode.SEND_MSG:
+        this.executeSEND_MSG(instruction);
+        break;
+
+      case OpCode.RECV_MSG:
+        this.executeRECV_MSG(instruction);
+        break;
+
+      case OpCode.SYNC_BARRIER:
+        this.executeSYNC_BARRIER(instruction);
         break;
 
       default:
@@ -308,6 +360,123 @@ export class NullVM {
   }
 
   /**
+   * Execute SPAWN_VM instruction: SPAWN_VM <vm_id> <config>
+   */
+  private executeSPAWN_VM(instruction: Instruction): void {
+    const [vmId, config] = instruction.args as [string, unknown];
+
+    if (!this.hybridRuntimeManager) {
+      throw createError(
+        ErrorType.ExecutionError,
+        'Hybrid runtime not enabled - cannot spawn VM'
+      );
+    }
+
+    const childVM = new NullVM({
+      vmId,
+      maxCycles: this.maxCycles,
+      enableTracing: this.enableTracing,
+      hybridRuntime: {
+        enabled: true,
+        manager: this.hybridRuntimeManager,
+        capabilities: config as Partial<VMCapabilities>,
+      },
+    });
+
+    this.childVMs.set(vmId, childVM);
+    this.binaryBridge.emitControlFlow('SPAWN_VM', { vmId, parentVm: this.vmId });
+  }
+
+  /**
+   * Execute SEND_MSG instruction: SEND_MSG <target_vm_id> <message_type> <payload>
+   */
+  private executeSEND_MSG(instruction: Instruction): void {
+    const [targetVmId, messageType, payload] = instruction.args as [string, string, unknown];
+
+    if (!this.hybridRuntimeManager) {
+      throw createError(
+        ErrorType.ExecutionError,
+        'Hybrid runtime not enabled - cannot send message'
+      );
+    }
+
+    this.hybridRuntimeManager
+      .sendMessage(this.vmId, targetVmId, messageType, payload)
+      .catch((error) => {
+        throw createError(
+          ErrorType.ExecutionError,
+          `Failed to send message: ${error.message}`,
+          { targetVmId, messageType }
+        );
+      });
+
+    this.binaryBridge.emitControlFlow('SEND_MSG', {
+      sourceVm: this.vmId,
+      targetVm: targetVmId,
+      messageType,
+    });
+  }
+
+  /**
+   * Execute RECV_MSG instruction: RECV_MSG <result_register> [timeout_ms]
+   */
+  private executeRECV_MSG(instruction: Instruction): void {
+    const [resultRegister, timeoutMs] = instruction.args as [string, number | undefined];
+
+    if (this.messageQueue.length === 0) {
+      if (timeoutMs) {
+        const startTime = Date.now();
+        while (this.messageQueue.length === 0 && Date.now() - startTime < timeoutMs) {
+          // Busy wait (in real implementation would use async/await)
+        }
+      }
+
+      if (this.messageQueue.length === 0) {
+        this.memory.setRegister(resultRegister, 0);
+        return;
+      }
+    }
+
+    const message = this.messageQueue.shift()!;
+    const messageData = typeof message.payload === 'number' ? message.payload : 1;
+    this.memory.setRegister(resultRegister, messageData);
+
+    this.binaryBridge.emitControlFlow('RECV_MSG', {
+      vmId: this.vmId,
+      messageType: message.messageType,
+    });
+  }
+
+  /**
+   * Execute SYNC_BARRIER instruction: SYNC_BARRIER <barrier_id> [timeout_ms]
+   */
+  private executeSYNC_BARRIER(instruction: Instruction): void {
+    const [barrierId, timeoutMs] = instruction.args as [string, number | undefined];
+
+    if (!this.hybridRuntimeManager) {
+      throw createError(
+        ErrorType.ExecutionError,
+        'Hybrid runtime not enabled - cannot sync barrier'
+      );
+    }
+
+    this.hybridRuntimeManager
+      .arriveAtBarrier(barrierId, this.vmId)
+      .catch((error) => {
+        throw createError(
+          ErrorType.ExecutionError,
+          `Barrier sync failed: ${error.message}`,
+          { barrierId }
+        );
+      });
+
+    this.binaryBridge.emitControlFlow('SYNC_BARRIER', {
+      vmId: this.vmId,
+      barrierId,
+    });
+  }
+
+  /**
    * Get memory
    */
   getMemory(): Memory {
@@ -361,6 +530,118 @@ export class NullVM {
       context: this.context.getSnapshot(),
       executionCycle: this.executionCycle,
       binaryFrameCount: this.binaryBridge.getFrameCount(),
+      vmId: this.vmId,
+      childVMCount: this.childVMs.size,
+      messageQueueSize: this.messageQueue.length,
     };
+  }
+
+  /**
+   * Get VM ID
+   */
+  getVMId(): string {
+    return this.vmId;
+  }
+
+  /**
+   * Spawn a child VM programmatically
+   */
+  async spawnChildVM(vmId: string, config?: Partial<VMCapabilities>): Promise<NullVM> {
+    if (!this.hybridRuntimeManager) {
+      throw createError(
+        ErrorType.ExecutionError,
+        'Hybrid runtime not enabled - cannot spawn child VM'
+      );
+    }
+
+    const childVM = new NullVM({
+      vmId,
+      maxCycles: this.maxCycles,
+      enableTracing: this.enableTracing,
+      hybridRuntime: {
+        enabled: true,
+        manager: this.hybridRuntimeManager,
+        capabilities: config,
+      },
+    });
+
+    this.childVMs.set(vmId, childVM);
+    return childVM;
+  }
+
+  /**
+   * Send message to another VM
+   */
+  async sendMessageToVM(
+    targetVmId: string,
+    messageType: string,
+    payload: unknown
+  ): Promise<void> {
+    if (!this.hybridRuntimeManager) {
+      throw createError(
+        ErrorType.ExecutionError,
+        'Hybrid runtime not enabled - cannot send message'
+      );
+    }
+
+    await this.hybridRuntimeManager.sendMessage(
+      this.vmId,
+      targetVmId,
+      messageType,
+      payload
+    );
+  }
+
+  /**
+   * Queue incoming message
+   */
+  queueMessage(messageType: string, payload: unknown): void {
+    this.messageQueue.push({
+      messageType,
+      payload,
+      timestamp: Date.now(),
+    });
+  }
+
+  /**
+   * Join synchronization barrier
+   */
+  async joinBarrier(barrierId: string, timeoutMs?: number): Promise<void> {
+    if (!this.hybridRuntimeManager) {
+      throw createError(
+        ErrorType.ExecutionError,
+        'Hybrid runtime not enabled - cannot join barrier'
+      );
+    }
+
+    await this.hybridRuntimeManager.arriveAtBarrier(barrierId, this.vmId);
+  }
+
+  /**
+   * Submit work to hybrid runtime
+   */
+  async submitWork(payload: unknown, priority = 0): Promise<string> {
+    if (!this.hybridRuntimeManager) {
+      throw createError(
+        ErrorType.ExecutionError,
+        'Hybrid runtime not enabled - cannot submit work'
+      );
+    }
+
+    return await this.hybridRuntimeManager.submitWork(this.vmId, payload, priority);
+  }
+
+  /**
+   * Get child VMs
+   */
+  getChildVMs(): Map<string, NullVM> {
+    return this.childVMs;
+  }
+
+  /**
+   * Get hybrid runtime manager
+   */
+  getHybridRuntimeManager(): HybridExecutionManager | undefined {
+    return this.hybridRuntimeManager;
   }
 }

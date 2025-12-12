@@ -5,6 +5,11 @@ A TypeScript implementation of a virtual machine that executes super-bit program
 ## Features
 
 - **Instruction Set Support**: SET, ADD, SHOW, IF, REPEAT, DEFINE, CALL, RETURN, JMP, NOP
+- **Hybrid Runtime**: Concurrent/distributed execution across multiple VM instances
+- **Message Passing**: Super-bit encoded messages between VMs with retry and fault tolerance
+- **Barrier Synchronization**: Coordinate multiple VMs at synchronization points
+- **Load Balancing**: Round-robin, work-stealing, and least-loaded strategies
+- **Fault Recovery**: Auto-restart workers and replay in-flight messages
 - **Memory Model**: Registers, stack, and heap abstractions
 - **Control Flow**: Conditional execution (IF) and loops (REPEAT)
 - **Function Definitions**: Define and call custom functions with proper call stack management
@@ -19,20 +24,27 @@ A TypeScript implementation of a virtual machine that executes super-bit program
 src/
 ├── null_system/
 │   └── vm/
-│       ├── null_vm.ts              # Main NullVM class
-│       ├── instructions.ts          # Instruction definitions and opcodes
-│       ├── decoder.ts               # Super-bit program decoder
-│       ├── memory.ts                # Memory model (registers, stack, heap)
-│       ├── execution_context.ts     # Execution state and call stack management
-│       ├── binary_bridge.ts         # Binary frame emission
-│       ├── fuzzy_bits.ts            # Fuzzy/probabilistic evaluation stubs
-│       ├── errors.ts                # Error types and handling
-│       ├── index.ts                 # Module exports
-│       └── __tests__/               # Unit tests for VM components
+│       ├── null_vm.ts                    # Main NullVM class
+│       ├── instructions.ts                # Instruction definitions and opcodes
+│       ├── decoder.ts                     # Super-bit program decoder
+│       ├── memory.ts                      # Memory model (registers, stack, heap)
+│       ├── execution_context.ts           # Execution state and call stack management
+│       ├── binary_bridge.ts               # Binary frame emission
+│       ├── fuzzy_bits.ts                  # Fuzzy/probabilistic evaluation stubs
+│       ├── errors.ts                      # Error types and handling
+│       ├── hybrid_runtime/                # Concurrent/distributed execution layer
+│       │   ├── hybrid_execution_manager.ts  # Multi-VM orchestration
+│       │   ├── work_scheduler.ts            # Load balancing & work distribution
+│       │   ├── superbit_message_bus.ts      # Message passing with retry
+│       │   ├── transport_adapter.ts         # Transport abstraction
+│       │   └── worker_adapter.ts            # Worker thread implementation
+│       ├── index.ts                       # Module exports
+│       └── __tests__/                     # Unit tests for VM components
 ├── examples/
-│   ├── sample_program.ts            # Sample super-bit programs
-│   └── __tests__/                   # End-to-end tests
-└── index.ts                         # Main package exports
+│   ├── sample_program.ts                  # Sample super-bit programs
+│   ├── distributed_execution.ts           # Distributed workload example
+│   └── __tests__/                         # End-to-end tests
+└── index.ts                               # Main package exports
 ```
 
 ## Installation
@@ -324,12 +336,73 @@ interface NullVMConfig {
   maxCycles?: number;           // Max execution cycles (default: 10000)
   enableTracing?: boolean;       // Enable execution tracing (default: false)
   fuzzyBitConfig?: FuzzyBitConfig;
+  vmId?: string;                // Unique VM identifier
+  hybridRuntime?: {             // Hybrid runtime configuration
+    enabled: boolean;
+    manager?: HybridExecutionManager;
+    capabilities?: Partial<VMCapabilities>;
+    config?: HybridExecutionConfig;
+  };
 }
 
 interface FuzzyBitConfig {
   probabilityThreshold?: number; // Probability threshold (default: 0.5)
   noiseLevel?: number;          // Noise level (default: 0)
 }
+```
+
+## Hybrid Runtime (Distributed Execution)
+
+The hybrid runtime layer enables multiple VMs to work together cooperatively. See [docs/hybrid_runtime.md](docs/hybrid_runtime.md) for full documentation.
+
+### Quick Start
+
+```typescript
+import { NullVM, HybridExecutionManager, WorkerThreadAdapter } from './vm';
+
+// Create manager
+const adapter = new WorkerThreadAdapter();
+const manager = new HybridExecutionManager(adapter, {
+  loadBalancingStrategy: 'round-robin',
+  enableAutoRestart: true,
+});
+await manager.initialize();
+
+// Create VMs
+const vm1 = new NullVM({
+  vmId: 'worker-1',
+  hybridRuntime: { enabled: true, manager }
+});
+
+const vm2 = new NullVM({
+  vmId: 'worker-2',
+  hybridRuntime: { enabled: true, manager }
+});
+
+// Send message between VMs
+await vm1.sendMessageToVM('worker-2', 'DATA', { value: 42 });
+
+// Synchronize at barrier
+await manager.createBarrier('sync', 2);
+await Promise.all([
+  vm1.joinBarrier('sync'),
+  vm2.joinBarrier('sync')
+]);
+```
+
+### New Opcodes
+
+- **SPAWN_VM**: Spawn a child VM
+- **SEND_MSG**: Send message to another VM
+- **RECV_MSG**: Receive message from queue
+- **SYNC_BARRIER**: Synchronize at barrier point
+
+### Example
+
+Run the distributed execution example:
+
+```bash
+npx ts-node examples/distributed_execution.ts
 ```
 
 ## License

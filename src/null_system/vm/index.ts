@@ -20,6 +20,28 @@ export {
   CallInstruction,
   ReturnInstruction,
   JmpInstruction,
+  SpawnVMInstruction,
+  SendMsgInstruction,
+  RecvMsgInstruction,
+  SyncBarrierInstruction,
   isValidOpCode,
 } from './instructions';
 export { VMError, ErrorType, createError } from './errors';
+export {
+  HybridExecutionManager,
+  HybridExecutionConfig,
+  WorkScheduler,
+  WorkItem,
+  LoadBalancingStrategy,
+  SuperBitMessageBus,
+  MessageBusConfig,
+  TransportAdapter,
+  BaseTransportAdapter,
+  SuperBitMessage,
+  VMCapabilities,
+  HealthStatus,
+  MessageHandler,
+  HealthCallback,
+  FaultCallback,
+  WorkerThreadAdapter,
+} from './hybrid_runtime';
