@@ -72,6 +72,59 @@ export class BinaryBridge {
   }
 
   /**
+   * Emit a proof transcript (for ZK proofs)
+   */
+  emitProofTranscript(proofId: string, transcript: string): void {
+    const buffer = Buffer.alloc(256);
+    let offset = 0;
+
+    const idBuf = Buffer.from(proofId, 'utf-8');
+    buffer.writeUInt32BE(idBuf.length, offset);
+    offset += 4;
+    idBuf.copy(buffer, offset);
+    offset += idBuf.length;
+
+    const transcriptBuf = Buffer.from(transcript.substring(0, 200), 'utf-8');
+    buffer.writeUInt32BE(transcriptBuf.length, offset);
+    offset += 4;
+    transcriptBuf.copy(buffer, offset);
+    offset += transcriptBuf.length;
+
+    this.emitFrame('PROOF_TRANSCRIPT', buffer.slice(0, offset));
+  }
+
+  /**
+   * Emit secure channel metadata
+   */
+  emitChannelMetadata(
+    channelId: string,
+    metadata: Record<string, unknown>
+  ): void {
+    const jsonData = JSON.stringify({
+      channelId,
+      ...metadata,
+      timestamp: Date.now(),
+    });
+    const buffer = Buffer.from(jsonData, 'utf-8');
+    this.emitFrame('CHANNEL_METADATA', buffer);
+  }
+
+  /**
+   * Emit key exchange event
+   */
+  emitKeyExchange(party1: string, party2: string, success: boolean): void {
+    const jsonData = JSON.stringify({
+      event: 'KEY_EXCHANGE',
+      party1,
+      party2,
+      success,
+      timestamp: Date.now(),
+    });
+    const buffer = Buffer.from(jsonData, 'utf-8');
+    this.emitFrame('KEY_EXCHANGE', buffer);
+  }
+
+  /**
    * Get all emitted frames
    */
   getFrames(): BinaryFrame[] {

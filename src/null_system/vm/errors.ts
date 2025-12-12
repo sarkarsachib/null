@@ -13,6 +13,12 @@ export enum ErrorType {
   InvalidProgram = 'INVALID_PROGRAM',
   ExecutionError = 'EXECUTION_ERROR',
   IllegalState = 'ILLEGAL_STATE',
+  EncryptionError = 'ENCRYPTION_ERROR',
+  DecryptionError = 'DECRYPTION_ERROR',
+  KeyError = 'KEY_ERROR',
+  ProofError = 'PROOF_ERROR',
+  SMPCError = 'SMPC_ERROR',
+  ChannelError = 'CHANNEL_ERROR',
 }
 
 export class VMError extends Error {

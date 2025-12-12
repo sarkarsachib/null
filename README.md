@@ -4,42 +4,39 @@ A TypeScript implementation of a virtual machine that executes super-bit program
 
 ## Features
 
-- **Instruction Set Support**: SET, ADD, SHOW, IF, REPEAT, DEFINE, CALL, RETURN, JMP, NOP
-- **Hybrid Runtime**: Concurrent/distributed execution across multiple VM instances
-- **Message Passing**: Super-bit encoded messages between VMs with retry and fault tolerance
-- **Barrier Synchronization**: Coordinate multiple VMs at synchronization points
-- **Load Balancing**: Round-robin, work-stealing, and least-loaded strategies
-- **Fault Recovery**: Auto-restart workers and replay in-flight messages
-- **Memory Model**: Registers, stack, and heap abstractions
+- **Instruction Set Support**: SET, ADD, SHOW, IF, REPEAT, DEFINE, CALL, RETURN, JMP, NOP, and security opcodes
+- **Memory Model**: Registers, stack, and heap abstractions with encrypted value storage
 - **Control Flow**: Conditional execution (IF) and loops (REPEAT)
 - **Function Definitions**: Define and call custom functions with proper call stack management
-- **Binary Bridge**: Emit binary frames for output and register state tracking
+- **Binary Bridge**: Emit binary frames for output, register state, and security metadata
 - **Error Handling**: Structured error propagation with detailed error types
 - **Tracing Hooks**: Hook into execution events for debugging and monitoring
 - **Fuzzy Bit Evaluation**: Stubs for probabilistic evaluation support
+- **Cryptographic Primitives**: Homomorphic encryption, secure channels, zero-knowledge proofs, and secure multi-party computation (SMPC)
 
 ## Project Structure
 
 ```
 src/
 ├── null_system/
-│   └── vm/
-│       ├── null_vm.ts                    # Main NullVM class
-│       ├── instructions.ts                # Instruction definitions and opcodes
-│       ├── decoder.ts                     # Super-bit program decoder
-│       ├── memory.ts                      # Memory model (registers, stack, heap)
-│       ├── execution_context.ts           # Execution state and call stack management
-│       ├── binary_bridge.ts               # Binary frame emission
-│       ├── fuzzy_bits.ts                  # Fuzzy/probabilistic evaluation stubs
-│       ├── errors.ts                      # Error types and handling
-│       ├── hybrid_runtime/                # Concurrent/distributed execution layer
-│       │   ├── hybrid_execution_manager.ts  # Multi-VM orchestration
-│       │   ├── work_scheduler.ts            # Load balancing & work distribution
-│       │   ├── superbit_message_bus.ts      # Message passing with retry
-│       │   ├── transport_adapter.ts         # Transport abstraction
-│       │   └── worker_adapter.ts            # Worker thread implementation
-│       ├── index.ts                       # Module exports
-│       └── __tests__/                     # Unit tests for VM components
+│   ├── vm/
+│   │   ├── null_vm.ts              # Main NullVM class
+│   │   ├── instructions.ts          # Instruction definitions and opcodes (including security opcodes)
+│   │   ├── decoder.ts               # Super-bit program decoder
+│   │   ├── memory.ts                # Memory model (registers, stack, heap, encrypted values, keys)
+│   │   ├── execution_context.ts     # Execution state and call stack management
+│   │   ├── binary_bridge.ts         # Binary frame emission (proof transcripts, channel metadata)
+│   │   ├── fuzzy_bits.ts            # Fuzzy/probabilistic evaluation stubs
+│   │   ├── errors.ts                # Error types and handling
+│   │   ├── index.ts                 # Module exports
+│   │   └── __tests__/               # Unit tests for VM components
+│   ├── security/
+│   │   ├── homomorphic_engine.ts    # Homomorphic encryption (Paillier-style)
+│   │   ├── secure_channel.ts        # Key exchange & authenticated transport (NaCl)
+│   │   ├── zkp.ts                   # Zero-knowledge proofs (Fiat-Shamir)
+│   │   ├── smpc_orchestrator.ts     # Secret sharing & multi-party computation
+│   │   ├── index.ts                 # Security module exports
+│   │   └── __tests__/               # Security module tests
 ├── examples/
 │   ├── sample_program.ts                  # Sample super-bit programs
 │   ├── distributed_execution.ts           # Distributed workload example
@@ -141,6 +138,49 @@ console.log('Result:', state.memory.registers.x); // 15
 { opcode: 'NOP', args: [] }
 ```
 
+### SECURE_ENC - Encrypt Register Value
+```javascript
+{ opcode: 'SECURE_ENC', args: ['register_name', 'key_id'] }
+// Encrypts a register value using homomorphic encryption
+```
+
+### SECURE_DEC - Decrypt Encrypted Value
+```javascript
+{ opcode: 'SECURE_DEC', args: ['register_name', 'key_id'] }
+// Decrypts a previously encrypted register value
+```
+
+### SECURE_EVAL - Evaluate on Encrypted Values
+```javascript
+{ opcode: 'SECURE_EVAL', args: ['operation', 'source_register', 'dest_register'] }
+// Supported operations: 'add', 'mul_scalar'
+// Performs homomorphic operations on encrypted data
+```
+
+### ZK_PROVE - Generate Zero-Knowledge Proof
+```javascript
+{ opcode: 'ZK_PROVE', args: ['trace_id'] }
+// Records execution trace and generates ZK proof without revealing secrets
+```
+
+### ZK_VERIFY - Verify Zero-Knowledge Proof
+```javascript
+{ opcode: 'ZK_VERIFY', args: ['proof_id', 'digest_id'] }
+// Verifies a previously generated ZK proof
+```
+
+### SMPC_SHARE - Share Secret for Multi-Party Computation
+```javascript
+{ opcode: 'SMPC_SHARE', args: ['secret_id', threshold] }
+// Splits a secret into shares for secure multi-party computation
+```
+
+### SMPC_COMBINE - Combine Shares to Reconstruct Secret
+```javascript
+{ opcode: 'SMPC_COMBINE', args: ['secret_id', ['share_id_1', 'share_id_2', ...]] }
+// Reconstructs secret from sufficient shares (must meet or exceed threshold)
+```
+
 ## API Documentation
 
 ### NullVM
@@ -155,6 +195,10 @@ class NullVM {
   getContext(): ExecutionContext
   getBinaryBridge(): BinaryBridge
   getFuzzyBitEvaluator(): FuzzyBitEvaluator
+  getHomomorphicEngine(): HomomorphicEngine
+  getSecureChannel(): SecureChannel
+  getZKProofSystem(): ZKProofSystem
+  getSMPCOrchestrator(): SMPCOrchestrator
   reset(): void
   getExecutionCycle(): number
   getState(): object
@@ -163,7 +207,7 @@ class NullVM {
 
 ### Memory
 
-Manages registers, stack, and heap.
+Manages registers, stack, heap, encrypted values, and cryptographic keys.
 
 ```typescript
 class Memory {
@@ -175,6 +219,12 @@ class Memory {
   writeHeap(offset: number, value: number): void
   readHeap(offset: number): number
   allocateHeap(size: number): number
+  storeKey(keyId: string, publicKey: Buffer, privateKey?: Buffer): void
+  getKey(keyId: string): { publicKey: Buffer; privateKey?: Buffer } | undefined
+  storeEncryptedValue(valueId: string, ciphertext: Buffer, keyId: string): void
+  getEncryptedValue(valueId: string): EncryptedData | undefined
+  isEncrypted(valueId: string): boolean
+  getAllEncryptedValues(): Record<string, EncryptedData>
   reset(): void
   getSnapshot(): object
 }
@@ -203,7 +253,7 @@ class ExecutionContext {
 
 ### BinaryBridge
 
-Emits binary frames for output and register state tracking.
+Emits binary frames for output, register state tracking, and security metadata.
 
 ```typescript
 class BinaryBridge {
@@ -211,11 +261,125 @@ class BinaryBridge {
   emitOutput(label: string, value: number): void
   emitRegisterState(name: string, value: number): void
   emitControlFlow(event: string, data?: object): void
+  emitProofTranscript(proofId: string, transcript: string): void
+  emitChannelMetadata(channelId: string, metadata: Record<string, unknown>): void
+  emitKeyExchange(party1: string, party2: string, success: boolean): void
   getFrames(): BinaryFrame[]
   getFrameCount(): number
   clearFrames(): void
 }
 ```
+
+## Security Modules
+
+The `src/null_system/security/` directory contains cryptographic primitives for privacy-preserving computation:
+
+### HomomorphicEngine
+
+Supports encrypted operations on tensor data using Paillier-style encryption.
+
+```typescript
+class HomomorphicEngine {
+  generateKeyPair(): EncryptionKeyPair
+  encrypt(value: number, publicKey: Buffer): EncryptedValue
+  decrypt(encrypted: EncryptedValue, privateKey: Buffer): number
+  encryptedAdd(encrypted1: EncryptedValue, encrypted2: EncryptedValue): EncryptedValue
+  encryptedScalarMultiply(encrypted: EncryptedValue, scalar: number): EncryptedValue
+  encryptTensor(tensor: TensorData, publicKey: Buffer): EncryptedValue
+  decryptTensor(encrypted: EncryptedValue, privateKey: Buffer): TensorData
+  verifyCiphertext(encrypted: EncryptedValue): boolean
+}
+```
+
+### SecureChannel
+
+Implements key exchange and authenticated message transport using NaCl (libsodium).
+
+```typescript
+class SecureChannel {
+  constructor(config: ChannelConfig)
+  initiateKeyExchange(): KeyExchangeMessage
+  completeKeyExchange(remotePublicKey: Uint8Array): void
+  sendMessage(plaintext: Buffer): AuthenticatedMessage
+  receiveMessage(message: AuthenticatedMessage): Buffer
+  getPublicKey(): Buffer
+  getState(): object
+  reset(): void
+}
+```
+
+### ZKProofSystem
+
+Provides zero-knowledge proof generation and verification using Fiat-Shamir heuristic.
+
+```typescript
+class ZKProofSystem {
+  recordTrace(traceId: string, statements: string[]): ExecutionTrace
+  proveExecution(traceId: string): ZKProof
+  verifyProof(proof: ZKProof): boolean
+  verifyAgainstDigest(proof: ZKProof, expectedDigest: Buffer): boolean
+  getProofTranscript(proofId: string): string
+  clear(): void
+}
+```
+
+### SMPCOrchestrator
+
+Implements secret sharing and multi-party computation coordination (Shamir secret sharing).
+
+```typescript
+class SMPCOrchestrator {
+  constructor(config: SMPCConfig)
+  shareSecret(secretId: string, secret: Buffer): Map<string, Buffer>
+  submitShare(secretId: string, share: Buffer): void
+  combineShares(secretId: string, shareIds: string[]): Buffer
+  computeSum(shareIds: string[]): number
+  computeProduct(shareIds: string[]): number
+  getShareInfo(shareId: string): SecretShare | undefined
+  getSecretShares(secretId: string): Map<string, Buffer> | undefined
+  isReconstructed(secretId: string): boolean
+  getConfig(): SMPCConfig
+  getState(): object
+  reset(): void
+}
+```
+
+## Security Threat Model & Configuration
+
+### Supported Operations
+
+- **Encryption**: Homomorphic encryption for secure computation on encrypted data
+- **Key Exchange**: NaCl-based (Curve25519) key establishment
+- **Zero-Knowledge Proofs**: Fiat-Shamir non-interactive proofs for execution verification
+- **Secret Sharing**: Shamir secret sharing for threshold-based security
+
+### Key Sizes
+
+- **Homomorphic Encryption**: 1024-bit, 2048-bit, 4096-bit (default: 2048)
+- **ECDH Key Exchange**: Curve25519 (256-bit equivalent security)
+- **NaCl Box**: 32-byte public/private keys
+
+### Dependencies
+
+- **tweetnacl** (^1.0.3): For secure key exchange and authenticated message transport
+
+### Development Mode
+
+For development and testing, security features can be disabled or use reduced key sizes:
+
+```typescript
+const engine = new HomomorphicEngine(512); // Smaller keys for testing
+const channel = new SecureChannel({ algorithm: 'nacl-box', enableLogging: true });
+```
+
+### Production Recommendations
+
+1. Use 2048-bit or larger homomorphic keys in production
+2. Implement proper key management and storage
+3. Use secure random number generation
+4. Validate all ciphertexts and proofs
+5. Implement proper error handling for cryptographic failures
+6. Monitor and log security-relevant events
 
 ## Development
 
@@ -316,6 +480,54 @@ const program = [
 ];
 ```
 
+### Secure Computation - Homomorphic Encryption
+```typescript
+const program = [
+  { opcode: OpCode.SET, args: ['secret_a', 10] },
+  { opcode: OpCode.SET, args: ['secret_b', 20] },
+  // Encrypt sensitive values
+  { opcode: OpCode.SECURE_ENC, args: ['secret_a', 'key1'] },
+  { opcode: OpCode.SECURE_ENC, args: ['secret_b', 'key1'] },
+  // Perform computation on encrypted values
+  { opcode: OpCode.SECURE_EVAL, args: ['add', 'secret_a', 'secret_b'] },
+  // Generate proof without revealing secrets
+  { opcode: OpCode.ZK_PROVE, args: ['computation'] },
+  // Decrypt result (only with private key)
+  { opcode: OpCode.SECURE_DEC, args: ['secret_a', 'key1'] },
+  { opcode: OpCode.SHOW, args: ['secret_a'] },
+];
+```
+
+### Multi-Party Secret Sharing
+```typescript
+const program = [
+  { opcode: OpCode.SET, args: ['secret', 42] },
+  // Share secret among 3 parties (need 2 to reconstruct)
+  { opcode: OpCode.SMPC_SHARE, args: ['secret_shares', 2] },
+  // Later: reconstruct from shares
+  {
+    opcode: OpCode.SMPC_COMBINE,
+    args: ['secret_shares', [
+      'secret_shares_party_0',
+      'secret_shares_party_1',
+    ]],
+  },
+];
+```
+
+### Zero-Knowledge Proof of Execution
+```typescript
+const program = [
+  { opcode: OpCode.SET, args: ['x', 5] },
+  { opcode: OpCode.ADD, args: ['x', 10] },
+  // Prove execution without revealing x's value
+  { opcode: OpCode.ZK_PROVE, args: ['trace_1'] },
+  // Verify the proof
+  { opcode: OpCode.ZK_VERIFY, args: ['trace_1', 'digest_1'] },
+  { opcode: OpCode.SHOW, args: ['x'] },
+];
+```
+
 ## Error Handling
 
 The VM provides detailed error information with error types:
@@ -328,6 +540,12 @@ The VM provides detailed error information with error types:
 - `UNDEFINED_FUNCTION`: Attempting to call undefined function
 - `INVALID_PROGRAM`: Program has invalid structure
 - `EXECUTION_ERROR`: Runtime execution error
+- `ENCRYPTION_ERROR`: Homomorphic encryption operation failed
+- `DECRYPTION_ERROR`: Decryption or key error
+- `KEY_ERROR`: Missing or invalid cryptographic key
+- `PROOF_ERROR`: Zero-knowledge proof generation or verification failed
+- `SMPC_ERROR`: Secret sharing or multi-party computation error
+- `CHANNEL_ERROR`: Secure channel communication error
 
 ## Configuration
 

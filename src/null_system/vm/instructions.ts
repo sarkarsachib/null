@@ -13,10 +13,13 @@ export enum OpCode {
   RETURN = 'RETURN',
   JMP = 'JMP',
   NOP = 'NOP',
-  SPAWN_VM = 'SPAWN_VM',
-  SEND_MSG = 'SEND_MSG',
-  RECV_MSG = 'RECV_MSG',
-  SYNC_BARRIER = 'SYNC_BARRIER',
+  SECURE_ENC = 'SECURE_ENC',
+  SECURE_DEC = 'SECURE_DEC',
+  SECURE_EVAL = 'SECURE_EVAL',
+  ZK_PROVE = 'ZK_PROVE',
+  ZK_VERIFY = 'ZK_VERIFY',
+  SMPC_SHARE = 'SMPC_SHARE',
+  SMPC_COMBINE = 'SMPC_COMBINE',
 }
 
 export interface Instruction {
@@ -70,24 +73,39 @@ export interface JmpInstruction extends Instruction {
   args: [number]; // [target_address]
 }
 
-export interface SpawnVMInstruction extends Instruction {
-  opcode: OpCode.SPAWN_VM;
-  args: [string, unknown]; // [vm_id, config]
+export interface SecureEncInstruction extends Instruction {
+  opcode: OpCode.SECURE_ENC;
+  args: [string, string]; // [register, keyId]
 }
 
-export interface SendMsgInstruction extends Instruction {
-  opcode: OpCode.SEND_MSG;
-  args: [string, string, unknown]; // [target_vm_id, message_type, payload]
+export interface SecureDecInstruction extends Instruction {
+  opcode: OpCode.SECURE_DEC;
+  args: [string, string]; // [register, keyId]
 }
 
-export interface RecvMsgInstruction extends Instruction {
-  opcode: OpCode.RECV_MSG;
-  args: [string, number?]; // [result_register, timeout_ms?]
+export interface SecureEvalInstruction extends Instruction {
+  opcode: OpCode.SECURE_EVAL;
+  args: [string, string, string]; // [operation, sourceReg, destReg]
 }
 
-export interface SyncBarrierInstruction extends Instruction {
-  opcode: OpCode.SYNC_BARRIER;
-  args: [string, number?]; // [barrier_id, timeout_ms?]
+export interface ZKProveInstruction extends Instruction {
+  opcode: OpCode.ZK_PROVE;
+  args: [string]; // [traceId]
+}
+
+export interface ZKVerifyInstruction extends Instruction {
+  opcode: OpCode.ZK_VERIFY;
+  args: [string, string]; // [proofId, expectedDigestId]
+}
+
+export interface SMPCShareInstruction extends Instruction {
+  opcode: OpCode.SMPC_SHARE;
+  args: [string, number]; // [secretId, threshold]
+}
+
+export interface SMPCCombineInstruction extends Instruction {
+  opcode: OpCode.SMPC_COMBINE;
+  args: [string, string[]]; // [secretId, shareIds]
 }
 
 export function isValidOpCode(code: string): code is OpCode {

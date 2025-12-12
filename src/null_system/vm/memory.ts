@@ -7,12 +7,20 @@ import { createError, ErrorType } from './errors';
 const STACK_SIZE = 1024;
 const HEAP_SIZE = 4096;
 
+export interface EncryptedData {
+  ciphertext: Buffer;
+  keyId: string;
+  type: 'encrypted';
+}
+
 export class Memory {
   private registers: Map<string, number> = new Map();
   private stack: number[] = [];
   private heap: Buffer;
   private stackPointer: number = 0;
   private heapPointer: number = 0;
+  private encryptedValues: Map<string, EncryptedData> = new Map();
+  private keys: Map<string, { publicKey: Buffer; privateKey?: Buffer }> = new Map();
 
   constructor() {
     this.heap = Buffer.alloc(HEAP_SIZE, 0);
@@ -160,6 +168,48 @@ export class Memory {
   }
 
   /**
+   * Store a key pair
+   */
+  storeKey(keyId: string, publicKey: Buffer, privateKey?: Buffer): void {
+    this.keys.set(keyId, { publicKey, privateKey });
+  }
+
+  /**
+   * Get a stored key
+   */
+  getKey(keyId: string): { publicKey: Buffer; privateKey?: Buffer } | undefined {
+    return this.keys.get(keyId);
+  }
+
+  /**
+   * Store an encrypted value
+   */
+  storeEncryptedValue(valueId: string, ciphertext: Buffer, keyId: string): void {
+    this.encryptedValues.set(valueId, { ciphertext, keyId, type: 'encrypted' });
+  }
+
+  /**
+   * Get an encrypted value
+   */
+  getEncryptedValue(valueId: string): EncryptedData | undefined {
+    return this.encryptedValues.get(valueId);
+  }
+
+  /**
+   * Check if a value is encrypted
+   */
+  isEncrypted(valueId: string): boolean {
+    return this.encryptedValues.has(valueId);
+  }
+
+  /**
+   * Get all encrypted values
+   */
+  getAllEncryptedValues(): Record<string, EncryptedData> {
+    return Object.fromEntries(this.encryptedValues);
+  }
+
+  /**
    * Reset all memory
    */
   reset(): void {
@@ -168,6 +218,8 @@ export class Memory {
     this.stackPointer = 0;
     this.heap.fill(0);
     this.heapPointer = 0;
+    this.encryptedValues.clear();
+    this.keys.clear();
   }
 
   /**
@@ -180,6 +232,9 @@ export class Memory {
       heapPointer: this.heapPointer,
       stackSize: STACK_SIZE,
       heapSize: HEAP_SIZE,
+      encryptedValuesCount: this.encryptedValues.size,
+      keysCount: this.keys.size,
     };
   }
 }
+

@@ -19,6 +19,9 @@
   ],
   "author": "",
   "license": "MIT",
+  "dependencies": {
+    "tweetnacl": "^1.0.3"
+  },
   "devDependencies": {
     "@types/jest": "^29.5.14",
     "@types/node": "^20.0.0",

@@ -161,59 +161,67 @@ export class Decoder {
         }
         break;
 
-      case OpCode.SPAWN_VM:
-        if (args.length < 1 || typeof args[0] !== 'string') {
+      case OpCode.SECURE_ENC:
+      case OpCode.SECURE_DEC:
+        if (args.length < 2 || typeof args[0] !== 'string' || typeof args[1] !== 'string') {
           throw createError(
             ErrorType.InvalidInstruction,
-            'SPAWN_VM requires at least one argument: vm_id (string) and optional config (object)',
+            'SECURE_ENC/SECURE_DEC requires two arguments: register (string) and key_id (string)',
             { lineno, args }
           );
         }
         break;
 
-      case OpCode.SEND_MSG:
+      case OpCode.SECURE_EVAL:
         if (
           args.length < 3 ||
           typeof args[0] !== 'string' ||
-          typeof args[1] !== 'string'
+          typeof args[1] !== 'string' ||
+          typeof args[2] !== 'string'
         ) {
           throw createError(
             ErrorType.InvalidInstruction,
-            'SEND_MSG requires three arguments: target_vm_id (string), message_type (string), payload (any)',
+            'SECURE_EVAL requires three arguments: operation (string), source_register (string), dest_register (string)',
             { lineno, args }
           );
         }
         break;
 
-      case OpCode.RECV_MSG:
+      case OpCode.ZK_PROVE:
         if (args.length < 1 || typeof args[0] !== 'string') {
           throw createError(
             ErrorType.InvalidInstruction,
-            'RECV_MSG requires at least one argument: result_register (string) and optional timeout_ms (number)',
-            { lineno, args }
-          );
-        }
-        if (args.length >= 2 && args[1] !== undefined && typeof args[1] !== 'number') {
-          throw createError(
-            ErrorType.InvalidInstruction,
-            'RECV_MSG timeout_ms must be a number',
+            'ZK_PROVE requires one argument: trace_id (string)',
             { lineno, args }
           );
         }
         break;
 
-      case OpCode.SYNC_BARRIER:
-        if (args.length < 1 || typeof args[0] !== 'string') {
+      case OpCode.ZK_VERIFY:
+        if (args.length < 2 || typeof args[0] !== 'string' || typeof args[1] !== 'string') {
           throw createError(
             ErrorType.InvalidInstruction,
-            'SYNC_BARRIER requires at least one argument: barrier_id (string) and optional timeout_ms (number)',
+            'ZK_VERIFY requires two arguments: proof_id (string) and digest_id (string)',
             { lineno, args }
           );
         }
-        if (args.length >= 2 && args[1] !== undefined && typeof args[1] !== 'number') {
+        break;
+
+      case OpCode.SMPC_SHARE:
+        if (args.length < 2 || typeof args[0] !== 'string' || typeof args[1] !== 'number') {
           throw createError(
             ErrorType.InvalidInstruction,
-            'SYNC_BARRIER timeout_ms must be a number',
+            'SMPC_SHARE requires two arguments: secret_id (string) and threshold (number)',
+            { lineno, args }
+          );
+        }
+        break;
+
+      case OpCode.SMPC_COMBINE:
+        if (args.length < 2 || typeof args[0] !== 'string' || !Array.isArray(args[1])) {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'SMPC_COMBINE requires two arguments: secret_id (string) and share_ids (array)',
             { lineno, args }
           );
         }
