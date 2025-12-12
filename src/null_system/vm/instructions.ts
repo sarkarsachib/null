@@ -13,6 +13,10 @@ export enum OpCode {
   RETURN = 'RETURN',
   JMP = 'JMP',
   NOP = 'NOP',
+  SPAWN_VM = 'SPAWN_VM',
+  SEND_MSG = 'SEND_MSG',
+  RECV_MSG = 'RECV_MSG',
+  SYNC_BARRIER = 'SYNC_BARRIER',
 }
 
 export interface Instruction {
@@ -64,6 +68,26 @@ export interface ReturnInstruction extends Instruction {
 export interface JmpInstruction extends Instruction {
   opcode: OpCode.JMP;
   args: [number]; // [target_address]
+}
+
+export interface SpawnVMInstruction extends Instruction {
+  opcode: OpCode.SPAWN_VM;
+  args: [string, unknown]; // [vm_id, config]
+}
+
+export interface SendMsgInstruction extends Instruction {
+  opcode: OpCode.SEND_MSG;
+  args: [string, string, unknown]; // [target_vm_id, message_type, payload]
+}
+
+export interface RecvMsgInstruction extends Instruction {
+  opcode: OpCode.RECV_MSG;
+  args: [string, number?]; // [result_register, timeout_ms?]
+}
+
+export interface SyncBarrierInstruction extends Instruction {
+  opcode: OpCode.SYNC_BARRIER;
+  args: [string, number?]; // [barrier_id, timeout_ms?]
 }
 
 export function isValidOpCode(code: string): code is OpCode {

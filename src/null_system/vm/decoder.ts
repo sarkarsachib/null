@@ -161,6 +161,64 @@ export class Decoder {
         }
         break;
 
+      case OpCode.SPAWN_VM:
+        if (args.length < 1 || typeof args[0] !== 'string') {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'SPAWN_VM requires at least one argument: vm_id (string) and optional config (object)',
+            { lineno, args }
+          );
+        }
+        break;
+
+      case OpCode.SEND_MSG:
+        if (
+          args.length < 3 ||
+          typeof args[0] !== 'string' ||
+          typeof args[1] !== 'string'
+        ) {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'SEND_MSG requires three arguments: target_vm_id (string), message_type (string), payload (any)',
+            { lineno, args }
+          );
+        }
+        break;
+
+      case OpCode.RECV_MSG:
+        if (args.length < 1 || typeof args[0] !== 'string') {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'RECV_MSG requires at least one argument: result_register (string) and optional timeout_ms (number)',
+            { lineno, args }
+          );
+        }
+        if (args.length >= 2 && args[1] !== undefined && typeof args[1] !== 'number') {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'RECV_MSG timeout_ms must be a number',
+            { lineno, args }
+          );
+        }
+        break;
+
+      case OpCode.SYNC_BARRIER:
+        if (args.length < 1 || typeof args[0] !== 'string') {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'SYNC_BARRIER requires at least one argument: barrier_id (string) and optional timeout_ms (number)',
+            { lineno, args }
+          );
+        }
+        if (args.length >= 2 && args[1] !== undefined && typeof args[1] !== 'number') {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'SYNC_BARRIER timeout_ms must be a number',
+            { lineno, args }
+          );
+        }
+        break;
+
       default:
         throw createError(ErrorType.InvalidInstruction, `Unknown opcode: ${opcode}`, {
           lineno,
