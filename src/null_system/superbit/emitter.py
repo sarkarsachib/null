@@ -12,7 +12,7 @@ from ..ast.nodes import (
     Identifier,
     Literal,
 )
-from .tokens import SuperBitToken, SuperBitOpCode, SuperBitStream
+from .tokens import EnhancedSuperBitToken as SuperBitToken, SuperBitOpCode, SuperBitStream, SourceSpan
 
 
 class SuperBitEmitter:
@@ -28,14 +28,23 @@ class SuperBitEmitter:
         "equals": SuperBitOpCode.COMPARE_EQ,
     }
     
-    def __init__(self):
+    def __init__(self, source_file: str = "<unknown>"):
         self.tokens: List[SuperBitToken] = []
+        self.source_file = source_file
     
     def emit(self, ast: ASTNode) -> SuperBitStream:
         """Emit super-bit tokens from an AST."""
         self.tokens = []
         self._visit(ast)
-        return SuperBitStream(tokens=self.tokens)
+        return SuperBitStream(tokens=self.tokens, source_file=self.source_file)
+    
+    def _make_source_span(self, node: ASTNode) -> SourceSpan:
+        """Create a source span from an AST node."""
+        return SourceSpan(
+            filename=self.source_file,
+            line=node.line,
+            column=node.column
+        )
     
     def _visit(self, node: ASTNode):
         """Visit a node and emit appropriate tokens."""
@@ -55,7 +64,11 @@ class SuperBitEmitter:
     def _visit_SetStatement(self, node: SetStatement):
         """Emit tokens for variable assignment."""
         self._visit(node.value)
-        self.tokens.append(SuperBitToken(SuperBitOpCode.STORE_VAR, node.identifier))
+        self.tokens.append(SuperBitToken(
+            SuperBitOpCode.STORE_VAR,
+            node.identifier,
+            source_span=self._make_source_span(node)
+        ))
     
     def _visit_BinaryOp(self, node: BinaryOp):
         """Emit tokens for binary operation."""
@@ -64,47 +77,62 @@ class SuperBitEmitter:
         
         opcode = self.AST_TO_SUPERBIT_TABLE.get(node.op)
         if opcode:
-            self.tokens.append(SuperBitToken(opcode))
+            self.tokens.append(SuperBitToken(
+                opcode,
+                source_span=self._make_source_span(node)
+            ))
     
     def _visit_PrintStatement(self, node: PrintStatement):
         """Emit tokens for print statement."""
         self._visit(node.value)
-        self.tokens.append(SuperBitToken(SuperBitOpCode.PRINT))
+        self.tokens.append(SuperBitToken(
+            SuperBitOpCode.PRINT,
+            source_span=self._make_source_span(node)
+        ))
     
     def _visit_IfStatement(self, node: IfStatement):
         """Emit tokens for if statement."""
         self._visit(node.condition)
         
         jump_if_false_idx = len(self.tokens)
-        self.tokens.append(SuperBitToken(SuperBitOpCode.JUMP_IF_FALSE, 0))
+        span = self._make_source_span(node)
+        self.tokens.append(SuperBitToken(SuperBitOpCode.JUMP_IF_FALSE, 0, source_span=span))
         
         for stmt in node.then_branch:
             self._visit(stmt)
         
         if node.else_branch:
             jump_idx = len(self.tokens)
-            self.tokens.append(SuperBitToken(SuperBitOpCode.JUMP, 0))
+            self.tokens.append(SuperBitToken(SuperBitOpCode.JUMP, 0, source_span=span))
             
             else_start = len(self.tokens)
             self.tokens[jump_if_false_idx] = SuperBitToken(
-                SuperBitOpCode.JUMP_IF_FALSE, else_start
+                SuperBitOpCode.JUMP_IF_FALSE, else_start, source_span=span
             )
             
             for stmt in node.else_branch:
                 self._visit(stmt)
             
             end_idx = len(self.tokens)
-            self.tokens[jump_idx] = SuperBitToken(SuperBitOpCode.JUMP, end_idx)
+            self.tokens[jump_idx] = SuperBitToken(SuperBitOpCode.JUMP, end_idx, source_span=span)
         else:
             end_idx = len(self.tokens)
             self.tokens[jump_if_false_idx] = SuperBitToken(
-                SuperBitOpCode.JUMP_IF_FALSE, end_idx
+                SuperBitOpCode.JUMP_IF_FALSE, end_idx, source_span=span
             )
     
     def _visit_Identifier(self, node: Identifier):
         """Emit tokens for identifier."""
-        self.tokens.append(SuperBitToken(SuperBitOpCode.LOAD_VAR, node.name))
+        self.tokens.append(SuperBitToken(
+            SuperBitOpCode.LOAD_VAR,
+            node.name,
+            source_span=self._make_source_span(node)
+        ))
     
     def _visit_Literal(self, node: Literal):
         """Emit tokens for literal value."""
-        self.tokens.append(SuperBitToken(SuperBitOpCode.LOAD_CONST, node.value))
+        self.tokens.append(SuperBitToken(
+            SuperBitOpCode.LOAD_CONST,
+            node.value,
+            source_span=self._make_source_span(node)
+        ))
