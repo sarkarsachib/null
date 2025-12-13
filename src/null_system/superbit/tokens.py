@@ -3,10 +3,13 @@
 This module defines the fundamental data structures for Super-Bit encoding:
 - SuperBitToken: Atomic units representing symbols or data
 - SuperBitGroup: 4-8 bit containers for tokens or packed data
+- SuperBitStream: A stream of tokens with optional debug metadata
+- SuperBitOpCode: Enumeration of super-bit operation codes
 """
 
-from dataclasses import dataclass
-from typing import List, Optional, Union
+from dataclasses import dataclass, field
+from typing import List, Optional, Union, Any, Dict
+from enum import Enum
 import struct
 
 
@@ -218,3 +221,110 @@ class SuperBitGroup:
             self.tokens == other.tokens
             and self.total_bits == other.total_bits
         )
+
+
+class SuperBitOpCode(Enum):
+    """Enumeration of super-bit operation codes for the VM."""
+    
+    NOP = "NOP"
+    LOAD_CONST = "LOAD_CONST"
+    LOAD_VAR = "LOAD_VAR"
+    STORE_VAR = "STORE_VAR"
+    BINARY_ADD = "BINARY_ADD"
+    BINARY_SUB = "BINARY_SUB"
+    BINARY_MUL = "BINARY_MUL"
+    BINARY_DIV = "BINARY_DIV"
+    COMPARE_GT = "COMPARE_GT"
+    COMPARE_LT = "COMPARE_LT"
+    COMPARE_EQ = "COMPARE_EQ"
+    PRINT = "PRINT"
+    JUMP = "JUMP"
+    JUMP_IF_FALSE = "JUMP_IF_FALSE"
+    HALT = "HALT"
+
+
+@dataclass
+class SourceSpan:
+    """Source code location information for debug mapping."""
+    
+    filename: str
+    line: int
+    column: int
+    end_line: Optional[int] = None
+    end_column: Optional[int] = None
+
+
+@dataclass
+class InstructionDebugInfo:
+    """Debug information for a single instruction."""
+    
+    index: int
+    source_span: Optional[SourceSpan] = None
+    binary_offset: Optional[int] = None
+
+
+@dataclass
+class SuperBitStream:
+    """A stream of super-bit tokens with optional debug metadata.
+    
+    This dataclass bundles tokens with optional debug information
+    to enable source-to-binary mapping for the debugger.
+    """
+    
+    tokens: List["EnhancedSuperBitToken"]
+    debug_info: Dict[int, InstructionDebugInfo] = field(default_factory=dict)
+    source_file: Optional[str] = None
+    
+    def to_bytes(self) -> bytes:
+        """Serialize the super-bit stream to bytes."""
+        data = b''
+        for token in self.tokens:
+            data += token.to_bytes()
+        return data
+    
+    def add_debug_info(self, index: int, info: InstructionDebugInfo):
+        """Add debug information for a token at the given index."""
+        self.debug_info[index] = info
+    
+    def get_debug_info(self, index: int) -> Optional[InstructionDebugInfo]:
+        """Get debug information for a token at the given index."""
+        return self.debug_info.get(index)
+
+
+@dataclass
+class EnhancedSuperBitToken:
+    """Enhanced super-bit token with opcode and operand for VM execution.
+    
+    This is the token format used by the NullVM and compiler pipeline.
+    It differs from the low-level SuperBitToken which is used for
+    binary encoding with bits and bit widths.
+    """
+    
+    opcode: SuperBitOpCode
+    operand: Any = None
+    source_span: Optional[SourceSpan] = None
+    
+    def to_bytes(self) -> bytes:
+        """Serialize to bytes for binary frames."""
+        opcode_byte = list(SuperBitOpCode).index(self.opcode).to_bytes(1, 'big')
+        
+        if self.operand is None:
+            operand_bytes = b'\x00'
+        elif isinstance(self.operand, int):
+            operand_bytes = self.operand.to_bytes(4, 'big', signed=True)
+        elif isinstance(self.operand, float):
+            operand_bytes = struct.pack('d', self.operand)
+        elif isinstance(self.operand, str):
+            operand_str_bytes = self.operand.encode('utf-8')
+            operand_bytes = len(operand_str_bytes).to_bytes(2, 'big') + operand_str_bytes
+        elif isinstance(self.operand, bool):
+            operand_bytes = (1 if self.operand else 0).to_bytes(1, 'big')
+        else:
+            operand_bytes = b'\x00'
+        
+        return opcode_byte + operand_bytes
+    
+    def __repr__(self) -> str:
+        if self.operand is not None:
+            return f"SuperBitToken({self.opcode.name}, {self.operand!r})"
+        return f"SuperBitToken({self.opcode.name})"

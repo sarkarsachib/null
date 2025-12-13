@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 from typing import List
 
-from ..superbit.tokens import SuperBitToken, SuperBitStream, SuperBitOpCode
+from ..superbit.tokens import EnhancedSuperBitToken as SuperBitToken, SuperBitStream, SuperBitOpCode
 
 
 class OptimizationPass(ABC):

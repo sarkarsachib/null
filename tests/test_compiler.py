@@ -63,7 +63,7 @@ class TestOptimizationPasses:
     
     def test_deduplication_pass(self):
         """Test deduplication optimization pass."""
-        from src.null_system.superbit.tokens import SuperBitToken, SuperBitStream
+        from src.null_system.superbit.tokens import EnhancedSuperBitToken as SuperBitToken, SuperBitStream
         
         stream = SuperBitStream(tokens=[
             SuperBitToken(SuperBitOpCode.LOAD_CONST, 5),
@@ -78,7 +78,7 @@ class TestOptimizationPasses:
     
     def test_compression_pass_folds_constants(self):
         """Test constant folding in compression pass."""
-        from src.null_system.superbit.tokens import SuperBitToken, SuperBitStream
+        from src.null_system.superbit.tokens import EnhancedSuperBitToken as SuperBitToken, SuperBitStream
         
         stream = SuperBitStream(tokens=[
             SuperBitToken(SuperBitOpCode.LOAD_CONST, 5),
@@ -95,7 +95,7 @@ class TestOptimizationPasses:
     
     def test_compression_pass_handles_division(self):
         """Test compression pass handles division."""
-        from src.null_system.superbit.tokens import SuperBitToken, SuperBitStream
+        from src.null_system.superbit.tokens import EnhancedSuperBitToken as SuperBitToken, SuperBitStream
         
         stream = SuperBitStream(tokens=[
             SuperBitToken(SuperBitOpCode.LOAD_CONST, 10),
