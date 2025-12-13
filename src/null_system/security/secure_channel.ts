@@ -139,7 +139,12 @@ export class SecureChannel {
       if (!senderPublicKey) {
         throw new Error('Sender public key not available');
       }
-      plaintext = nacl.box.open(message.ciphertext, message.nonce, senderPublicKey, this.localKeyPair.secretKey);
+      plaintext = nacl.box.open(
+        message.ciphertext,
+        message.nonce,
+        senderPublicKey,
+        this.localKeyPair.secretKey
+      );
     } else {
       throw new Error(`Unsupported algorithm: ${this.config.algorithm}`);
     }
@@ -149,9 +154,7 @@ export class SecureChannel {
     }
 
     if (this.config.enableLogging) {
-      console.log(
-        `[SecureChannel] Message received (plaintext length: ${plaintext.length})`
-      );
+      console.log(`[SecureChannel] Message received (plaintext length: ${plaintext.length})`);
     }
 
     return Buffer.from(plaintext);

@@ -54,7 +54,7 @@ export class WorkScheduler {
 
     const workItem = this.workQueue.shift()!;
     workItem.assignedTo = targetVm;
-    
+
     const currentLoad = this.vmWorkloads.get(targetVm) ?? 0;
     this.vmWorkloads.set(targetVm, currentLoad + 1);
 
@@ -80,8 +80,7 @@ export class WorkScheduler {
 
   private selectRoundRobin(): string {
     const vm = this.availableVMs[this.currentRoundRobinIndex];
-    this.currentRoundRobinIndex =
-      (this.currentRoundRobinIndex + 1) % this.availableVMs.length;
+    this.currentRoundRobinIndex = (this.currentRoundRobinIndex + 1) % this.availableVMs.length;
     return vm.vmId;
   }
 
@@ -156,10 +155,7 @@ export class WorkScheduler {
     return {
       queueLength: this.workQueue.length,
       availableVMs: this.availableVMs.length,
-      totalWorkload: Array.from(this.vmWorkloads.values()).reduce(
-        (sum, load) => sum + load,
-        0
-      ),
+      totalWorkload: Array.from(this.vmWorkloads.values()).reduce((sum, load) => sum + load, 0),
       vmWorkloads: Object.fromEntries(this.vmWorkloads),
       backpressureActive: this.isBackpressureNeeded(),
     };

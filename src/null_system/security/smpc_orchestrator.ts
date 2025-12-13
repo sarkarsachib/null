@@ -102,9 +102,7 @@ export class SMPCOrchestrator {
    */
   combineShares(secretId: string, shareIds: string[]): Buffer {
     if (shareIds.length < this.config.threshold) {
-      throw new Error(
-        `Not enough shares. Need ${this.config.threshold}, got ${shareIds.length}`
-      );
+      throw new Error(`Not enough shares. Need ${this.config.threshold}, got ${shareIds.length}`);
     }
 
     const shares: Buffer[] = [];

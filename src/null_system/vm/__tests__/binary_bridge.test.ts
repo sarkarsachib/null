@@ -48,7 +48,7 @@ describe('BinaryBridge', () => {
       bridge.emitOutput('result', 42);
 
       const frames = bridge.getFrames();
-      expect(frames.some(f => f.frameType === 'OUTPUT')).toBe(true);
+      expect(frames.some((f) => f.frameType === 'OUTPUT')).toBe(true);
     });
 
     it('should emit output with label and value', () => {
@@ -76,7 +76,7 @@ describe('BinaryBridge', () => {
       bridge.emitRegisterState('r1', 42);
 
       const frames = bridge.getFrames();
-      expect(frames.some(f => f.frameType === 'REGISTER')).toBe(true);
+      expect(frames.some((f) => f.frameType === 'REGISTER')).toBe(true);
     });
 
     it('should emit multiple register states', () => {
@@ -93,7 +93,7 @@ describe('BinaryBridge', () => {
       bridge.emitControlFlow('branch_taken');
 
       const frames = bridge.getFrames();
-      expect(frames.some(f => f.frameType === 'CONTROL')).toBe(true);
+      expect(frames.some((f) => f.frameType === 'CONTROL')).toBe(true);
     });
 
     it('should emit control flow with data', () => {
@@ -159,10 +159,10 @@ describe('BinaryBridge', () => {
 
       const frames = bridge.getFrames();
       expect(frames).toHaveLength(4);
-      expect(frames.map(f => f.frameType)).toContain('CUSTOM');
-      expect(frames.map(f => f.frameType)).toContain('OUTPUT');
-      expect(frames.map(f => f.frameType)).toContain('REGISTER');
-      expect(frames.map(f => f.frameType)).toContain('CONTROL');
+      expect(frames.map((f) => f.frameType)).toContain('CUSTOM');
+      expect(frames.map((f) => f.frameType)).toContain('OUTPUT');
+      expect(frames.map((f) => f.frameType)).toContain('REGISTER');
+      expect(frames.map((f) => f.frameType)).toContain('CONTROL');
     });
   });
 });

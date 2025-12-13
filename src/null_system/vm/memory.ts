@@ -3,6 +3,7 @@
  */
 
 import { createError, ErrorType } from './errors';
+import { SuperBitTensor } from './ai/superbit_tensor';
 
 const STACK_SIZE = 1024;
 const HEAP_SIZE = 4096;
@@ -21,6 +22,7 @@ export interface StoredTensor {
 
 export class Memory {
   private registers: Map<string, number> = new Map();
+  private tensorRegisters: Map<string, SuperBitTensor> = new Map();
   private stack: number[] = [];
   private heap: Buffer;
   private stackPointer: number = 0;
@@ -121,11 +123,10 @@ export class Memory {
    */
   setStackPointer(value: number): void {
     if (value < 0 || value > STACK_SIZE) {
-      throw createError(
-        ErrorType.StackUnderflow,
-        'Invalid stack pointer value',
-        { value, stackSize: STACK_SIZE }
-      );
+      throw createError(ErrorType.StackUnderflow, 'Invalid stack pointer value', {
+        value,
+        stackSize: STACK_SIZE,
+      });
     }
     this.stackPointer = value;
   }
@@ -162,14 +163,10 @@ export class Memory {
   allocateHeap(size: number): number {
     const address = this.heapPointer;
     if (this.heapPointer + size > HEAP_SIZE) {
-      throw createError(
-        ErrorType.HeapOutOfBounds,
-        'Heap allocation failed: out of memory',
-        {
-          requested: size,
-          available: HEAP_SIZE - this.heapPointer,
-        }
-      );
+      throw createError(ErrorType.HeapOutOfBounds, 'Heap allocation failed: out of memory', {
+        requested: size,
+        available: HEAP_SIZE - this.heapPointer,
+      });
     }
     this.heapPointer += size;
     return address;
@@ -218,31 +215,43 @@ export class Memory {
   }
 
   /**
-   * Store a tensor
+   * Set a tensor register
    */
-  storeTensor(id: string, tensor: StoredTensor): void {
-    this.tensors.set(id, tensor);
+  setTensorRegister(name: string, tensor: SuperBitTensor): void {
+    if (!(tensor instanceof SuperBitTensor)) {
+      throw createError(
+        ErrorType.InvalidRegister,
+        `Tensor register value must be a SuperBitTensor, got ${typeof tensor}`,
+        { register: name }
+      );
+    }
+    this.tensorRegisters.set(name, tensor);
   }
 
   /**
-   * Get a tensor
+   * Get a tensor register
    */
-  getTensor(id: string): StoredTensor | undefined {
-    return this.tensors.get(id);
+  getTensorRegister(name: string): SuperBitTensor | null {
+    const tensor = this.tensorRegisters.get(name);
+    return tensor ? tensor.clone() : null;
   }
 
   /**
-   * Store a graph
+   * Check if tensor register exists
    */
-  storeGraph(id: string, graph: Record<string, unknown>): void {
-    this.graphs.set(id, graph);
+  hasTensorRegister(name: string): boolean {
+    return this.tensorRegisters.has(name);
   }
 
   /**
-   * Get a graph
+   * Get all tensor registers
    */
-  getGraph(id: string): Record<string, unknown> | undefined {
-    return this.graphs.get(id);
+  getAllTensorRegisters(): Record<string, SuperBitTensor> {
+    const result: Record<string, SuperBitTensor> = {};
+    for (const [name, tensor] of this.tensorRegisters) {
+      result[name] = tensor.clone();
+    }
+    return result;
   }
 
   /**
@@ -250,6 +259,7 @@ export class Memory {
    */
   reset(): void {
     this.registers.clear();
+    this.tensorRegisters.clear();
     this.stack = [];
     this.stackPointer = 0;
     this.heap.fill(0);
@@ -272,9 +282,7 @@ export class Memory {
       heapSize: HEAP_SIZE,
       encryptedValuesCount: this.encryptedValues.size,
       keysCount: this.keys.size,
-      tensorCount: this.tensors.size,
-      graphCount: this.graphs.size,
+      tensorRegistersCount: this.tensorRegisters.size,
     };
   }
 }
-

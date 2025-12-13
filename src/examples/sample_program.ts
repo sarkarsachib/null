@@ -46,12 +46,7 @@ export function createSampleProgram() {
     // Use REPEAT to simulate loop operations
     {
       opcode: OpCode.REPEAT,
-      args: [
-        'n',
-        [
-          { opcode: OpCode.ADD, args: ['result', 1] },
-        ],
-      ],
+      args: ['n', [{ opcode: OpCode.ADD, args: ['result', 1] }]],
     },
 
     // Show final result
@@ -73,24 +68,13 @@ export function createComprehensiveDemo() {
     // Conditional logic
     {
       opcode: OpCode.IF,
-      args: [
-        'a',
-        '>',
-        [
-          { opcode: OpCode.SET, args: ['condition_result', 1] },
-        ],
-      ],
+      args: ['a', '>', [{ opcode: OpCode.SET, args: ['condition_result', 1] }]],
     },
 
     // Function definition and call
     {
       opcode: OpCode.DEFINE,
-      args: [
-        'double_value',
-        [
-          { opcode: OpCode.ADD, args: ['working_val', 'working_val'] },
-        ],
-      ],
+      args: ['double_value', [{ opcode: OpCode.ADD, args: ['working_val', 'working_val'] }]],
     },
 
     { opcode: OpCode.SET, args: ['working_val', 5] },
@@ -102,12 +86,7 @@ export function createComprehensiveDemo() {
     { opcode: OpCode.SET, args: ['iterations', 3] },
     {
       opcode: OpCode.REPEAT,
-      args: [
-        'iterations',
-        [
-          { opcode: OpCode.ADD, args: ['counter', 1] },
-        ],
-      ],
+      args: ['iterations', [{ opcode: OpCode.ADD, args: ['counter', 1] }]],
     },
     { opcode: OpCode.SHOW, args: ['counter'] },
 
@@ -122,13 +101,7 @@ export function createComprehensiveDemo() {
           { opcode: OpCode.SET, args: ['inner', 10] },
           {
             opcode: OpCode.IF,
-            args: [
-              'inner',
-              '>=',
-              [
-                { opcode: OpCode.SET, args: ['nested_result', 100] },
-              ],
-            ],
+            args: ['inner', '>=', [{ opcode: OpCode.SET, args: ['nested_result', 100] }]],
           },
         ],
       ],
@@ -162,7 +135,6 @@ export function runSampleProgram() {
     frames.forEach((frame, index) => {
       console.log(`  Frame ${index}: Type=${frame.frameType}, Size=${frame.data.length} bytes`);
     });
-
   } catch (error) {
     console.error('Program execution failed:', error);
   }

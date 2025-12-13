@@ -10,10 +10,8 @@ import { BinaryBridge } from './binary_bridge';
 import { FuzzyBitEvaluator, FuzzyBitConfig } from './fuzzy_bits';
 import { createError, ErrorType, VMError } from './errors';
 import { HomomorphicEngine, SecureChannel, ZKProofSystem, SMPCOrchestrator } from '../security';
-import { QuantumState } from './quantum/quantum_state';
-import { measureQubit } from './quantum/measurement';
-import { HybridExecutionManager, HybridExecutionConfig } from './hybrid_runtime/hybrid_execution_manager';
-import { VMCapabilities } from './hybrid_runtime/transport_adapter';
+import { EmbeddingRegistry, NeuralEngine, AttentionModule, DenseLayer } from './ai';
+import { HybridExecutionManager, HybridExecutionConfig, VMCapabilities } from './hybrid_runtime';
 
 export interface NullVMConfig {
   maxCycles?: number;
@@ -41,8 +39,10 @@ export class NullVM {
   private secureChannel: SecureChannel;
   private zkProofSystem: ZKProofSystem;
   private smpcOrchestrator: SMPCOrchestrator;
-  private quantumState: QuantumState;
-  private vmId: string;
+  private embeddingRegistry: EmbeddingRegistry;
+  private neuralEngine: NeuralEngine;
+  private attentionModule: AttentionModule;
+  private vmId: string = '';
   private hybridRuntimeManager?: HybridExecutionManager;
   private childVMs: Map<string, NullVM> = new Map();
   private messageQueue: Array<{ messageType: string; payload: unknown; timestamp: number }> = [];
@@ -67,6 +67,10 @@ export class NullVM {
     });
     this.quantumState = new QuantumState(this.fuzzyEvaluator);
 
+    this.embeddingRegistry = new EmbeddingRegistry();
+    this.neuralEngine = new NeuralEngine();
+    this.attentionModule = new AttentionModule();
+
     if (this.enableTracing) {
       this.context.addTraceHook((event, data) => {
         console.log(`[TRACE] ${event}:`, data);
@@ -75,28 +79,28 @@ export class NullVM {
 
     if (config.hybridRuntime?.enabled && config.hybridRuntime.manager) {
       this.hybridRuntimeManager = config.hybridRuntime.manager;
-      
+
       const vmCapabilities: VMCapabilities = {
         vmId: this.vmId,
         maxConcurrentTasks: config.hybridRuntime.capabilities?.maxConcurrentTasks || 10,
-        supportedMessageTypes: config.hybridRuntime.capabilities?.supportedMessageTypes || ['WORK_ASSIGNMENT', 'DATA', 'CONTROL'],
+        supportedMessageTypes: config.hybridRuntime.capabilities?.supportedMessageTypes || [
+          'WORK_ASSIGNMENT',
+          'DATA',
+          'CONTROL',
+        ],
         customMetadata: config.hybridRuntime.capabilities?.customMetadata,
       };
-      
-      this.hybridRuntimeManager
-        .registerVM(this.vmId, vmCapabilities)
-        .catch((err: unknown) => {
-          console.error(`Failed to register VM ${this.vmId}:`, err);
-        });
 
-      this.hybridRuntimeManager.registerLogHook(
-        (message: string, data?: unknown) => {
-          this.binaryBridge.emitControlFlow(
-            `HYBRID_LOG: ${message}`,
-            data as Record<string, unknown>
-          );
-        }
-      );
+      this.hybridRuntimeManager.registerVM(this.vmId, vmCapabilities).catch((err: unknown) => {
+        console.error(`Failed to register VM ${this.vmId}:`, err);
+      });
+
+      this.hybridRuntimeManager.registerLogHook((message: string, data: unknown) => {
+        this.binaryBridge.emitControlFlow(
+          `HYBRID_LOG: ${message}`,
+          data as Record<string, unknown>
+        );
+      });
     }
   }
 
@@ -308,35 +312,33 @@ export class NullVM {
         this.executeSMPC_COMBINE(instruction);
         break;
 
-      case OpCode.NLP_TOKENIZE:
-        this.executeNLP_TOKENIZE(instruction);
+      case OpCode.AI_EMBED:
+        this.executeAI_EMBED(instruction);
         break;
 
-      case OpCode.NLP_EMBED:
-        this.executeNLP_EMBED(instruction);
+      case OpCode.AI_LAYER:
+        this.executeAI_LAYER(instruction);
         break;
 
-      case OpCode.NLP_TRANSLATE:
-        this.executeNLP_TRANSLATE(instruction);
+      case OpCode.AI_ATTEND:
+        this.executeAI_ATTEND(instruction);
         break;
 
-      case OpCode.KG_LOAD:
-        this.executeKG_LOAD(instruction);
+      case OpCode.AI_FUZZY:
+        this.executeAI_FUZZY(instruction);
         break;
 
-      case OpCode.KG_QUERY:
-        this.executeKG_QUERY(instruction);
-        break;
-
-      case OpCode.KG_REASON:
-        this.executeKG_REASON(instruction);
-        break;
+      case OpCode.SPAWN_VM:
+      case OpCode.SEND_MSG:
+      case OpCode.RECV_MSG:
+      case OpCode.SYNC_BARRIER:
+        throw createError(
+          ErrorType.ExecutionError,
+          `${instruction.opcode} requires hybrid runtime - not implemented in standalone VM`
+        );
 
       default:
-        throw createError(
-          ErrorType.InvalidInstruction,
-          `Unknown opcode: ${instruction.opcode}`
-        );
+        throw createError(ErrorType.InvalidInstruction, `Unknown opcode: ${instruction.opcode}`);
     }
 
     this.context.advanceProgramCounter();
@@ -380,7 +382,7 @@ export class NullVM {
     const [conditionRegister, operator, instructions] = instruction.args as [
       string,
       string,
-      unknown[]
+      unknown[],
     ];
 
     const value = this.memory.getRegister(conditionRegister);
@@ -429,11 +431,9 @@ export class NullVM {
     const [functionName] = instruction.args as [string];
 
     if (!this.context.isFunctionDefined(functionName)) {
-      throw createError(
-        ErrorType.UndefinedFunction,
-        `Function '${functionName}' is not defined`,
-        { functionName }
-      );
+      throw createError(ErrorType.UndefinedFunction, `Function '${functionName}' is not defined`, {
+        functionName,
+      });
     }
 
     const functionInstructions = this.context.getFunction(functionName)!;
@@ -482,10 +482,7 @@ export class NullVM {
     this.context.program = decodedInstructions;
     this.context.setProgramCounter(0);
 
-    while (
-      this.context.getCurrentInstruction() !== null &&
-      this.executionCycle < this.maxCycles
-    ) {
+    while (this.context.getCurrentInstruction() !== null && this.executionCycle < this.maxCycles) {
       this.executeInstruction();
       this.executionCycle++;
     }
@@ -727,11 +724,9 @@ export class NullVM {
         combined: true,
       });
     } catch (error) {
-      throw createError(
-        ErrorType.SMPCError,
-        `Failed to combine shares: ${String(error)}`,
-        { secretId }
-      );
+      throw createError(ErrorType.SMPCError, `Failed to combine shares: ${String(error)}`, {
+        secretId,
+      });
     }
   }
 
@@ -859,11 +854,7 @@ export class NullVM {
   /**
    * Send message to another VM
    */
-  async sendMessageToVM(
-    targetVmId: string,
-    messageType: string,
-    payload: unknown
-  ): Promise<void> {
+  async sendMessageToVM(targetVmId: string, messageType: string, payload: unknown): Promise<void> {
     if (!this.hybridRuntimeManager) {
       throw createError(
         ErrorType.ExecutionError,
@@ -871,12 +862,7 @@ export class NullVM {
       );
     }
 
-    await this.hybridRuntimeManager.sendMessage(
-      this.vmId,
-      targetVmId,
-      messageType,
-      payload
-    );
+    await this.hybridRuntimeManager.sendMessage(this.vmId, targetVmId, messageType, payload);
   }
 
   /**
@@ -991,104 +977,184 @@ export class NullVM {
   }
 
   /**
-   * Execute NLP_TOKENIZE instruction
+   * Execute AI_EMBED instruction: AI_EMBED <output_register> <embedding_id> <dimension>
    */
-  private executeNLP_TOKENIZE(instruction: Instruction): void {
-    const [inputReg, outputReg] = instruction.args as [string, string];
+  private executeAI_EMBED(instruction: Instruction): void {
+    const [outputRegister, embeddingId, dimension] = instruction.args as [string, string, number];
 
-    // For now, store a simple token count in output register
-    // In real implementation, this would use the Tokenizer from nlp module
-    const input = this.memory.getRegister(inputReg);
-    const tokenCount = Math.ceil(Math.sqrt(Math.abs(input) + 1)); // Simple heuristic
-    this.memory.setRegister(outputReg, tokenCount);
-    this.binaryBridge.emitRegisterState(outputReg, tokenCount);
-  }
-
-  /**
-   * Execute NLP_EMBED instruction
-   */
-  private executeNLP_EMBED(instruction: Instruction): void {
-    const [inputReg, outputReg] = instruction.args as [string, string];
-
-    // Create a simple embedding tensor and store it
-    const input = this.memory.getRegister(inputReg);
-    const dimension = 128;
-    const bits = new Uint8Array(dimension);
-
-    // Hash-based embedding
-    for (let i = 0; i < dimension; i++) {
-      let hash = input + i;
-      hash = (hash << 5) - hash + 0;
-      bits[i] = Math.abs(hash) % 256;
+    let embedding = this.embeddingRegistry.getEmbedding(embeddingId);
+    if (!embedding) {
+      embedding = EmbeddingRegistry.createRandomDenseEmbedding(embeddingId, dimension);
+      this.embeddingRegistry.registerEmbedding(embeddingId, embedding, 'dense', 'ai_instruction');
     }
 
-    const tensorId = `tensor_${outputReg}_${Date.now()}`;
-    this.memory.storeTensor(tensorId, { dimensions: dimension, bits });
-    this.memory.setRegister(outputReg, 1); // Success flag
-    this.binaryBridge.emitRegisterState(outputReg, 1);
+    this.memory.setTensorRegister(outputRegister, embedding);
+    this.binaryBridge.emitControlFlow('AI_EMBED', {
+      outputRegister,
+      embeddingId,
+      dimension,
+      shape: embedding.getShape().dims,
+    });
   }
 
   /**
-   * Execute NLP_TRANSLATE instruction
+   * Execute AI_LAYER instruction: AI_LAYER <input_register> <output_register> <layer_config> <activation>
    */
-  private executeNLP_TRANSLATE(instruction: Instruction): void {
-    const [inputReg, targetLang, outputReg] = instruction.args as [string, string, string];
+  private executeAI_LAYER(instruction: Instruction): void {
+    const [inputRegister, outputRegister, layerConfigStr, activation] = instruction.args as [
+      string,
+      string,
+      string,
+      string,
+    ];
 
-    // Simple translation: mark register with language code
-    const input = this.memory.getRegister(inputReg);
-    const output = (input * 31) ^ targetLang.charCodeAt(0); // Simple hash
-    this.memory.setRegister(outputReg, output);
-    this.binaryBridge.emitRegisterState(outputReg, output);
-  }
-
-  /**
-   * Execute KG_LOAD instruction
-   */
-  private executeKG_LOAD(instruction: Instruction): void {
-    const [graphData, graphIdReg] = instruction.args as [unknown, string];
-
-    // Store the graph in memory
-    const graphId = `graph_${Date.now()}_${Math.random().toString(36).substring(7)}`;
-    const processedGraph =
-      typeof graphData === 'object' ? graphData : { data: String(graphData) };
-
-    this.memory.storeGraph(graphId, processedGraph as Record<string, unknown>);
-    this.memory.setRegister(graphIdReg, 1); // Success flag
-    this.binaryBridge.emitRegisterState(graphIdReg, 1);
-  }
-
-  /**
-   * Execute KG_QUERY instruction
-   */
-  private executeKG_QUERY(instruction: Instruction): void {
-    const [graphIdReg, queryStringReg, resultReg] = instruction.args as [string, string, string];
-
-    const graphIdValue = this.memory.getRegister(graphIdReg);
-    const queryValue = this.memory.getRegister(queryStringReg);
-
-    // Simple query result: hash of query
-    let result = 0;
-    for (let i = 0; i < 32; i++) {
-      result = (result << 5) - result + (graphIdValue + queryValue) * (i + 1);
-      result |= 0;
+    const inputTensor = this.memory.getTensorRegister(inputRegister);
+    if (!inputTensor) {
+      throw createError(
+        ErrorType.ExecutionError,
+        `Input tensor register not found: ${inputRegister}`
+      );
     }
 
-    this.memory.setRegister(resultReg, Math.abs(result) % 1000);
-    this.binaryBridge.emitRegisterState(resultReg, Math.abs(result) % 1000);
+    const inputDim = inputTensor.getShape().dims[inputTensor.getShape().dims.length - 1] || 1;
+
+    try {
+      const layerConfig = JSON.parse(layerConfigStr) as { outputDim?: number };
+      const outputDim = layerConfig.outputDim || inputDim;
+
+      const layer = new DenseLayer(
+        {
+          inputDim,
+          outputDim,
+          activation: (activation as 'relu' | 'sigmoid' | 'tanh' | 'linear') || 'linear',
+          usesBias: true,
+        },
+        undefined,
+        undefined
+      );
+
+      const outputTensor = layer.forward(inputTensor);
+      this.memory.setTensorRegister(outputRegister, outputTensor);
+
+      this.binaryBridge.emitControlFlow('AI_LAYER', {
+        inputRegister,
+        outputRegister,
+        inputShape: inputTensor.getShape().dims,
+        outputShape: outputTensor.getShape().dims,
+        activation,
+      });
+    } catch (error) {
+      throw createError(
+        ErrorType.ExecutionError,
+        `AI_LAYER execution failed: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
   }
 
   /**
-   * Execute KG_REASON instruction
+   * Execute AI_ATTEND instruction: AI_ATTEND <input_register> <output_register> <attention_config>
    */
-  private executeKG_REASON(instruction: Instruction): void {
-    const [graphIdReg, ruleDataReg, resultReg] = instruction.args as [string, string, string];
+  private executeAI_ATTEND(instruction: Instruction): void {
+    const [inputRegister, outputRegister, attentionConfigStr] = instruction.args as [
+      string,
+      string,
+      string,
+    ];
 
-    const graphIdValue = this.memory.getRegister(graphIdReg);
-    const ruleValue = this.memory.getRegister(ruleDataReg);
+    const inputTensor = this.memory.getTensorRegister(inputRegister);
+    if (!inputTensor) {
+      throw createError(
+        ErrorType.ExecutionError,
+        `Input tensor register not found: ${inputRegister}`
+      );
+    }
 
-    // Simple inference result: combine graph and rule values
-    const result = (graphIdValue + ruleValue) * 7 % 256;
-    this.memory.setRegister(resultReg, result);
-    this.binaryBridge.emitRegisterState(resultReg, result);
+    try {
+      const attentionConfig = JSON.parse(attentionConfigStr) as Record<string, unknown>;
+      if (attentionConfig.headCount !== undefined) {
+        this.attentionModule.setConfig({
+          headCount: attentionConfig.headCount as number,
+        });
+      }
+      if (attentionConfig.temperatureScale !== undefined) {
+        this.attentionModule.setConfig({
+          temperatureScale: attentionConfig.temperatureScale as number,
+        });
+      }
+
+      const outputTensor = this.attentionModule.selfAttention(inputTensor);
+      this.memory.setTensorRegister(outputRegister, outputTensor);
+
+      const inputMeta = inputTensor.getMetadata();
+      const outputMeta = outputTensor.getMetadata();
+
+      this.binaryBridge.emitControlFlow('AI_ATTEND', {
+        inputRegister,
+        outputRegister,
+        inputUncertainty: inputMeta.uncertainty,
+        outputUncertainty: outputMeta.uncertainty,
+        uncertaintyReduced: inputMeta.uncertainty - outputMeta.uncertainty,
+      });
+    } catch (error) {
+      throw createError(
+        ErrorType.ExecutionError,
+        `AI_ATTEND execution failed: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  /**
+   * Execute AI_FUZZY instruction: AI_FUZZY <input_register> <output_register> <uncertainty_reduction>
+   */
+  private executeAI_FUZZY(instruction: Instruction): void {
+    const [inputRegister, outputRegister, uncertaintyReduction] = instruction.args as [
+      string,
+      string,
+      number,
+    ];
+
+    const inputTensor = this.memory.getTensorRegister(inputRegister);
+    if (!inputTensor) {
+      throw createError(
+        ErrorType.ExecutionError,
+        `Input tensor register not found: ${inputRegister}`
+      );
+    }
+
+    const outputTensor = inputTensor.clone();
+    const inputUncertainty = outputTensor.getMetadata().uncertainty;
+    outputTensor.reduceUncertainty(uncertaintyReduction);
+    const outputUncertainty = outputTensor.getMetadata().uncertainty;
+
+    this.memory.setTensorRegister(outputRegister, outputTensor);
+
+    this.binaryBridge.emitControlFlow('AI_FUZZY', {
+      inputRegister,
+      outputRegister,
+      inputUncertainty,
+      outputUncertainty,
+      reduction: uncertaintyReduction,
+    });
+  }
+
+  /**
+   * Get embedding registry (for external access)
+   */
+  getEmbeddingRegistry(): EmbeddingRegistry {
+    return this.embeddingRegistry;
+  }
+
+  /**
+   * Get neural engine (for external access)
+   */
+  getNeuralEngine(): NeuralEngine {
+    return this.neuralEngine;
+  }
+
+  /**
+   * Get attention module (for external access)
+   */
+  getAttentionModule(): AttentionModule {
+    return this.attentionModule;
   }
 }

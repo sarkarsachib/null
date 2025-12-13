@@ -117,11 +117,7 @@ describe('SecureChannel', () => {
     });
 
     test('should handle multiple messages', () => {
-      const messages = [
-        Buffer.from('msg1'),
-        Buffer.from('msg2'),
-        Buffer.from('msg3'),
-      ];
+      const messages = [Buffer.from('msg1'), Buffer.from('msg2'), Buffer.from('msg3')];
 
       for (const plaintext of messages) {
         const encrypted = channel1.sendMessage(plaintext);

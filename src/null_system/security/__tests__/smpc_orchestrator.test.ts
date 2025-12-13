@@ -154,9 +154,7 @@ describe('SMPCOrchestrator', () => {
         orchestrator.submitShare(`secret_1_${partyId}`, shareData);
       }
 
-      const shareIds = Array.from(shares.keys()).map(
-        (partyId) => `secret_1_${partyId}`
-      );
+      const shareIds = Array.from(shares.keys()).map((partyId) => `secret_1_${partyId}`);
 
       expect(() => {
         orchestrator.combineShares('secret_1', shareIds.slice(0, 1));
@@ -188,9 +186,7 @@ describe('SMPCOrchestrator', () => {
         orchestrator.submitShare(`secret_1_${partyId}`, shareData);
       }
 
-      const shareIds = Array.from(shares.keys()).map(
-        (partyId) => `secret_1_${partyId}`
-      );
+      const shareIds = Array.from(shares.keys()).map((partyId) => `secret_1_${partyId}`);
 
       const reconstructed = orchestrator.combineShares('secret_1', shareIds);
 
@@ -207,9 +203,7 @@ describe('SMPCOrchestrator', () => {
         orchestrator.submitShare(`secret_1_${partyId}`, shareData);
       }
 
-      const shareIds = Array.from(shares.keys()).map(
-        (partyId) => `secret_1_${partyId}`
-      );
+      const shareIds = Array.from(shares.keys()).map((partyId) => `secret_1_${partyId}`);
 
       orchestrator.combineShares('secret_1', shareIds);
 
@@ -369,9 +363,7 @@ describe('SMPCOrchestrator', () => {
 
     test('should error on invalid share ID', () => {
       expect(() => {
-        orchestrator.combineShares('invalid_secret', [
-          'nonexistent_share',
-        ]);
+        orchestrator.combineShares('invalid_secret', ['nonexistent_share']);
       }).toThrow();
     });
   });

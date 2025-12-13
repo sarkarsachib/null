@@ -4,14 +4,16 @@ A TypeScript implementation of a virtual machine that executes super-bit program
 
 ## Features
 
-- **Instruction Set Support**: SET, ADD, SHOW, IF, REPEAT, DEFINE, CALL, RETURN, JMP, NOP, security opcodes, and **NLP/KG opcodes**
-- **Memory Model**: Registers, stack, and heap abstractions with encrypted value storage, **tensors, and graphs**
+- **Instruction Set Support**: SET, ADD, SHOW, IF, REPEAT, DEFINE, CALL, RETURN, JMP, NOP, security opcodes, and AI opcodes
+- **Memory Model**: Scalar registers, tensor registers (super-bit tensors), stack, and heap abstractions with encrypted value storage
 - **Control Flow**: Conditional execution (IF) and loops (REPEAT)
 - **Function Definitions**: Define and call custom functions with proper call stack management
-- **Binary Bridge**: Emit binary frames for output, register state, and security metadata
+- **AI/ML Substrate**: Super-bit tensor operations with embedding registry, dense layers, multi-head attention, and uncertainty quantification
+- **AI Instructions**: AI_EMBED (load embeddings), AI_LAYER (dense forward pass), AI_ATTEND (attention with uncertainty reduction), AI_FUZZY (probabilistic uncertainty reduction)
+- **Binary Bridge**: Emit binary frames for output, register state, tensor state, and security metadata
 - **Error Handling**: Structured error propagation with detailed error types
 - **Tracing Hooks**: Hook into execution events for debugging and monitoring
-- **Fuzzy Bit Evaluation**: Stubs for probabilistic evaluation support
+- **Fuzzy Bit Evaluation**: Stubs for probabilistic evaluation support with attention-based refinement
 - **Cryptographic Primitives**: Homomorphic encryption, secure channels, zero-knowledge proofs, and secure multi-party computation (SMPC)
 - **NLP Module**: Multilingual tokenization, embeddings, translation, and code generation
 - **Knowledge Graphs**: Entity-relationship graphs, ontology management, rule-based inference, and RDF/JSON-LD support
@@ -23,26 +25,23 @@ src/
 ├── null_system/
 │   ├── vm/
 │   │   ├── null_vm.ts              # Main NullVM class
-│   │   ├── instructions.ts          # Instruction definitions and opcodes (including NLP/KG opcodes)
-│   │   ├── decoder.ts               # Super-bit program decoder
-│   │   ├── memory.ts                # Memory model (registers, stack, heap, encrypted values, tensors, graphs)
+│   │   ├── instructions.ts          # Instruction definitions and opcodes (including AI opcodes)
+│   │   ├── decoder.ts               # Super-bit program decoder with AI instruction validation
+│   │   ├── memory.ts                # Memory model (scalar registers, tensor registers, stack, heap)
 │   │   ├── execution_context.ts     # Execution state and call stack management
-│   │   ├── binary_bridge.ts         # Binary frame emission (proof transcripts, channel metadata)
-│   │   ├── fuzzy_bits.ts            # Fuzzy/probabilistic evaluation stubs
+│   │   ├── binary_bridge.ts         # Binary frame emission (tensor state, proof transcripts, metadata)
+│   │   ├── fuzzy_bits.ts            # Fuzzy/probabilistic evaluation with uncertainty quantification
 │   │   ├── errors.ts                # Error types and handling
-│   │   ├── nlp/                     # NLP module
-│   │   │   ├── tokenizer.ts         # Multilingual text tokenization
-│   │   │   ├── embedder.ts          # Super-bit embedding generation and translation
-│   │   │   ├── codegen_adapter.ts   # Code generation from embeddings
-│   │   │   └── index.ts             # NLP module exports
-│   │   ├── knowledge/               # Knowledge Graph module
-│   │   │   ├── graph_store.ts       # Entity-relationship graph management
-│   │   │   ├── ontology_manager.ts  # Schema and constraint management
-│   │   │   ├── inference_engine.ts  # Rule-based reasoning and inference
-│   │   │   ├── rdf_loader.ts        # RDF/JSON-LD import/export
-│   │   │   └── index.ts             # Knowledge module exports
-│   │   ├── index.ts                 # Module exports
-│   │   └── __tests__/               # Unit and integration tests
+│   │   ├── ai/
+│   │   │   ├── superbit_tensor.ts   # Super-bit tensor representation with uncertainty metadata
+│   │   │   ├── embedding_registry.ts # Reusable embedding management and caching
+│   │   │   ├── neural_engine.ts     # Dense layers with Xavier weight initialization
+│   │   │   ├── attention.ts         # Scaled dot-product & multi-head attention mechanisms
+│   │   │   └── index.ts             # AI module exports
+│   │   ├── index.ts                 # VM module exports
+│   │   └── __tests__/
+│   │       ├── ai.test.ts           # Comprehensive AI instruction & tensor tests
+│   │       └── (other tests)         # Unit tests for VM components
 │   ├── security/
 │   │   ├── homomorphic_engine.ts           # Homomorphic encryption
 │   │   ├── secure_channel.ts               # Key exchange & authenticated transport
@@ -59,7 +58,7 @@ src/
 ├── examples/
 │   ├── sample_program.ts                  # Sample super-bit programs
 │   ├── distributed_execution.ts           # Distributed workload example
-│   ├── nlp_kg_example.ts                  # NLP and Knowledge Graph example
+│   ├── ai_inference.ts                    # AI tensor pipeline demonstration
 │   └── __tests__/                         # End-to-end tests
 ├── docs/
 │   ├── knowledge.md                 # NLP & Knowledge Graph documentation
@@ -294,101 +293,116 @@ See [docs/hybrid_execution.md](docs/hybrid_execution.md) for comprehensive hybri
 // Reconstructs secret from sufficient shares (must meet or exceed threshold)
 ```
 
-### NLP_TOKENIZE - Tokenize Text
+## AI/ML Instructions for Tensor Operations
+
+NullVM includes a foundational AI substrate for tensor-aware computation on classical hardware.
+
+### AI_EMBED - Load or Allocate Embedding
+
 ```javascript
-{ opcode: 'NLP_TOKENIZE', args: ['input_register', 'output_register'] }
-// Tokenizes text and stores token count
+{ opcode: 'AI_EMBED', args: ['output_register', 'embedding_id', dimension] }
 ```
 
-### NLP_EMBED - Generate Embeddings
+Allocates a tensor register and loads an embedding vector:
+- Queries the embedding registry for a previously registered embedding
+- If not found, creates a random dense embedding of specified dimension
+- Stores result in a tensor register (separate from scalar registers)
+- Emits frame with embedding metadata
+
+**Example:**
 ```javascript
-{ opcode: 'NLP_EMBED', args: ['input_register', 'output_register'] }
-// Generates super-bit embeddings for text
+{ opcode: 'AI_EMBED', args: ['token_embedding', 'bert_001', 768] }
 ```
 
-### NLP_TRANSLATE - Translate Text
+### AI_LAYER - Dense Layer Forward Pass
+
 ```javascript
-{ opcode: 'NLP_TRANSLATE', args: ['input_register', 'target_language', 'output_register'] }
-// Translates text to target language (es, fr, de, zh, etc.)
+{ opcode: 'AI_LAYER', args: ['input_register', 'output_register', '{"outputDim": N}', 'activation'] }
 ```
 
-### KG_LOAD - Load Knowledge Graph
+Executes a fully-connected layer with optional activation:
+- Reads tensor from `input_register`
+- Creates dense layer with Xavier/Glorot weight initialization
+- Applies specified activation: `relu`, `sigmoid`, `tanh`, or `linear`
+- Outputs to tensor register
+- Propagates uncertainty: `new_uncertainty = max(input, weight) × precision_product`
+
+**Example:**
 ```javascript
-{ opcode: 'KG_LOAD', args: [graph_data, 'graph_id_register'] }
-// Loads knowledge graph from data (entities and relationships)
+{ opcode: 'AI_LAYER', args: ['h0', 'h1', '{"outputDim": 2048}', 'relu'] }
 ```
 
-### KG_QUERY - Query Knowledge Graph
+### AI_ATTEND - Self-Attention with Uncertainty Reduction
+
 ```javascript
-{ opcode: 'KG_QUERY', args: ['graph_id_register', 'query_register', 'result_register'] }
-// Queries knowledge graph and returns semantic results
+{ opcode: 'AI_ATTEND', args: ['input_register', 'output_register', '{"headCount": N}'] }
 ```
 
-### KG_REASON - Perform Inference
+Applies scaled dot-product multi-head self-attention:
+- Reads tensor from `input_register`
+- Implements `Attention(Q,K,V) = softmax(QK^T/√d_k)V`
+- Splits into N attention heads for parallel computation
+- **Reduces uncertainty** through pattern focusing (default: 30% reduction)
+- Computes precision from head-wise products
+
+**Attention Config:**
+- `headCount`: Number of attention heads (default: 1)
+- `temperatureScale`: Softmax temperature (default: 1.0)
+- `uncertaintyReductionFactor`: Uncertainty reduction per head (default: 0.3)
+
+**Example:**
 ```javascript
-{ opcode: 'KG_REASON', args: ['graph_id_register', 'rule_register', 'result_register'] }
-// Performs rule-based reasoning over knowledge graph
+{ opcode: 'AI_ATTEND', args: ['h', 'attended', '{"headCount": 8}'] }
 ```
 
-## NLP & Knowledge Graph Features
+### AI_FUZZY - Probabilistic Uncertainty Reduction
 
-### Tokenization and Embeddings
+```javascript
+{ opcode: 'AI_FUZZY', args: ['input_register', 'output_register', uncertaintyReduction] }
+```
 
-Process multilingual text with automatic language detection, stopword removal, and stemming:
+Applies fuzzy-logic based uncertainty refinement:
+- Clones tensor from `input_register`
+- Reduces uncertainty by specified amount (capped at 0)
+- Models probabilistic evaluation gaining confidence
+- Useful after inference steps to quantify certainty
+
+**Example:**
+```javascript
+{ opcode: 'AI_FUZZY', args: ['logits', 'refined_logits', 0.25] }
+```
+
+## Complete AI Program Example
 
 ```typescript
-import { Tokenizer, Embedder } from './null_system/vm/nlp';
+import { NullVM, OpCode } from './src';
 
-const tokenizer = new Tokenizer();
-const embedder = new Embedder(128);
+const vm = new NullVM();
 
-// Tokenize English text
-const tokens = tokenizer.tokenize('Hello world from NullVM', { 
-  language: 'en',
-  lowercase: true,
-  removeStopwords: true 
-});
+const program = [
+  // 1. Load token embedding (512-dim)
+  { opcode: OpCode.AI_EMBED, args: ['x', 'token_001', 512] },
+  
+  // 2. Dense layer: 512 → 2048 with ReLU
+  { opcode: OpCode.AI_LAYER, args: ['x', 'h1', '{"outputDim": 2048}', 'relu'] },
+  
+  // 3. Dense layer: 2048 → 512 with linear
+  { opcode: OpCode.AI_LAYER, args: ['h1', 'h2', '{"outputDim": 512}', 'linear'] },
+  
+  // 4. Multi-head attention (8 heads)
+  { opcode: OpCode.AI_ATTEND, args: ['h2', 'attn', '{"headCount": 8}'] },
+  
+  // 5. Fuzzy refinement
+  { opcode: OpCode.AI_FUZZY, args: ['attn', 'logits', 0.1] },
+];
 
-// Generate embeddings with translation support
-const embedding = embedder.embed('knowledge', 'en');
-const translated = embedder.translate('hello', 'en', 'es');
-```
+vm.execute(program);
 
-### Knowledge Graphs
-
-Build and query semantic knowledge graphs with rule-based inference:
-
-```typescript
-import { GraphStore, OntologyManager, InferenceEngine, RDFLoader } from './null_system/vm/knowledge';
-
-const graph = new GraphStore();
-const onto = new OntologyManager();
-const engine = new InferenceEngine();
-
-// Define schema
-onto.defineEntityType({
-  name: 'Person',
-  properties: { name: { type: 'string' } }
-});
-
-// Add entities and relationships
-graph.addEntity({ id: 'alice', label: 'Alice', type: 'Person', properties: {} });
-graph.addEntity({ id: 'bob', label: 'Bob', type: 'Person', properties: {} });
-graph.addRelationship('alice', 'bob', 'knows');
-
-// Define inference rules
-engine.addRule({
-  name: 'mutual_knowledge',
-  condition: [{ type: 'relationship', relationshipType: 'knows' }],
-  conclusion: { type: 'set_property', property: 'isConnected', value: true }
-});
-
-// Execute inference
-const results = engine.forwardChain(graph);
-
-// Import/export RDF/JSON-LD
-const loader = new RDFLoader();
-const jsonLd = loader.exportAsJsonLd(graph);
+// Access tensor result
+const registry = vm.getEmbeddingRegistry();
+const logits = vm.getState().memory.getTensorRegister('logits');
+console.log('Output shape:', logits.getShape().dims);
+console.log('Uncertainty:', logits.getMetadata().uncertainty);
 ```
 
 ## API Documentation
@@ -409,6 +423,9 @@ class NullVM {
   getSecureChannel(): SecureChannel
   getZKProofSystem(): ZKProofSystem
   getSMPCOrchestrator(): SMPCOrchestrator
+  getEmbeddingRegistry(): EmbeddingRegistry
+  getNeuralEngine(): NeuralEngine
+  getAttentionModule(): AttentionModule
   reset(): void
   getExecutionCycle(): number
   getState(): object
@@ -417,12 +434,16 @@ class NullVM {
 
 ### Memory
 
-Manages registers, stack, heap, encrypted values, and cryptographic keys.
+Manages scalar registers, tensor registers, stack, heap, encrypted values, and cryptographic keys.
 
 ```typescript
 class Memory {
   setRegister(name: string, value: number): void
   getRegister(name: string): number
+  setTensorRegister(name: string, tensor: SuperBitTensor): void
+  getTensorRegister(name: string): SuperBitTensor | null
+  hasTensorRegister(name: string): boolean
+  getAllTensorRegisters(): Record<string, SuperBitTensor>
   pushStack(value: number): void
   popStack(): number
   peekStack(): number

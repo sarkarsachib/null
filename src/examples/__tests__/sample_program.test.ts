@@ -97,7 +97,7 @@ describe('Sample Programs', () => {
       vm.execute(program);
 
       const frames = vm.getBinaryBridge().getFrames();
-      const frameTypes = new Set(frames.map(f => f.frameType));
+      const frameTypes = new Set(frames.map((f) => f.frameType));
 
       expect(frameTypes.has('OUTPUT')).toBe(true);
       expect(frameTypes.has('REGISTER')).toBe(true);
@@ -128,14 +128,19 @@ describe('Sample Programs', () => {
     });
 
     it('all programs should have valid opcodes', () => {
-      const programs = [
-        createSampleProgram(),
-        createComprehensiveDemo(),
-      ];
+      const programs = [createSampleProgram(), createComprehensiveDemo()];
 
       const validOpcodes = [
-        'SET', 'ADD', 'SHOW', 'IF', 'REPEAT',
-        'DEFINE', 'CALL', 'RETURN', 'JMP', 'NOP',
+        'SET',
+        'ADD',
+        'SHOW',
+        'IF',
+        'REPEAT',
+        'DEFINE',
+        'CALL',
+        'RETURN',
+        'JMP',
+        'NOP',
       ];
 
       for (const program of programs) {

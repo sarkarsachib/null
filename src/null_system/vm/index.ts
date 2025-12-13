@@ -20,12 +20,10 @@ export {
   CallInstruction,
   ReturnInstruction,
   JmpInstruction,
-  NLPTokenizeInstruction,
-  NLPEmbedInstruction,
-  NLPTranslateInstruction,
-  KGLoadInstruction,
-  KGQueryInstruction,
-  KGReasonInstruction,
+  AIEmbedInstruction,
+  AILayerInstruction,
+  AIAttendInstruction,
+  AIFuzzyInstruction,
   isValidOpCode,
 } from './instructions';
 export { VMError, ErrorType, createError } from './errors';
@@ -60,12 +58,15 @@ export {
   WorkerThreadAdapter,
 } from './hybrid_runtime';
 export {
-  StateSnapshot,
-  ReplayLog,
-  FaultToleranceManager,
-  VMSnapshot,
-  ReplayLogEntry,
-  CheckpointData,
-} from './fault_tolerance';
-export { WorkStealingScheduler, ScheduledTask, WorkerMetrics, SchedulerMetrics } from './scheduler';
-export { DistributedExecutor, DistributedExecutorConfig, ExecutionResult } from './distributed';
+  SuperBitTensor,
+  TensorShape,
+  TensorMetadata,
+  EmbeddingRegistry,
+  EmbeddingEntry,
+  EmbeddingMetadata,
+  NeuralEngine,
+  DenseLayer,
+  LayerConfig,
+  AttentionModule,
+  AttentionConfig,
+} from './ai';

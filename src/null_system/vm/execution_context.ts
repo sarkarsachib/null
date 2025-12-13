@@ -76,11 +76,10 @@ export class ExecutionContext {
    */
   pushCallFrame(functionName: string, returnAddress: number, stackPointer: number): void {
     if (this.callStack.length >= this.maxStackDepth) {
-      throw createError(
-        ErrorType.StackOverflow,
-        'Call stack overflow',
-        { callStackDepth: this.callStack.length, maxDepth: this.maxStackDepth }
-      );
+      throw createError(ErrorType.StackOverflow, 'Call stack overflow', {
+        callStackDepth: this.callStack.length,
+        maxDepth: this.maxStackDepth,
+      });
     }
 
     this.callStack.push({
@@ -169,9 +168,11 @@ export class ExecutionContext {
   /**
    * Emit trace event
    */
-  emitTrace(event: 'instruction' | 'error' | 'function_call' | 'function_return',
-    data: Record<string, unknown>): void {
-    this.traceHooks.forEach(hook => {
+  emitTrace(
+    event: 'instruction' | 'error' | 'function_call' | 'function_return',
+    data: Record<string, unknown>
+  ): void {
+    this.traceHooks.forEach((hook) => {
       try {
         hook(event, data);
       } catch (e) {

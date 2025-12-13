@@ -20,12 +20,14 @@ export enum OpCode {
   ZK_VERIFY = 'ZK_VERIFY',
   SMPC_SHARE = 'SMPC_SHARE',
   SMPC_COMBINE = 'SMPC_COMBINE',
-  NLP_TOKENIZE = 'NLP_TOKENIZE',
-  NLP_EMBED = 'NLP_EMBED',
-  NLP_TRANSLATE = 'NLP_TRANSLATE',
-  KG_LOAD = 'KG_LOAD',
-  KG_QUERY = 'KG_QUERY',
-  KG_REASON = 'KG_REASON',
+  AI_EMBED = 'AI_EMBED',
+  AI_LAYER = 'AI_LAYER',
+  AI_ATTEND = 'AI_ATTEND',
+  AI_FUZZY = 'AI_FUZZY',
+  SPAWN_VM = 'SPAWN_VM',
+  SEND_MSG = 'SEND_MSG',
+  RECV_MSG = 'RECV_MSG',
+  SYNC_BARRIER = 'SYNC_BARRIER',
 }
 
 export interface Instruction {
@@ -114,34 +116,24 @@ export interface SMPCCombineInstruction extends Instruction {
   args: [string, string[]]; // [secretId, shareIds]
 }
 
-export interface NLPTokenizeInstruction extends Instruction {
-  opcode: OpCode.NLP_TOKENIZE;
-  args: [string, string]; // [inputRegister, outputRegister, options?]
+export interface AIEmbedInstruction extends Instruction {
+  opcode: OpCode.AI_EMBED;
+  args: [string, string, number]; // [outputRegister, embeddingId, dimension]
 }
 
-export interface NLPEmbedInstruction extends Instruction {
-  opcode: OpCode.NLP_EMBED;
-  args: [string, string]; // [inputRegister, outputRegister]
+export interface AILayerInstruction extends Instruction {
+  opcode: OpCode.AI_LAYER;
+  args: [string, string, string, string]; // [inputRegister, outputRegister, layerConfig, activation]
 }
 
-export interface NLPTranslateInstruction extends Instruction {
-  opcode: OpCode.NLP_TRANSLATE;
-  args: [string, string, string]; // [inputRegister, targetLanguage, outputRegister]
+export interface AIAttendInstruction extends Instruction {
+  opcode: OpCode.AI_ATTEND;
+  args: [string, string, string]; // [inputRegister, outputRegister, attentionConfig]
 }
 
-export interface KGLoadInstruction extends Instruction {
-  opcode: OpCode.KG_LOAD;
-  args: [unknown, string]; // [graphData, graphIdRegister]
-}
-
-export interface KGQueryInstruction extends Instruction {
-  opcode: OpCode.KG_QUERY;
-  args: [string, string, string]; // [graphId, queryString, resultRegister]
-}
-
-export interface KGReasonInstruction extends Instruction {
-  opcode: OpCode.KG_REASON;
-  args: [string, string, string]; // [graphId, ruleData, resultRegister]
+export interface AIFuzzyInstruction extends Instruction {
+  opcode: OpCode.AI_FUZZY;
+  args: [string, string, number]; // [inputRegister, outputRegister, uncertaintyReduction]
 }
 
 export function isValidOpCode(code: string): code is OpCode {

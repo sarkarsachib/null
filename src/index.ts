@@ -4,4 +4,8 @@
  */
 
 export * from './null_system/vm';
-export { createSampleProgram, createComprehensiveDemo, runSampleProgram } from './examples/sample_program';
+export {
+  createSampleProgram,
+  createComprehensiveDemo,
+  runSampleProgram,
+} from './examples/sample_program';
