@@ -4,7 +4,7 @@ This module provides efficient 4-8 bit encoding for Null-Lang constructs,
 with support for compression, encryption, and fuzzy-bit extensions.
 """
 
-from .tokens import SuperBitToken, SuperBitGroup
+from .tokens import SuperBitToken, SuperBitGroup, SuperBitStream, SuperBitOpCode
 from .registry import SymbolRegistry, get_default_registry
 from .encoder import SuperBitEncoder
 from .decoder import SuperBitDecoder
@@ -12,6 +12,8 @@ from .decoder import SuperBitDecoder
 __all__ = [
     "SuperBitToken",
     "SuperBitGroup",
+    "SuperBitStream",
+    "SuperBitOpCode",
     "SymbolRegistry",
     "get_default_registry",
     "SuperBitEncoder",

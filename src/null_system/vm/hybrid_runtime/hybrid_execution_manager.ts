@@ -74,7 +74,7 @@ export class HybridExecutionManager {
   async registerVM(vmId: string, capabilities: VMCapabilities): Promise<void> {
     this.registeredVMs.set(vmId, capabilities);
     await this.transport.advertiseCapabilities(capabilities);
-    
+
     this.vmHealth.set(vmId, {
       vmId,
       status: 'healthy',
@@ -118,12 +118,7 @@ export class HybridExecutionManager {
       const scheduled = this.scheduler.scheduleNext();
       if (scheduled) {
         vmId = scheduled.assignedTo!;
-        await this.messageBus.sendMessage(
-          'manager',
-          vmId,
-          'WORK_ASSIGNMENT',
-          scheduled
-        );
+        await this.messageBus.sendMessage('manager', vmId, 'WORK_ASSIGNMENT', scheduled);
       }
     } else {
       await this.messageBus.sendMessage('manager', vmId, 'WORK_ASSIGNMENT', workItem);
@@ -180,7 +175,11 @@ export class HybridExecutionManager {
     }
 
     barrier.arrivedParticipants.add(vmId);
-    this.log('VM arrived at barrier', { barrierId, vmId, arrived: barrier.arrivedParticipants.size });
+    this.log('VM arrived at barrier', {
+      barrierId,
+      vmId,
+      arrived: barrier.arrivedParticipants.size,
+    });
 
     if (barrier.arrivedParticipants.size >= barrier.participantCount) {
       barrier.resolvers.forEach((resolve) => resolve());
@@ -280,9 +279,7 @@ export class HybridExecutionManager {
   getStats() {
     return {
       registeredVMs: this.registeredVMs.size,
-      healthyVMs: Array.from(this.vmHealth.values()).filter(
-        (h) => h.status === 'healthy'
-      ).length,
+      healthyVMs: Array.from(this.vmHealth.values()).filter((h) => h.status === 'healthy').length,
       scheduler: this.scheduler.getStats(),
       pendingMessages: this.messageBus.getPendingMessageCount(),
       activeBarriers: this.barriers.size,

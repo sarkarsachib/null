@@ -1,5 +1,9 @@
 import { HybridExecutionManager } from '../../hybrid_runtime/hybrid_execution_manager';
-import { BaseTransportAdapter, VMCapabilities, SuperBitMessage } from '../../hybrid_runtime/transport_adapter';
+import {
+  BaseTransportAdapter,
+  VMCapabilities,
+  SuperBitMessage,
+} from '../../hybrid_runtime/transport_adapter';
 
 class MockTransportAdapter extends BaseTransportAdapter {
   readonly adapterId = 'mock';
@@ -62,7 +66,7 @@ describe('HybridExecutionManager', () => {
 
       await manager.registerVM('test-vm-1', capabilities);
       const stats = manager.getStats();
-      
+
       expect(stats.registeredVMs).toBe(1);
       expect(stats.healthyVMs).toBe(1);
     });
@@ -122,7 +126,7 @@ describe('HybridExecutionManager', () => {
       ]);
 
       expect(workIds.length).toBe(3);
-      workIds.forEach(id => expect(id).toBeDefined());
+      workIds.forEach((id) => expect(id).toBeDefined());
     });
   });
 
@@ -195,9 +199,9 @@ describe('HybridExecutionManager', () => {
     it('should timeout barrier if not all participants arrive', async () => {
       await manager.createBarrier('timeout-barrier', 2, 100);
 
-      await expect(
-        manager.arriveAtBarrier('timeout-barrier', 'vm-1')
-      ).rejects.toThrow('Barrier timeout');
+      await expect(manager.arriveAtBarrier('timeout-barrier', 'vm-1')).rejects.toThrow(
+        'Barrier timeout'
+      );
     });
   });
 
@@ -214,7 +218,7 @@ describe('HybridExecutionManager', () => {
         supportedMessageTypes: [],
       });
 
-      expect(logMessages.some(m => m.includes('registered'))).toBe(true);
+      expect(logMessages.some((m) => m.includes('registered'))).toBe(true);
     });
   });
 

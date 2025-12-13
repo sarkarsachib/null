@@ -6,7 +6,7 @@ from typing import Callable
 from ..errors import NullArityError, NullLibNotFoundError
 from ..runtime import NullCallContext
 from ..types import NullValue
-from . import array_ops, io_ops, math_ops, object_ops, text_ops
+from . import array_ops, io_ops, math_ops, object_ops, text_ops, nlp_ops
 
 
 LibImpl = Callable[[NullCallContext, list[NullValue]], NullValue]
@@ -102,5 +102,10 @@ def default_registry() -> LibraryRegistry:
         "object.WRITE": LibFunction("object.WRITE", 3, _wrap(object_ops.WRITE)),
         "io.SHOW": LibFunction("io.SHOW", 1, _wrap(io_ops.SHOW)),
         "io.READ": LibFunction("io.READ", 0, _wrap(io_ops.READ)),
+        "nlp.TOKENIZE": LibFunction("nlp.TOKENIZE", 1, _wrap(nlp_ops.TOKENIZE)),
+        "nlp.INTENT": LibFunction("nlp.INTENT", 1, _wrap(nlp_ops.INTENT)),
+        "nlp.ENTITIES": LibFunction("nlp.ENTITIES", 1, _wrap(nlp_ops.ENTITIES)),
+        "nlp.TRANSLATE": LibFunction("nlp.TRANSLATE", 2, _wrap(nlp_ops.TRANSLATE)),
+        "nlp.CODEGEN": LibFunction("nlp.CODEGEN", 2, _wrap(nlp_ops.CODEGEN)),
     }
     return LibraryRegistry(fns)

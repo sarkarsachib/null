@@ -92,10 +92,7 @@ export class HomomorphicEngine {
    * Homomorphic addition of two encrypted values
    * This is supported in Paillier encryption
    */
-  encryptedAdd(
-    encrypted1: EncryptedValue,
-    encrypted2: EncryptedValue
-  ): EncryptedValue {
+  encryptedAdd(encrypted1: EncryptedValue, encrypted2: EncryptedValue): EncryptedValue {
     if (!Buffer.isBuffer(encrypted1.ciphertext) || !Buffer.isBuffer(encrypted2.ciphertext)) {
       throw new Error('Invalid ciphertext format');
     }

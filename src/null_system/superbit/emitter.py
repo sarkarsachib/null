@@ -19,13 +19,13 @@ class SuperBitEmitter:
     """Emits Super-bit IR tokens from an AST."""
 
     AST_TO_SUPERBIT_TABLE = {
-        "add": SuperBitOpCode.BINARY_ADD,
-        "subtract": SuperBitOpCode.BINARY_SUB,
-        "multiply": SuperBitOpCode.BINARY_MUL,
-        "divide": SuperBitOpCode.BINARY_DIV,
-        "greater_than": SuperBitOpCode.COMPARE_GT,
-        "less_than": SuperBitOpCode.COMPARE_LT,
-        "equals": SuperBitOpCode.COMPARE_EQ,
+        "add": "BINARY_ADD",
+        "subtract": "BINARY_SUB",
+        "multiply": "BINARY_MUL",
+        "divide": "BINARY_DIV",
+        "greater_than": "COMPARE_GT",
+        "less_than": "COMPARE_LT",
+        "equals": "COMPARE_EQ",
     }
 
     def __init__(self):

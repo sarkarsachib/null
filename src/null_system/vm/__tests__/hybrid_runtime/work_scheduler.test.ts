@@ -89,9 +89,9 @@ describe('WorkScheduler', () => {
         }
       }
 
-      expect(assignments.filter(a => a === 'vm-1').length).toBe(2);
-      expect(assignments.filter(a => a === 'vm-2').length).toBe(2);
-      expect(assignments.filter(a => a === 'vm-3').length).toBe(2);
+      expect(assignments.filter((a) => a === 'vm-1').length).toBe(2);
+      expect(assignments.filter((a) => a === 'vm-2').length).toBe(2);
+      expect(assignments.filter((a) => a === 'vm-3').length).toBe(2);
     });
   });
 
@@ -159,7 +159,7 @@ describe('WorkScheduler', () => {
       const vms: VMCapabilities[] = [
         { vmId: 'vm-1', maxConcurrentTasks: 2, supportedMessageTypes: [] },
       ];
-      
+
       scheduler = new WorkScheduler({
         strategy: 'round-robin',
         maxTasksPerWorker: 2,

@@ -3,11 +3,32 @@
 This module defines the fundamental data structures for Super-Bit encoding:
 - SuperBitToken: Atomic units representing symbols or data
 - SuperBitGroup: 4-8 bit containers for tokens or packed data
+- SuperBitOpCode: Operation codes for the virtual machine
+- SuperBitStream: Stream container for tokens
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Optional, Union
 import struct
+from enum import Enum
+
+
+class SuperBitOpCode(str, Enum):
+    """Operation codes for the Super-Bit virtual machine."""
+    LOAD_CONST = "LOAD_CONST"
+    LOAD_VAR = "LOAD_VAR"
+    STORE_VAR = "STORE_VAR"
+    BINARY_ADD = "BINARY_ADD"
+    BINARY_SUB = "BINARY_SUB"
+    BINARY_MUL = "BINARY_MUL"
+    BINARY_DIV = "BINARY_DIV"
+    COMPARE_GT = "COMPARE_GT"
+    COMPARE_LT = "COMPARE_LT"
+    COMPARE_EQ = "COMPARE_EQ"
+    JUMP = "JUMP"
+    JUMP_IF_FALSE = "JUMP_IF_FALSE"
+    PRINT = "PRINT"
+    NOP = "NOP"
 
 
 @dataclass
@@ -15,28 +36,55 @@ class SuperBitToken:
     """An atomic unit in the Super-Bit encoding system.
 
     Represents a single symbol, command, or data value with variable bit width.
+    Can be created with either (symbol, bits, bit_width) or (opcode, [operand]).
     """
 
-    symbol: str
-    bits: int
-    bit_width: int
+    opcode: Union[str, SuperBitOpCode]
+    operand: Optional[Union[int, str, object]] = None
     metadata: Optional[dict] = None
+
+    @property
+    def symbol(self) -> str:
+        """Get symbol/opcode name."""
+        if isinstance(self.opcode, SuperBitOpCode):
+            return self.opcode.value
+        return str(self.opcode)
+
+    @property
+    def bits(self) -> int:
+        """Get operand bits (for compatibility)."""
+        if isinstance(self.operand, int):
+            return self.operand
+        return 0
+
+    @property
+    def bit_width(self) -> int:
+        """Get bit width (for compatibility)."""
+        if isinstance(self.operand, int):
+            return (self.operand.bit_length() or 1)
+        return 0
 
     def to_bytes(self) -> bytes:
         """Serialize token to bytes.
 
         Returns a variable-length byte representation suitable for streaming.
         """
-        # Pack: bit_width (1 byte) + bits (variable) + symbol_len (1 byte) + symbol
-        symbol_bytes = self.symbol.encode("utf-8")
-        byte_count = (self.bit_width + 7) // 8
-        bits_bytes = self._int_to_bytes(self.bits, byte_count)
-        return (
-            struct.pack("B", self.bit_width)
-            + bits_bytes
-            + struct.pack("B", len(symbol_bytes))
-            + symbol_bytes
-        )
+        opcode_str = self.symbol
+        opcode_bytes = opcode_str.encode("utf-8")
+        data = struct.pack(">H", len(opcode_bytes)) + opcode_bytes
+        
+        if self.operand is not None:
+            if isinstance(self.operand, (int, float)):
+                data += struct.pack(">B", 1) + struct.pack(">Q", int(self.operand))
+            elif isinstance(self.operand, str):
+                operand_bytes = self.operand.encode("utf-8")
+                data += struct.pack(">B", 2) + struct.pack(">H", len(operand_bytes)) + operand_bytes
+            else:
+                data += struct.pack(">B", 0)
+        else:
+            data += struct.pack(">B", 0)
+        
+        return data
 
     @staticmethod
     def from_bytes(data: bytes) -> tuple["SuperBitToken", int]:
@@ -45,40 +93,49 @@ class SuperBitToken:
         Returns:
             Tuple of (SuperBitToken, bytes_consumed)
         """
-        if len(data) < 2:
-            raise ValueError("Token requires at least 2 bytes")
-        bit_width = data[0]
-        byte_count = (bit_width + 7) // 8
-        if len(data) < 1 + byte_count + 1:
-            raise ValueError("Incomplete token data")
-        bits = int.from_bytes(data[1 : 1 + byte_count], byteorder="big")
-        symbol_len = data[1 + byte_count]
-        if len(data) < 1 + byte_count + 1 + symbol_len:
-            raise ValueError("Incomplete token symbol")
-        symbol = data[2 + byte_count : 2 + byte_count + symbol_len].decode("utf-8")
-        return SuperBitToken(symbol, bits, bit_width), 2 + byte_count + symbol_len
-
-    @staticmethod
-    def _int_to_bytes(value: int, length: Optional[int] = None) -> bytes:
-        """Convert an integer to bytes with optional length."""
-        if value == 0:
-            return b"\x00"
-        # Calculate required bytes
-        byte_length = (value.bit_length() + 7) // 8
-        if length and length > byte_length:
-            byte_length = length
-        return value.to_bytes(byte_length, byteorder="big")
+        if len(data) < 3:
+            raise ValueError("Token requires at least 3 bytes")
+        
+        opcode_len = struct.unpack(">H", data[:2])[0]
+        offset = 2
+        
+        if offset + opcode_len + 1 > len(data):
+            raise ValueError("Incomplete token")
+        
+        opcode_str = data[offset:offset+opcode_len].decode("utf-8")
+        offset += opcode_len
+        
+        operand_type = data[offset]
+        offset += 1
+        
+        operand = None
+        if operand_type == 1:
+            if offset + 8 > len(data):
+                raise ValueError("Incomplete operand")
+            operand = struct.unpack(">Q", data[offset:offset+8])[0]
+            offset += 8
+        elif operand_type == 2:
+            if offset + 2 > len(data):
+                raise ValueError("Incomplete operand length")
+            operand_len = struct.unpack(">H", data[offset:offset+2])[0]
+            offset += 2
+            if offset + operand_len > len(data):
+                raise ValueError("Incomplete operand")
+            operand = data[offset:offset+operand_len].decode("utf-8")
+            offset += operand_len
+        
+        token = SuperBitToken(opcode_str, operand)
+        return token, offset
 
     def __repr__(self) -> str:
-        return f"SuperBitToken({self.symbol!r}, bits={self.bits:0{self.bit_width}b}, width={self.bit_width})"
+        return f"SuperBitToken({self.symbol!r}, operand={self.operand!r})"
 
     def __eq__(self, other) -> bool:
         if not isinstance(other, SuperBitToken):
             return False
         return (
-            self.symbol == other.symbol
-            and self.bits == other.bits
-            and self.bit_width == other.bit_width
+            self.opcode == other.opcode
+            and self.operand == other.operand
         )
 
 
@@ -218,3 +275,97 @@ class SuperBitGroup:
             self.tokens == other.tokens
             and self.total_bits == other.total_bits
         )
+
+
+@dataclass
+class SuperBitStream:
+    """A stream of super-bit tokens for execution.
+    
+    Represents a compiled program as a sequence of tokens.
+    """
+    
+    tokens: List[SuperBitToken] = field(default_factory=list)
+    metadata: Optional[dict] = None
+    
+    def to_bytes(self) -> bytes:
+        """Serialize stream to bytes."""
+        data = struct.pack(">I", len(self.tokens))
+        for token in self.tokens:
+            token_bytes = self._token_to_bytes(token)
+            data += token_bytes
+        return data
+    
+    @staticmethod
+    def _token_to_bytes(token: SuperBitToken) -> bytes:
+        """Serialize a single token."""
+        opcode_str = token.symbol
+        opcode_bytes = opcode_str.encode("utf-8")
+        data = struct.pack(">H", len(opcode_bytes)) + opcode_bytes
+        
+        if token.operand is not None:
+            if isinstance(token.operand, (int, float)):
+                data += struct.pack(">B", 1) + struct.pack(">Q", int(token.operand))
+            elif isinstance(token.operand, str):
+                operand_bytes = token.operand.encode("utf-8")
+                data += struct.pack(">B", 2) + struct.pack(">H", len(operand_bytes)) + operand_bytes
+            else:
+                data += struct.pack(">B", 0)
+        else:
+            data += struct.pack(">B", 0)
+        
+        return data
+    
+    @staticmethod
+    def from_bytes(data: bytes) -> "SuperBitStream":
+        """Deserialize stream from bytes."""
+        if len(data) < 4:
+            raise ValueError("Stream requires at least 4 bytes")
+        
+        token_count = struct.unpack(">I", data[:4])[0]
+        tokens = []
+        offset = 4
+        
+        for _ in range(token_count):
+            if offset + 3 > len(data):
+                raise ValueError("Incomplete stream")
+            
+            opcode_len = struct.unpack(">H", data[offset:offset+2])[0]
+            offset += 2
+            
+            if offset + opcode_len + 1 > len(data):
+                raise ValueError("Incomplete opcode")
+            
+            opcode_str = data[offset:offset+opcode_len].decode("utf-8")
+            offset += opcode_len
+            
+            operand_type = data[offset]
+            offset += 1
+            
+            operand = None
+            if operand_type == 1:
+                if offset + 8 > len(data):
+                    raise ValueError("Incomplete operand")
+                operand = struct.unpack(">Q", data[offset:offset+8])[0]
+                offset += 8
+            elif operand_type == 2:
+                if offset + 2 > len(data):
+                    raise ValueError("Incomplete operand length")
+                operand_len = struct.unpack(">H", data[offset:offset+2])[0]
+                offset += 2
+                if offset + operand_len > len(data):
+                    raise ValueError("Incomplete operand")
+                operand = data[offset:offset+operand_len].decode("utf-8")
+                offset += operand_len
+            
+            token = SuperBitToken(opcode_str, operand)
+            tokens.append(token)
+        
+        return SuperBitStream(tokens=tokens)
+    
+    def __repr__(self) -> str:
+        return f"SuperBitStream(tokens={len(self.tokens)})"
+    
+    def __eq__(self, other) -> bool:
+        if not isinstance(other, SuperBitStream):
+            return False
+        return self.tokens == other.tokens

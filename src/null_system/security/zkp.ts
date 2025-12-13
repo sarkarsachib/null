@@ -144,7 +144,7 @@ export class ZKProofSystem {
     for (let i = 0; i < 32; i++) {
       const byte1 = commitment[i % commitment.length];
       const byte2 = commitment[(i + 1) % commitment.length];
-      challenge[i] = (byte1 ^ byte2) ^ (i * 17);
+      challenge[i] = byte1 ^ byte2 ^ (i * 17);
     }
 
     return challenge;
@@ -214,7 +214,9 @@ export class ZKProofSystem {
     }
 
     const statements = proof.trace.statements
-      .map((s) => `${s.index}: ${s.statement} (${s.commitment.toString('hex').substring(0, 16)}...)`)
+      .map(
+        (s) => `${s.index}: ${s.statement} (${s.commitment.toString('hex').substring(0, 16)}...)`
+      )
       .join('\n');
 
     return `Proof: ${proofId}
