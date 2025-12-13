@@ -2,6 +2,8 @@
  * Binary bridge for emitting binary frames from VM execution
  */
 
+import { SuperBitTensor } from './ai/superbit_tensor';
+
 export interface BinaryFrame {
   frameType: string;
   data: Buffer;
@@ -96,10 +98,7 @@ export class BinaryBridge {
   /**
    * Emit secure channel metadata
    */
-  emitChannelMetadata(
-    channelId: string,
-    metadata: Record<string, unknown>
-  ): void {
+  emitChannelMetadata(channelId: string, metadata: Record<string, unknown>): void {
     const jsonData = JSON.stringify({
       channelId,
       ...metadata,
@@ -143,5 +142,56 @@ export class BinaryBridge {
    */
   getFrameCount(): number {
     return this.frames.length;
+  }
+
+  /**
+   * Emit tensor state frame
+   */
+  emitTensorState(name: string, tensor: SuperBitTensor): void {
+    const shape = tensor.getShape();
+    const metadata = tensor.getMetadata();
+
+    const buffer = Buffer.alloc(128);
+    let offset = 0;
+
+    const nameBuf = Buffer.from(name, 'utf-8');
+    buffer.writeUInt32BE(nameBuf.length, offset);
+    offset += 4;
+    nameBuf.copy(buffer, offset);
+    offset += nameBuf.length;
+
+    const dimCount = shape.dims.length;
+    buffer.writeUInt32BE(dimCount, offset);
+    offset += 4;
+
+    for (let i = 0; i < dimCount && offset < 128; i++) {
+      buffer.writeUInt32BE(shape.dims[i], offset);
+      offset += 4;
+    }
+
+    buffer.writeFloatBE(metadata.uncertainty, offset);
+    offset += 4;
+    buffer.writeFloatBE(metadata.precision, offset);
+
+    this.emitFrame('TENSOR_STATE', buffer.slice(0, offset + 4));
+  }
+
+  /**
+   * Emit tensor output (full serialized tensor)
+   */
+  emitTensorOutput(label: string, tensor: SuperBitTensor): void {
+    const tensorBuffer = tensor.toBuffer();
+    const labelBuf = Buffer.from(label, 'utf-8');
+
+    const buffer = Buffer.alloc(4 + labelBuf.length + tensorBuffer.length);
+    let offset = 0;
+
+    buffer.writeUInt32BE(labelBuf.length, offset);
+    offset += 4;
+    labelBuf.copy(buffer, offset);
+    offset += labelBuf.length;
+    tensorBuffer.copy(buffer, offset);
+
+    this.emitFrame('TENSOR_OUTPUT', buffer);
   }
 }

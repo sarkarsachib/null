@@ -20,6 +20,14 @@ export enum OpCode {
   ZK_VERIFY = 'ZK_VERIFY',
   SMPC_SHARE = 'SMPC_SHARE',
   SMPC_COMBINE = 'SMPC_COMBINE',
+  AI_EMBED = 'AI_EMBED',
+  AI_LAYER = 'AI_LAYER',
+  AI_ATTEND = 'AI_ATTEND',
+  AI_FUZZY = 'AI_FUZZY',
+  SPAWN_VM = 'SPAWN_VM',
+  SEND_MSG = 'SEND_MSG',
+  RECV_MSG = 'RECV_MSG',
+  SYNC_BARRIER = 'SYNC_BARRIER',
 }
 
 export interface Instruction {
@@ -106,6 +114,26 @@ export interface SMPCShareInstruction extends Instruction {
 export interface SMPCCombineInstruction extends Instruction {
   opcode: OpCode.SMPC_COMBINE;
   args: [string, string[]]; // [secretId, shareIds]
+}
+
+export interface AIEmbedInstruction extends Instruction {
+  opcode: OpCode.AI_EMBED;
+  args: [string, string, number]; // [outputRegister, embeddingId, dimension]
+}
+
+export interface AILayerInstruction extends Instruction {
+  opcode: OpCode.AI_LAYER;
+  args: [string, string, string, string]; // [inputRegister, outputRegister, layerConfig, activation]
+}
+
+export interface AIAttendInstruction extends Instruction {
+  opcode: OpCode.AI_ATTEND;
+  args: [string, string, string]; // [inputRegister, outputRegister, attentionConfig]
+}
+
+export interface AIFuzzyInstruction extends Instruction {
+  opcode: OpCode.AI_FUZZY;
+  args: [string, string, number]; // [inputRegister, outputRegister, uncertaintyReduction]
 }
 
 export function isValidOpCode(code: string): code is OpCode {

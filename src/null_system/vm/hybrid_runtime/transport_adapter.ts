@@ -27,27 +27,27 @@ export type FaultCallback = (vmId: string, error: Error) => void;
 
 export interface TransportAdapter {
   readonly adapterId: string;
-  
+
   initialize(): Promise<void>;
-  
+
   sendMessage(message: SuperBitMessage): Promise<void>;
-  
+
   receiveMessage(handler: MessageHandler): void;
-  
+
   registerHealthCallback(callback: HealthCallback): void;
-  
+
   registerFaultCallback(callback: FaultCallback): void;
-  
+
   advertiseCapabilities(capabilities: VMCapabilities): Promise<void>;
-  
+
   discoverVMs(): Promise<VMCapabilities[]>;
-  
+
   close(): Promise<void>;
 }
 
 export abstract class BaseTransportAdapter implements TransportAdapter {
   abstract readonly adapterId: string;
-  
+
   protected messageHandlers: MessageHandler[] = [];
   protected healthCallbacks: HealthCallback[] = [];
   protected faultCallbacks: FaultCallback[] = [];

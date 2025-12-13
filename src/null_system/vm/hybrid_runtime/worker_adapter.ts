@@ -24,7 +24,7 @@ export class WorkerThreadAdapter extends BaseTransportAdapter {
 
   async sendMessage(message: SuperBitMessage): Promise<void> {
     const worker = this.workers.get(message.targetVmId);
-    
+
     if (!worker) {
       throw new Error(`Worker not found for VM ID: ${message.targetVmId}`);
     }
@@ -42,7 +42,7 @@ export class WorkerThreadAdapter extends BaseTransportAdapter {
           data: message,
         };
         worker.postMessage(workerMessage);
-        this.messageQueue = this.messageQueue.filter(m => m.id !== message.id);
+        this.messageQueue = this.messageQueue.filter((m) => m.id !== message.id);
         resolve();
       } catch (error) {
         reject(error);

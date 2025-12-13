@@ -1,6 +1,10 @@
 import { NullVM } from '../../null_vm';
 import { HybridExecutionManager } from '../../hybrid_runtime/hybrid_execution_manager';
-import { BaseTransportAdapter, VMCapabilities, SuperBitMessage } from '../../hybrid_runtime/transport_adapter';
+import {
+  BaseTransportAdapter,
+  VMCapabilities,
+  SuperBitMessage,
+} from '../../hybrid_runtime/transport_adapter';
 import { OpCode } from '../../instructions';
 
 class MockTransportAdapter extends BaseTransportAdapter {
@@ -129,9 +133,7 @@ describe('Hybrid Runtime Integration', () => {
 
       vm2.queueMessage('DATA', { value: 42 });
 
-      const program = [
-        { opcode: OpCode.RECV_MSG, args: ['result', 1000] },
-      ];
+      const program = [{ opcode: OpCode.RECV_MSG, args: ['result', 1000] }];
 
       vm2.execute(program);
 
@@ -155,15 +157,11 @@ describe('Hybrid Runtime Integration', () => {
         },
       });
 
-      const sendProgram = [
-        { opcode: OpCode.SEND_MSG, args: ['vm-2', 'DATA', 100] },
-      ];
+      const sendProgram = [{ opcode: OpCode.SEND_MSG, args: ['vm-2', 'DATA', 100] }];
 
       vm2.queueMessage('DATA', 100);
 
-      const recvProgram = [
-        { opcode: OpCode.RECV_MSG, args: ['msg', 1000] },
-      ];
+      const recvProgram = [{ opcode: OpCode.RECV_MSG, args: ['msg', 1000] }];
 
       vm1.execute(sendProgram);
       vm2.execute(recvProgram);
@@ -192,10 +190,7 @@ describe('Hybrid Runtime Integration', () => {
 
       await manager.createBarrier('test-barrier', 2);
 
-      const arrivals = [
-        vm1.joinBarrier('test-barrier'),
-        vm2.joinBarrier('test-barrier'),
-      ];
+      const arrivals = [vm1.joinBarrier('test-barrier'), vm2.joinBarrier('test-barrier')];
 
       await expect(Promise.all(arrivals)).resolves.not.toThrow();
     });
@@ -245,7 +240,7 @@ describe('Hybrid Runtime Integration', () => {
   describe('Distributed Workloads', () => {
     it('should distribute REPEAT workload across VMs', async () => {
       const workers: NullVM[] = [];
-      
+
       for (let i = 0; i < 3; i++) {
         workers.push(
           new NullVM({
@@ -262,10 +257,7 @@ describe('Hybrid Runtime Integration', () => {
         { opcode: OpCode.SET, args: ['counter', 0] },
         {
           opcode: OpCode.REPEAT,
-          args: [
-            'iterations',
-            [{ opcode: OpCode.ADD, args: ['counter', 1] }],
-          ],
+          args: ['iterations', [{ opcode: OpCode.ADD, args: ['counter', 1] }]],
         },
       ];
 
@@ -336,9 +328,7 @@ describe('Hybrid Runtime Integration', () => {
         },
       });
 
-      const program = [
-        { opcode: OpCode.SPAWN_VM, args: ['child-vm-1', {}] },
-      ];
+      const program = [{ opcode: OpCode.SPAWN_VM, args: ['child-vm-1', {}] }];
 
       parent.execute(program);
 

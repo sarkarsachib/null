@@ -4,14 +4,16 @@ A TypeScript implementation of a virtual machine that executes super-bit program
 
 ## Features
 
-- **Instruction Set Support**: SET, ADD, SHOW, IF, REPEAT, DEFINE, CALL, RETURN, JMP, NOP, and security opcodes
-- **Memory Model**: Registers, stack, and heap abstractions with encrypted value storage
+- **Instruction Set Support**: SET, ADD, SHOW, IF, REPEAT, DEFINE, CALL, RETURN, JMP, NOP, security opcodes, and AI opcodes
+- **Memory Model**: Scalar registers, tensor registers (super-bit tensors), stack, and heap abstractions with encrypted value storage
 - **Control Flow**: Conditional execution (IF) and loops (REPEAT)
 - **Function Definitions**: Define and call custom functions with proper call stack management
-- **Binary Bridge**: Emit binary frames for output, register state, and security metadata
+- **AI/ML Substrate**: Super-bit tensor operations with embedding registry, dense layers, multi-head attention, and uncertainty quantification
+- **AI Instructions**: AI_EMBED (load embeddings), AI_LAYER (dense forward pass), AI_ATTEND (attention with uncertainty reduction), AI_FUZZY (probabilistic uncertainty reduction)
+- **Binary Bridge**: Emit binary frames for output, register state, tensor state, and security metadata
 - **Error Handling**: Structured error propagation with detailed error types
 - **Tracing Hooks**: Hook into execution events for debugging and monitoring
-- **Fuzzy Bit Evaluation**: Stubs for probabilistic evaluation support
+- **Fuzzy Bit Evaluation**: Stubs for probabilistic evaluation support with attention-based refinement
 - **Cryptographic Primitives**: Homomorphic encryption, secure channels, zero-knowledge proofs, and secure multi-party computation (SMPC)
 
 ## Project Structure
@@ -21,15 +23,23 @@ src/
 ├── null_system/
 │   ├── vm/
 │   │   ├── null_vm.ts              # Main NullVM class
-│   │   ├── instructions.ts          # Instruction definitions and opcodes (including security opcodes)
-│   │   ├── decoder.ts               # Super-bit program decoder
-│   │   ├── memory.ts                # Memory model (registers, stack, heap, encrypted values, keys)
+│   │   ├── instructions.ts          # Instruction definitions and opcodes (including AI opcodes)
+│   │   ├── decoder.ts               # Super-bit program decoder with AI instruction validation
+│   │   ├── memory.ts                # Memory model (scalar registers, tensor registers, stack, heap)
 │   │   ├── execution_context.ts     # Execution state and call stack management
-│   │   ├── binary_bridge.ts         # Binary frame emission (proof transcripts, channel metadata)
-│   │   ├── fuzzy_bits.ts            # Fuzzy/probabilistic evaluation stubs
+│   │   ├── binary_bridge.ts         # Binary frame emission (tensor state, proof transcripts, metadata)
+│   │   ├── fuzzy_bits.ts            # Fuzzy/probabilistic evaluation with uncertainty quantification
 │   │   ├── errors.ts                # Error types and handling
-│   │   ├── index.ts                 # Module exports
-│   │   └── __tests__/               # Unit tests for VM components
+│   │   ├── ai/
+│   │   │   ├── superbit_tensor.ts   # Super-bit tensor representation with uncertainty metadata
+│   │   │   ├── embedding_registry.ts # Reusable embedding management and caching
+│   │   │   ├── neural_engine.ts     # Dense layers with Xavier weight initialization
+│   │   │   ├── attention.ts         # Scaled dot-product & multi-head attention mechanisms
+│   │   │   └── index.ts             # AI module exports
+│   │   ├── index.ts                 # VM module exports
+│   │   └── __tests__/
+│   │       ├── ai.test.ts           # Comprehensive AI instruction & tensor tests
+│   │       └── (other tests)         # Unit tests for VM components
 │   ├── security/
 │   │   ├── homomorphic_engine.ts    # Homomorphic encryption (Paillier-style)
 │   │   ├── secure_channel.ts        # Key exchange & authenticated transport (NaCl)
@@ -40,6 +50,7 @@ src/
 ├── examples/
 │   ├── sample_program.ts                  # Sample super-bit programs
 │   ├── distributed_execution.ts           # Distributed workload example
+│   ├── ai_inference.ts                    # AI tensor pipeline demonstration
 │   └── __tests__/                         # End-to-end tests
 └── index.ts                               # Main package exports
 ```
@@ -181,6 +192,118 @@ console.log('Result:', state.memory.registers.x); // 15
 // Reconstructs secret from sufficient shares (must meet or exceed threshold)
 ```
 
+## AI/ML Instructions for Tensor Operations
+
+NullVM includes a foundational AI substrate for tensor-aware computation on classical hardware.
+
+### AI_EMBED - Load or Allocate Embedding
+
+```javascript
+{ opcode: 'AI_EMBED', args: ['output_register', 'embedding_id', dimension] }
+```
+
+Allocates a tensor register and loads an embedding vector:
+- Queries the embedding registry for a previously registered embedding
+- If not found, creates a random dense embedding of specified dimension
+- Stores result in a tensor register (separate from scalar registers)
+- Emits frame with embedding metadata
+
+**Example:**
+```javascript
+{ opcode: 'AI_EMBED', args: ['token_embedding', 'bert_001', 768] }
+```
+
+### AI_LAYER - Dense Layer Forward Pass
+
+```javascript
+{ opcode: 'AI_LAYER', args: ['input_register', 'output_register', '{"outputDim": N}', 'activation'] }
+```
+
+Executes a fully-connected layer with optional activation:
+- Reads tensor from `input_register`
+- Creates dense layer with Xavier/Glorot weight initialization
+- Applies specified activation: `relu`, `sigmoid`, `tanh`, or `linear`
+- Outputs to tensor register
+- Propagates uncertainty: `new_uncertainty = max(input, weight) × precision_product`
+
+**Example:**
+```javascript
+{ opcode: 'AI_LAYER', args: ['h0', 'h1', '{"outputDim": 2048}', 'relu'] }
+```
+
+### AI_ATTEND - Self-Attention with Uncertainty Reduction
+
+```javascript
+{ opcode: 'AI_ATTEND', args: ['input_register', 'output_register', '{"headCount": N}'] }
+```
+
+Applies scaled dot-product multi-head self-attention:
+- Reads tensor from `input_register`
+- Implements `Attention(Q,K,V) = softmax(QK^T/√d_k)V`
+- Splits into N attention heads for parallel computation
+- **Reduces uncertainty** through pattern focusing (default: 30% reduction)
+- Computes precision from head-wise products
+
+**Attention Config:**
+- `headCount`: Number of attention heads (default: 1)
+- `temperatureScale`: Softmax temperature (default: 1.0)
+- `uncertaintyReductionFactor`: Uncertainty reduction per head (default: 0.3)
+
+**Example:**
+```javascript
+{ opcode: 'AI_ATTEND', args: ['h', 'attended', '{"headCount": 8}'] }
+```
+
+### AI_FUZZY - Probabilistic Uncertainty Reduction
+
+```javascript
+{ opcode: 'AI_FUZZY', args: ['input_register', 'output_register', uncertaintyReduction] }
+```
+
+Applies fuzzy-logic based uncertainty refinement:
+- Clones tensor from `input_register`
+- Reduces uncertainty by specified amount (capped at 0)
+- Models probabilistic evaluation gaining confidence
+- Useful after inference steps to quantify certainty
+
+**Example:**
+```javascript
+{ opcode: 'AI_FUZZY', args: ['logits', 'refined_logits', 0.25] }
+```
+
+## Complete AI Program Example
+
+```typescript
+import { NullVM, OpCode } from './src';
+
+const vm = new NullVM();
+
+const program = [
+  // 1. Load token embedding (512-dim)
+  { opcode: OpCode.AI_EMBED, args: ['x', 'token_001', 512] },
+  
+  // 2. Dense layer: 512 → 2048 with ReLU
+  { opcode: OpCode.AI_LAYER, args: ['x', 'h1', '{"outputDim": 2048}', 'relu'] },
+  
+  // 3. Dense layer: 2048 → 512 with linear
+  { opcode: OpCode.AI_LAYER, args: ['h1', 'h2', '{"outputDim": 512}', 'linear'] },
+  
+  // 4. Multi-head attention (8 heads)
+  { opcode: OpCode.AI_ATTEND, args: ['h2', 'attn', '{"headCount": 8}'] },
+  
+  // 5. Fuzzy refinement
+  { opcode: OpCode.AI_FUZZY, args: ['attn', 'logits', 0.1] },
+];
+
+vm.execute(program);
+
+// Access tensor result
+const registry = vm.getEmbeddingRegistry();
+const logits = vm.getState().memory.getTensorRegister('logits');
+console.log('Output shape:', logits.getShape().dims);
+console.log('Uncertainty:', logits.getMetadata().uncertainty);
+```
+
 ## API Documentation
 
 ### NullVM
@@ -199,6 +322,9 @@ class NullVM {
   getSecureChannel(): SecureChannel
   getZKProofSystem(): ZKProofSystem
   getSMPCOrchestrator(): SMPCOrchestrator
+  getEmbeddingRegistry(): EmbeddingRegistry
+  getNeuralEngine(): NeuralEngine
+  getAttentionModule(): AttentionModule
   reset(): void
   getExecutionCycle(): number
   getState(): object
@@ -207,12 +333,16 @@ class NullVM {
 
 ### Memory
 
-Manages registers, stack, heap, encrypted values, and cryptographic keys.
+Manages scalar registers, tensor registers, stack, heap, encrypted values, and cryptographic keys.
 
 ```typescript
 class Memory {
   setRegister(name: string, value: number): void
   getRegister(name: string): number
+  setTensorRegister(name: string, tensor: SuperBitTensor): void
+  getTensorRegister(name: string): SuperBitTensor | null
+  hasTensorRegister(name: string): boolean
+  getAllTensorRegisters(): Record<string, SuperBitTensor>
   pushStack(value: number): void
   popStack(): number
   peekStack(): number

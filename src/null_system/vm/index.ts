@@ -20,10 +20,10 @@ export {
   CallInstruction,
   ReturnInstruction,
   JmpInstruction,
-  SpawnVMInstruction,
-  SendMsgInstruction,
-  RecvMsgInstruction,
-  SyncBarrierInstruction,
+  AIEmbedInstruction,
+  AILayerInstruction,
+  AIAttendInstruction,
+  AIFuzzyInstruction,
   isValidOpCode,
 } from './instructions';
 export { VMError, ErrorType, createError } from './errors';
@@ -45,3 +45,16 @@ export {
   FaultCallback,
   WorkerThreadAdapter,
 } from './hybrid_runtime';
+export {
+  SuperBitTensor,
+  TensorShape,
+  TensorMetadata,
+  EmbeddingRegistry,
+  EmbeddingEntry,
+  EmbeddingMetadata,
+  NeuralEngine,
+  DenseLayer,
+  LayerConfig,
+  AttentionModule,
+  AttentionConfig,
+} from './ai';

@@ -10,11 +10,7 @@ describe('ZKProofSystem', () => {
   describe('Trace Recording', () => {
     test('should record an execution trace', () => {
       const traceId = 'trace_1';
-      const statements = [
-        'Execution started',
-        'Variable x assigned 10',
-        'Variable y assigned 20',
-      ];
+      const statements = ['Execution started', 'Variable x assigned 10', 'Variable y assigned 20'];
 
       const trace = zkp.recordTrace(traceId, statements);
 
@@ -41,10 +37,7 @@ describe('ZKProofSystem', () => {
     });
 
     test('should create commitment for each statement', () => {
-      const trace = zkp.recordTrace('trace_3', [
-        'statement1',
-        'statement2',
-      ]);
+      const trace = zkp.recordTrace('trace_3', ['statement1', 'statement2']);
 
       for (const stmt of trace.statements) {
         expect(stmt.commitment).toBeInstanceOf(Buffer);
@@ -271,10 +264,7 @@ describe('ZKProofSystem', () => {
 
   describe('Long Execution Traces', () => {
     test('should handle long traces', () => {
-      const statements = Array.from(
-        { length: 100 },
-        (_, i) => `statement_${i}`
-      );
+      const statements = Array.from({ length: 100 }, (_, i) => `statement_${i}`);
 
       const trace = zkp.recordTrace('long_trace', statements);
 

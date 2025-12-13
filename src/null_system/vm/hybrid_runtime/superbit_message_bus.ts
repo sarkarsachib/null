@@ -114,9 +114,7 @@ export class SuperBitMessageBus {
       for (const [messageId, pending] of this.pendingMessages.entries()) {
         if (now - pending.timestamp > this.messageTimeoutMs) {
           this.pendingMessages.delete(messageId);
-          pending.reject(
-            new Error(`Message timeout after ${this.messageTimeoutMs}ms`)
-          );
+          pending.reject(new Error(`Message timeout after ${this.messageTimeoutMs}ms`));
         }
       }
     }, 5000);

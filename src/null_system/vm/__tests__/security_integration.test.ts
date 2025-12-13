@@ -152,9 +152,7 @@ describe('NullVM Security Integration', () => {
       const frames = bridge.getFrames();
 
       const smpcFrame = frames.find(
-        (f) =>
-          f.frameType === 'CONTROL' &&
-          f.data.toString('utf-8').includes('SMPC_SHARE')
+        (f) => f.frameType === 'CONTROL' && f.data.toString('utf-8').includes('SMPC_SHARE')
       );
 
       expect(smpcFrame).toBeDefined();
@@ -166,14 +164,7 @@ describe('NullVM Security Integration', () => {
         { opcode: OpCode.SMPC_SHARE, args: ['secret_1', 2] },
         {
           opcode: OpCode.SMPC_COMBINE,
-          args: [
-            'secret_1',
-            [
-              'secret_1_party_0',
-              'secret_1_party_1',
-              'secret_1_party_2',
-            ],
-          ],
+          args: ['secret_1', ['secret_1_party_0', 'secret_1_party_1', 'secret_1_party_2']],
         },
       ];
 
@@ -217,9 +208,7 @@ describe('NullVM Security Integration', () => {
       bridge.emitKeyExchange('party_0', 'party_1', true);
 
       const frames = bridge.getFrames();
-      const keyExchangeFrame = frames.find(
-        (f) => f.frameType === 'KEY_EXCHANGE'
-      );
+      const keyExchangeFrame = frames.find((f) => f.frameType === 'KEY_EXCHANGE');
 
       expect(keyExchangeFrame).toBeDefined();
     });
@@ -312,9 +301,7 @@ describe('NullVM Security Integration', () => {
       bridge.emitChannelMetadata('channel_1', { status: 'initialized' });
 
       const frames = bridge.getFrames();
-      const channelFrame = frames.find(
-        (f) => f.frameType === 'CHANNEL_METADATA'
-      );
+      const channelFrame = frames.find((f) => f.frameType === 'CHANNEL_METADATA');
 
       expect(channelFrame).toBeDefined();
     });
@@ -324,9 +311,7 @@ describe('NullVM Security Integration', () => {
       bridge.emitKeyExchange('alice', 'bob', true);
 
       const frames = bridge.getFrames();
-      const keyExchangeFrame = frames.find(
-        (f) => f.frameType === 'KEY_EXCHANGE'
-      );
+      const keyExchangeFrame = frames.find((f) => f.frameType === 'KEY_EXCHANGE');
 
       expect(keyExchangeFrame).toBeDefined();
       expect(keyExchangeFrame?.data.toString('utf-8')).toContain('alice');
