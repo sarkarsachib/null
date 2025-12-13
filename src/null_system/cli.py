@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from typing import Optional
+import time
 
 import typer
 from rich.console import Console
@@ -11,6 +12,10 @@ from rich.table import Table
 
 from .compiler import NullCompiler, CompilationError
 from .compiler.optimization import DeduplicationPass, CompressionPass
+from .nlp.pipeline import NLPPipeline
+from .nlp.tokenizer import Tokenizer
+from .nlp.translation import Translator
+from .nlp.codegen import CodeGenerator
 
 app = typer.Typer(
     name="nullc",
@@ -154,6 +159,109 @@ def info():
         "  print x",
         border_style="green"
     ))
+
+
+nlp_app = typer.Typer(help="Natural Language Processing tools")
+
+
+@nlp_app.command()
+def tokenize(
+    text: str = typer.Argument(..., help="Text to tokenize"),
+    language: str = typer.Option("auto", "--language", "-l", help="Language code (en, es, zh, auto)"),
+):
+    """Tokenize input text."""
+    try:
+        tokenizer = Tokenizer(language=language)
+        tokens = tokenizer.tokenize(text)
+
+        if not tokens:
+            console.print("[yellow]No tokens found[/yellow]")
+            return
+
+        table = Table(title="Tokenization Result")
+        table.add_column("Token", style="cyan")
+        table.add_column("Type", style="green")
+        table.add_column("Position", style="magenta")
+
+        for token in tokens:
+            table.add_row(token.text, token.token_type.value, str(token.position))
+
+        console.print(table)
+        console.print(f"\n[green]✓ Tokenized into {len(tokens)} tokens[/green]")
+
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        raise typer.Exit(1)
+
+
+@nlp_app.command()
+def translate(
+    text: str = typer.Argument(..., help="Text to translate"),
+    target: str = typer.Option("en", "--target", "-t", help="Target language (en, es, zh)"),
+):
+    """Translate text between languages."""
+    try:
+        translator = Translator()
+        tokenizer = Tokenizer(language="auto")
+        source_lang = tokenizer._detect_language(text)
+
+        result = translator.translate(text, source_lang, target)
+
+        console.print("[bold]Translation Result:[/bold]")
+        console.print(f"[cyan]Source ({result.source_language}):[/cyan] {result.source_text}")
+        console.print(f"[green]Target ({result.target_language}):[/green] {result.target_text}")
+        console.print(f"[magenta]Confidence:[/magenta] {result.confidence:.2%}")
+
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        raise typer.Exit(1)
+
+
+@nlp_app.command()
+def codegen(
+    text: str = typer.Argument(..., help="Natural language description"),
+    language: str = typer.Option("null", "--language", "-l", help="Target language (null, python)"),
+    show_details: bool = typer.Option(False, "--details", "-d", help="Show detailed analysis"),
+):
+    """Generate code from natural language."""
+    try:
+        start_time = time.time()
+
+        codegen = CodeGenerator(language="auto")
+        result = codegen.generate(text, target_language=language)
+
+        elapsed_ms = (time.time() - start_time) * 1000
+
+        console.print(f"[bold]Natural Language:[/bold] {text}")
+        console.print(f"\n[bold]Generated {language.upper()} Code:[/bold]")
+        console.print(Panel(result.generated_code, border_style="green"))
+
+        if show_details:
+            details = Table(title="Generation Details")
+            details.add_column("Metric", style="cyan")
+            details.add_column("Value", style="green")
+
+            if result.intent:
+                details.add_row("Intent", result.intent.name)
+                details.add_row("Intent Confidence", f"{result.intent.confidence:.2%}")
+
+            details.add_row("Entity Count", str(len(result.entities)))
+            details.add_row("Overall Confidence", f"{result.confidence:.2%}")
+            details.add_row("Latency", f"{elapsed_ms:.2f} ms")
+
+            console.print("\n", details)
+
+        if elapsed_ms > 50:
+            console.print(f"[yellow]⚠ Latency {elapsed_ms:.2f} ms exceeds target of 50ms[/yellow]")
+        else:
+            console.print(f"[green]✓ Generated in {elapsed_ms:.2f} ms[/green]")
+
+    except Exception as e:
+        console.print(f"[red]Error: {e}[/red]")
+        raise typer.Exit(1)
+
+
+app.add_typer(nlp_app, name="nlp")
 
 
 if __name__ == "__main__":

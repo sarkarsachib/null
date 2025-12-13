@@ -65,6 +65,7 @@ export class NullVM {
       threshold: 2,
       totalParties: 2,
     });
+    this.quantumState = new QuantumState(this.fuzzyEvaluator);
 
     this.embeddingRegistry = new EmbeddingRegistry();
     this.neuralEngine = new NeuralEngine();
@@ -104,7 +105,7 @@ export class NullVM {
   }
 
   /**
-   * Execute a super-bit program
+   * Execute a super-bit program synchronously
    */
   execute(program: SuperBitProgram | unknown[]): void {
     try {
@@ -145,6 +146,87 @@ export class NullVM {
       }
       throw error;
     }
+  }
+
+  /**
+   * Execute a super-bit program asynchronously with hooks
+   */
+  async executeAsync(program: SuperBitProgram | unknown[]): Promise<void> {
+    try {
+      // Decode program
+      const instructions = this.decoder.decode(program);
+
+      // Set program in context
+      this.context.setProgram(instructions);
+      this.context.setRunning(true);
+      this.executionCycle = 0;
+
+      // Execute instructions with hooks
+      while (
+        this.context.getCurrentInstruction() !== null &&
+        this.executionCycle < this.maxCycles
+      ) {
+        const instruction = this.context.getCurrentInstruction();
+        if (instruction) {
+          // Call execution hooks before executing instruction
+          for (const hook of this.executionHooks) {
+            await Promise.resolve(
+              hook(this.executionCycle, instruction, {
+                registers: this.memory.getAllRegisters(),
+                pc: this.context.getProgramCounter(),
+              })
+            );
+          }
+        }
+
+        this.executeInstruction();
+        this.executionCycle++;
+      }
+
+      if (this.executionCycle >= this.maxCycles) {
+        throw createError(
+          ErrorType.ExecutionError,
+          `Execution exceeded maximum cycles (${this.maxCycles})`
+        );
+      }
+
+      this.context.setRunning(false);
+    } catch (error) {
+      this.context.setRunning(false);
+      if (error instanceof VMError) {
+        this.context.emitTrace('error', {
+          type: error.type,
+          message: error.message,
+          context: error.context,
+        });
+        throw error;
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Register an execution hook
+   */
+  registerExecutionHook(hook: ExecutionHook): void {
+    this.executionHooks.push(hook);
+  }
+
+  /**
+   * Unregister an execution hook
+   */
+  unregisterExecutionHook(hook: ExecutionHook): void {
+    const index = this.executionHooks.indexOf(hook);
+    if (index !== -1) {
+      this.executionHooks.splice(index, 1);
+    }
+  }
+
+  /**
+   * Clear all execution hooks
+   */
+  clearExecutionHooks(): void {
+    this.executionHooks = [];
   }
 
   /**
@@ -827,6 +909,64 @@ export class NullVM {
    */
   getChildVMs(): Map<string, NullVM> {
     return this.childVMs;
+  }
+
+  /**
+   * Execute Q_ALLOC instruction: Q_ALLOC <target_reg>
+   */
+  private executeQ_ALLOC(instruction: Instruction): void {
+    const [targetReg] = instruction.args as [string];
+    const qubitIndex = this.quantumState.allocateQubit();
+    this.memory.setRegister(targetReg, qubitIndex);
+    this.binaryBridge.emitControlFlow('Q_ALLOC', { register: targetReg, qubitIndex });
+  }
+
+  /**
+   * Execute Q_SUPERPOSE instruction: Q_SUPERPOSE <qubit_reg>
+   */
+  private executeQ_SUPERPOSE(instruction: Instruction): void {
+    const [qubitReg] = instruction.args as [string];
+    const qubitIndex = this.memory.getRegister(qubitReg);
+    this.quantumState.applyGate('H', [qubitIndex]);
+    this.binaryBridge.emitControlFlow('Q_SUPERPOSE', { register: qubitReg, qubitIndex });
+  }
+
+  /**
+   * Execute Q_ENTANGLE instruction: Q_ENTANGLE <control_reg> <target_reg>
+   */
+  private executeQ_ENTANGLE(instruction: Instruction): void {
+    const [controlReg, targetReg] = instruction.args as [string, string];
+    const controlIndex = this.memory.getRegister(controlReg);
+    const targetIndex = this.memory.getRegister(targetReg);
+    this.quantumState.applyGate('CNOT', [controlIndex, targetIndex]);
+    this.binaryBridge.emitControlFlow('Q_ENTANGLE', { controlReg, targetReg, controlIndex, targetIndex });
+  }
+
+  /**
+   * Execute Q_APPLY instruction: Q_APPLY <gate_name> <qubit_regs>
+   */
+  private executeQ_APPLY(instruction: Instruction): void {
+    const [gateName, qubitRegs] = instruction.args as [string, string[]];
+    const qubitIndices = qubitRegs.map((reg) => this.memory.getRegister(reg));
+    this.quantumState.applyGate(gateName, qubitIndices);
+    this.binaryBridge.emitControlFlow('Q_APPLY', { gateName, qubitRegs, qubitIndices });
+  }
+
+  /**
+   * Execute Q_MEASURE instruction: Q_MEASURE <qubit_reg> <dest_reg>
+   */
+  private executeQ_MEASURE(instruction: Instruction): void {
+    const [qubitReg, destReg] = instruction.args as [string, string];
+    const qubitIndex = this.memory.getRegister(qubitReg);
+    const result = measureQubit(this.quantumState, qubitIndex);
+    this.memory.setRegister(destReg, result.value);
+    this.binaryBridge.emitControlFlow('Q_MEASURE', {
+      qubitReg,
+      destReg,
+      qubitIndex,
+      value: result.value,
+      probability: result.probability,
+    });
   }
 
   /**
