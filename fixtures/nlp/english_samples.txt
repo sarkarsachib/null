@@ -1,0 +1,10 @@
+set x to 5
+show x
+add 1 and 2
+repeat 10 times
+if x is greater than 5 then show true
+define a function called add_numbers
+set y to 10
+show y
+add x and y
+repeat 3 times show x
