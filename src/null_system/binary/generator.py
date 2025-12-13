@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import List
 
-from ..superbit.tokens import SuperBitStream
+from ..superbit.tokens import SuperBitGroup
 
 
 @dataclass
@@ -28,7 +28,7 @@ class BinaryGenerator:
     MAGIC_NUMBER = b'NULL'
     VERSION = 1
     
-    def generate(self, superbit_stream: SuperBitStream) -> List[BinaryFrame]:
+    def generate(self, superbit_stream: SuperBitGroup) -> List[BinaryFrame]:
         """Generate binary frames from a super-bit stream."""
         header = self._generate_header()
         code = superbit_stream.to_bytes()
