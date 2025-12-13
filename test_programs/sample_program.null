@@ -1,0 +1,5 @@
+# Sample Null program for testing
+set x to 42
+set y to 10
+add x and y
+print result
