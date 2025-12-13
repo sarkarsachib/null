@@ -2,7 +2,7 @@
  * NullVM module exports
  */
 
-export { NullVM, NullVMConfig } from './null_vm';
+export { NullVM, NullVMConfig, ExecutionHook } from './null_vm';
 export { Memory } from './memory';
 export { ExecutionContext, StackFrame, TraceHook } from './execution_context';
 export { Decoder, SuperBitProgram } from './decoder';
@@ -59,3 +59,13 @@ export {
   FaultCallback,
   WorkerThreadAdapter,
 } from './hybrid_runtime';
+export {
+  StateSnapshot,
+  ReplayLog,
+  FaultToleranceManager,
+  VMSnapshot,
+  ReplayLogEntry,
+  CheckpointData,
+} from './fault_tolerance';
+export { WorkStealingScheduler, ScheduledTask, WorkerMetrics, SchedulerMetrics } from './scheduler';
+export { DistributedExecutor, DistributedExecutorConfig, ExecutionResult } from './distributed';

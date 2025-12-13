@@ -4,6 +4,9 @@
   "description": "NullVM - A virtual machine for executing super-bit programs",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "bin": {
+    "nullvm": "dist/bin/cli.js"
+  },
   "scripts": {
     "build": "tsc",
     "test": "jest",
@@ -20,7 +23,9 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "tweetnacl": "^1.0.3"
+    "@types/uuid": "^10.0.0",
+    "tweetnacl": "^1.0.3",
+    "uuid": "^13.0.0"
   },
   "devDependencies": {
     "@types/jest": "^29.5.14",
@@ -33,9 +38,5 @@
     "ts-jest": "^29.4.6",
     "ts-node": "^10.9.2",
     "typescript": "^5.0.0"
-  },
-  "dependencies": {
-    "@types/uuid": "^10.0.0",
-    "uuid": "^13.0.0"
   }
 }

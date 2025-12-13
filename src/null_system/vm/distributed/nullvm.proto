@@ -1,0 +1,95 @@
+syntax = "proto3";
+
+package nullvm.distributed;
+
+service NullVMExecutor {
+  rpc ExecuteProgram(ExecuteRequest) returns (ExecuteResponse);
+  rpc SubmitWork(WorkSubmission) returns (WorkAck);
+  rpc GetTaskStatus(TaskStatusRequest) returns (TaskStatus);
+  rpc SendMessage(Message) returns (MessageAck);
+  rpc PullWork(WorkRequest) returns (stream WorkItem);
+  rpc ReportHealth(HealthReport) returns (HealthAck);
+}
+
+message ExecuteRequest {
+  string vm_id = 1;
+  repeated Instruction instructions = 2;
+  map<string, string> config = 3;
+}
+
+message Instruction {
+  string opcode = 1;
+  repeated string args = 2;
+}
+
+message ExecuteResponse {
+  string task_id = 1;
+  map<string, int32> registers = 2;
+  string status = 3;
+  string error = 4;
+  int64 execution_cycles = 5;
+}
+
+message WorkSubmission {
+  string vm_id = 1;
+  repeated Instruction instructions = 2;
+  int32 priority = 3;
+  map<string, string> metadata = 4;
+}
+
+message WorkAck {
+  string task_id = 1;
+  bool accepted = 2;
+  string reason = 3;
+}
+
+message TaskStatusRequest {
+  string task_id = 1;
+  string vm_id = 2;
+}
+
+message TaskStatus {
+  string task_id = 1;
+  string status = 2;
+  int32 progress = 3;
+  string error = 4;
+}
+
+message Message {
+  string source_vm_id = 1;
+  string target_vm_id = 2;
+  string message_type = 3;
+  bytes payload = 4;
+  string message_id = 5;
+  int64 timestamp = 6;
+}
+
+message MessageAck {
+  string message_id = 1;
+  bool delivered = 2;
+}
+
+message WorkRequest {
+  string worker_id = 1;
+  int32 max_tasks = 2;
+}
+
+message WorkItem {
+  string task_id = 1;
+  string vm_id = 2;
+  repeated Instruction instructions = 3;
+  int32 priority = 4;
+}
+
+message HealthReport {
+  string vm_id = 1;
+  string worker_id = 2;
+  string status = 3;
+  int64 timestamp = 4;
+  int32 current_load = 5;
+  int32 max_capacity = 6;
+}
+
+message HealthAck {
+  bool acknowledged = 1;
+}
