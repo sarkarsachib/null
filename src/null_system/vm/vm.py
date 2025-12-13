@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
 
-from ..superbit.tokens import SuperBitToken, SuperBitStream, SuperBitOpCode
+from ..superbit.tokens import SuperBitToken, SuperBitGroup
 
 
 @dataclass
@@ -24,7 +24,7 @@ class NullVM:
         self.output: List[str] = []
         self.pc = 0
     
-    def execute(self, superbit_stream: SuperBitStream) -> ExecutionResult:
+    def execute(self, superbit_stream: SuperBitGroup) -> ExecutionResult:
         """Execute a super-bit stream."""
         self.stack = []
         self.variables = {}

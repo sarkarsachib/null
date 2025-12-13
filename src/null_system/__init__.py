@@ -1,10 +1,8 @@
-from .compiler import compile_program
-from .vm import VirtualMachine
+from .compiler import NullCompiler
 from .lib.registry import default_registry, LibraryRegistry
 
 __all__ = [
-    "compile_program",
-    "VirtualMachine",
+    "NullCompiler",
     "default_registry",
     "LibraryRegistry",
 ]

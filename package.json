@@ -4,6 +4,9 @@
   "description": "NullVM - A virtual machine for executing super-bit programs",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "bin": {
+    "nullvm": "dist/bin/cli.js"
+  },
   "scripts": {
     "build": "tsc",
     "test": "jest",

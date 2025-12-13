@@ -13,6 +13,9 @@ A TypeScript implementation of a virtual machine that executes super-bit program
 - **Tracing Hooks**: Hook into execution events for debugging and monitoring
 - **Fuzzy Bit Evaluation**: Stubs for probabilistic evaluation support
 - **Cryptographic Primitives**: Homomorphic encryption, secure channels, zero-knowledge proofs, and secure multi-party computation (SMPC)
+- **Hybrid Executor**: Distributed execution with work-stealing load balancing, async execution hooks, and fault tolerance
+- **Fault Tolerance**: State snapshots, replay logs, and automatic recovery
+- **Work-Stealing Scheduler**: Fair task distribution across multiple workers with backpressure handling
 
 ## Project Structure
 
@@ -20,28 +23,57 @@ A TypeScript implementation of a virtual machine that executes super-bit program
 src/
 ├── null_system/
 │   ├── vm/
-│   │   ├── null_vm.ts              # Main NullVM class
-│   │   ├── instructions.ts          # Instruction definitions and opcodes (including security opcodes)
-│   │   ├── decoder.ts               # Super-bit program decoder
-│   │   ├── memory.ts                # Memory model (registers, stack, heap, encrypted values, keys)
-│   │   ├── execution_context.ts     # Execution state and call stack management
-│   │   ├── binary_bridge.ts         # Binary frame emission (proof transcripts, channel metadata)
-│   │   ├── fuzzy_bits.ts            # Fuzzy/probabilistic evaluation stubs
-│   │   ├── errors.ts                # Error types and handling
-│   │   ├── index.ts                 # Module exports
-│   │   └── __tests__/               # Unit tests for VM components
+│   │   ├── null_vm.ts                      # Main NullVM class
+│   │   ├── instructions.ts                 # Instruction definitions and opcodes
+│   │   ├── decoder.ts                      # Super-bit program decoder
+│   │   ├── memory.ts                       # Memory model (registers, stack, heap)
+│   │   ├── execution_context.ts            # Execution state and call stack management
+│   │   ├── binary_bridge.ts                # Binary frame emission
+│   │   ├── fuzzy_bits.ts                   # Fuzzy/probabilistic evaluation stubs
+│   │   ├── errors.ts                       # Error types and handling
+│   │   ├── fault_tolerance.ts              # Checkpointing and replay logs
+│   │   ├── scheduler/
+│   │   │   ├── work_stealing_scheduler.ts  # Work-stealing load balancer
+│   │   │   └── index.ts
+│   │   ├── distributed/
+│   │   │   ├── distributed_executor.ts     # Distributed execution orchestrator
+│   │   │   ├── nullvm.proto                # gRPC service definitions
+│   │   │   └── index.ts
+│   │   ├── hybrid_runtime/                 # Hybrid execution runtime
+│   │   │   ├── hybrid_execution_manager.ts # Multi-VM orchestration
+│   │   │   ├── work_scheduler.ts           # Work queue management
+│   │   │   ├── superbit_message_bus.ts     # Message passing with super-bit encoding
+│   │   │   ├── transport_adapter.ts        # Transport layer abstraction
+│   │   │   ├── worker_adapter.ts           # Worker thread management
+│   │   │   └── index.ts
+│   │   ├── __tests__/                      # Unit tests for VM components
+│   │   │   ├── fault_tolerance.test.ts
+│   │   │   ├── work_stealing_scheduler.test.ts
+│   │   │   ├── distributed_executor.test.ts
+│   │   │   ├── hybrid_executor.test.ts
+│   │   │   └── ...
+│   │   └── index.ts                        # Module exports
 │   ├── security/
-│   │   ├── homomorphic_engine.ts    # Homomorphic encryption (Paillier-style)
-│   │   ├── secure_channel.ts        # Key exchange & authenticated transport (NaCl)
-│   │   ├── zkp.ts                   # Zero-knowledge proofs (Fiat-Shamir)
-│   │   ├── smpc_orchestrator.ts     # Secret sharing & multi-party computation
-│   │   ├── index.ts                 # Security module exports
-│   │   └── __tests__/               # Security module tests
+│   │   ├── homomorphic_engine.ts           # Homomorphic encryption
+│   │   ├── secure_channel.ts               # Key exchange & authenticated transport
+│   │   ├── zkp.ts                          # Zero-knowledge proofs
+│   │   ├── smpc_orchestrator.ts            # Secret sharing & SMPC
+│   │   ├── index.ts
+│   │   └── __tests__/                      # Security module tests
+│   ├── compiler/
+│   │   ├── hybrid_runner.py                # Python bridge for distributed execution
+│   │   └── ...
+│   └── ...
+├── bin/
+│   └── cli.ts                              # CLI entry point (nullvm command)
 ├── examples/
-│   ├── sample_program.ts                  # Sample super-bit programs
-│   ├── distributed_execution.ts           # Distributed workload example
-│   └── __tests__/                         # End-to-end tests
-└── index.ts                               # Main package exports
+│   ├── sample_program.ts                   # Sample super-bit programs
+│   ├── distributed_execution.ts            # Distributed workload example
+│   └── ...
+├── docs/
+│   ├── hybrid_execution.md                 # Hybrid executor guide
+│   └── ...
+└── index.ts                                # Main package exports
 ```
 
 ## Installation
@@ -80,6 +112,95 @@ vm.execute(program);
 const state = vm.getState();
 console.log('Result:', state.memory.registers.x); // 15
 ```
+
+### Using the Hybrid Executor for Distributed Execution
+
+```typescript
+import { DistributedExecutor } from './null_system/vm/distributed';
+import { OpCode } from './null_system/vm';
+
+// Create distributed executor
+const executor = new DistributedExecutor({
+  nodeId: 'node-1',
+  listenAddr: 'localhost',
+  listenPort: 50051,
+  maxWorkers: 100,
+  enableCheckpointing: true,
+  checkpointInterval: 5000,
+});
+
+await executor.initialize();
+
+// Register VMs as workers
+const vm = new NullVM({ vmId: 'vm-1' });
+executor.registerVM('vm-1', vm);
+
+// Execute program on distributed executor
+const program = [
+  { opcode: OpCode.SET, args: ['x', '42'] },
+  { opcode: OpCode.ADD, args: ['x', '8'] },
+];
+
+const result = await executor.executeOnVM('vm-1', program);
+console.log('Execution result:', result);
+// { status: 'success', registers: { x: 50 }, executionCycles: 2, duration: 1 }
+```
+
+### Using Async Execution with Hooks
+
+```typescript
+// Register execution hook for monitoring
+vm.registerExecutionHook(async (cycle, instruction, context) => {
+  console.log(`Cycle ${cycle}: ${instruction.opcode}`);
+  console.log(`Registers:`, context.registers);
+});
+
+// Execute asynchronously with hooks invoked
+await vm.executeAsync(program);
+```
+
+### Using Fault Tolerance
+
+```typescript
+import { StateSnapshot, FaultToleranceManager } from './null_system/vm';
+
+const manager = new FaultToleranceManager();
+
+// Execute and create checkpoint
+vm.execute(program);
+const snapshot = vm.createSnapshot();
+const checkpointId = manager.createCheckpoint('vm-1', snapshot, []);
+
+// Later: recover from checkpoint
+const checkpoint = manager.getCheckpoint(checkpointId);
+vm.restoreSnapshot(checkpoint.vmSnapshot);
+```
+
+### Using the CLI
+
+```bash
+# Run a program with tracing
+npm run build
+node dist/bin/cli.js run --program "SET x 10; ADD x 5; SHOW x" --tracing
+
+# Run a benchmark
+node dist/bin/cli.js benchmark --workers 100 --taskCount 10000
+
+# Start a distributed executor server
+node dist/bin/cli.js server --port 50051 --workers 100 --nodeId node-1
+```
+
+## Hybrid Executor Guide
+
+See [docs/hybrid_execution.md](docs/hybrid_execution.md) for comprehensive hybrid executor documentation including:
+
+- Architecture and components
+- Work-stealing scheduler details
+- Fault tolerance and recovery
+- Performance characteristics
+- Configuration options
+- Monitoring and metrics
+- Deployment guide
 
 ## Instruction Reference
 
