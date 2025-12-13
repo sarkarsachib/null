@@ -4,32 +4,27 @@
   "description": "NullVM - A virtual machine for executing super-bit programs",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
-  "bin": {
-    "nullvm": "dist/bin/cli.js"
-  },
+  "workspaces": ["tools/visualizer/frontend"],
   "scripts": {
     "build": "tsc",
-    "test": "jest",
+    "test": "jest && npm run test:visualizer",
     "test:watch": "jest --watch",
+    "test:visualizer": "npm --workspace null-visualizer-frontend test",
     "lint": "eslint src --ext .ts",
     "format": "prettier --write \"src/**/*.ts\"",
     "prepush": "npm run lint && npm run build && npm run test"
   },
-  "keywords": [
-    "vm",
-    "super-bit",
-    "null-system"
-  ],
+  "keywords": ["vm", "super-bit", "null-system"],
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@types/uuid": "^10.0.0",
     "tweetnacl": "^1.0.3",
     "uuid": "^13.0.0"
   },
   "devDependencies": {
     "@types/jest": "^29.5.14",
     "@types/node": "^20.0.0",
+    "@types/uuid": "^10.0.0",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
     "eslint": "^8.0.0",

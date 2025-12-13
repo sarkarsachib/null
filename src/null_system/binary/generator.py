@@ -5,56 +5,7 @@ import json
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any
 
-from ..superbit.tokens import SuperBitGroup
-
-
-@dataclass
-class BinaryMetadata:
-    """Metadata for binary frames."""
-    compression_algorithm: Optional[str] = None
-    compression_level: Optional[str] = None
-    encryption_algorithm: Optional[str] = None
-    encryption_key_id: Optional[str] = None
-    encryption_nonce: Optional[str] = None
-    encryption_tag: Optional[str] = None
-    custom: Dict[str, Any] = field(default_factory=dict)
-    
-    def to_bytes(self) -> bytes:
-        """Serialize metadata to bytes."""
-        data = {
-            "compression_algorithm": self.compression_algorithm,
-            "compression_level": self.compression_level,
-            "encryption_algorithm": self.encryption_algorithm,
-            "encryption_key_id": self.encryption_key_id,
-            "encryption_nonce": self.encryption_nonce,
-            "encryption_tag": self.encryption_tag,
-            "custom": self.custom
-        }
-        json_bytes = json.dumps(data).encode("utf-8")
-        return struct.pack(">H", len(json_bytes)) + json_bytes
-    
-    @staticmethod
-    def from_bytes(data: bytes) -> "BinaryMetadata":
-        """Deserialize metadata from bytes."""
-        if len(data) < 2:
-            return BinaryMetadata()
-        
-        length = struct.unpack(">H", data[:2])[0]
-        if len(data) < 2 + length:
-            return BinaryMetadata()
-        
-        json_bytes = data[2:2+length]
-        obj = json.loads(json_bytes.decode("utf-8"))
-        
-        return BinaryMetadata(
-            compression_algorithm=obj.get("compression_algorithm"),
-            compression_level=obj.get("compression_level"),
-            encryption_algorithm=obj.get("encryption_algorithm"),
-            encryption_key_id=obj.get("encryption_key_id"),
-            encryption_nonce=obj.get("encryption_nonce"),
-            encryption_tag=obj.get("encryption_tag"),
-            custom=obj.get("custom", {})
-        )
+from ..superbit.ir import SuperBitStream
 
 
 @dataclass

@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
 
-from ..superbit.tokens import SuperBitToken, SuperBitGroup
+from ..superbit.ir import SuperBitIRToken as SuperBitToken, SuperBitStream, SuperBitOpCode
 
 
 @dataclass

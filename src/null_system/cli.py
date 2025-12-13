@@ -1,5 +1,10 @@
 """CLI for the Null compiler using Typer and Rich."""
 
+import os
+import subprocess
+import sys
+import time
+import webbrowser
 from pathlib import Path
 from typing import Optional
 import time
@@ -190,6 +195,84 @@ def run(
     except Exception as e:
         console.print(f"[red]Unexpected error: {e}[/red]")
         raise typer.Exit(1)
+
+
+@app.command()
+def visualize(
+    file: Path = typer.Argument(..., help="Null-Lang source file (.null)"),
+    backend_port: int = typer.Option(8000, "--backend-port", help="Backend port"),
+    frontend_port: int = typer.Option(5174, "--frontend-port", help="Frontend port"),
+    demo: bool = typer.Option(False, "--demo", help="Use bundled sample session data"),
+    open_browser: bool = typer.Option(True, "--open/--no-open", help="Open a browser tab"),
+):
+    """Launch the execution visualizer (backend + React UI)."""
+
+    project_root = Path(__file__).resolve().parents[2]
+
+    if demo:
+        session_path = project_root / "examples" / "visualizer" / "sample.session.json"
+        if not session_path.exists():
+            console.print(f"[red]Missing sample session data at {session_path}[/red]")
+            raise typer.Exit(1)
+        env = {**os.environ, "NULL_VISUALIZER_SESSION_JSON": str(session_path)}
+    else:
+        if not file.exists():
+            console.print(f"[red]Error: File not found: {file}[/red]")
+            raise typer.Exit(1)
+        env = {**os.environ, "NULL_VISUALIZER_SOURCE": str(file)}
+
+    backend_cmd = [
+        sys.executable,
+        "-m",
+        "uvicorn",
+        "tools.visualizer.backend.server:app",
+        "--port",
+        str(backend_port),
+        "--log-level",
+        "warning",
+    ]
+
+    frontend_cmd = [
+        "npm",
+        "--workspace",
+        "null-visualizer-frontend",
+        "run",
+        "dev",
+        "--",
+        "--port",
+        str(frontend_port),
+        "--strictPort",
+    ]
+
+    console.print(
+        Panel.fit(
+            f"[bold cyan]Null Visualizer[/bold cyan]\n\n"
+            f"Backend: http://localhost:{backend_port}\n"
+            f"Frontend: http://localhost:{frontend_port}",
+            border_style="cyan",
+        )
+    )
+
+    backend = subprocess.Popen(backend_cmd, cwd=str(project_root), env=env)
+    frontend = subprocess.Popen(frontend_cmd, cwd=str(project_root), env=env)
+
+    try:
+        time.sleep(1.0)
+        if open_browser:
+            webbrowser.open(f"http://localhost:{frontend_port}")
+
+        while True:
+            if backend.poll() is not None:
+                raise typer.Exit(backend.returncode or 1)
+            if frontend.poll() is not None:
+                raise typer.Exit(frontend.returncode or 1)
+            time.sleep(0.25)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        for proc in (frontend, backend):
+            if proc.poll() is None:
+                proc.terminate()
 
 
 @app.command()
