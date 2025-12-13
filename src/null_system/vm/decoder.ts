@@ -227,6 +227,66 @@ export class Decoder {
         }
         break;
 
+      case OpCode.NLP_TOKENIZE:
+        if (args.length < 2 || typeof args[0] !== 'string' || typeof args[1] !== 'string') {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'NLP_TOKENIZE requires two arguments: input_register (string) and output_register (string)',
+            { lineno, args }
+          );
+        }
+        break;
+
+      case OpCode.NLP_EMBED:
+        if (args.length < 2 || typeof args[0] !== 'string' || typeof args[1] !== 'string') {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'NLP_EMBED requires two arguments: input_register (string) and output_register (string)',
+            { lineno, args }
+          );
+        }
+        break;
+
+      case OpCode.NLP_TRANSLATE:
+        if (args.length < 3 || typeof args[0] !== 'string' || typeof args[1] !== 'string' || typeof args[2] !== 'string') {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'NLP_TRANSLATE requires three arguments: input_register (string), target_language (string), and output_register (string)',
+            { lineno, args }
+          );
+        }
+        break;
+
+      case OpCode.KG_LOAD:
+        if (args.length < 2 || typeof args[1] !== 'string') {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'KG_LOAD requires two arguments: graph_data (any) and graph_id_register (string)',
+            { lineno, args }
+          );
+        }
+        break;
+
+      case OpCode.KG_QUERY:
+        if (args.length < 3 || typeof args[0] !== 'string' || typeof args[1] !== 'string' || typeof args[2] !== 'string') {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'KG_QUERY requires three arguments: graph_id (string), query_string (string), and result_register (string)',
+            { lineno, args }
+          );
+        }
+        break;
+
+      case OpCode.KG_REASON:
+        if (args.length < 3 || typeof args[0] !== 'string' || typeof args[1] !== 'string' || typeof args[2] !== 'string') {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'KG_REASON requires three arguments: graph_id (string), rule_data (string), and result_register (string)',
+            { lineno, args }
+          );
+        }
+        break;
+
       default:
         throw createError(ErrorType.InvalidInstruction, `Unknown opcode: ${opcode}`, {
           lineno,

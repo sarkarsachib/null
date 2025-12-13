@@ -20,6 +20,12 @@ export enum OpCode {
   ZK_VERIFY = 'ZK_VERIFY',
   SMPC_SHARE = 'SMPC_SHARE',
   SMPC_COMBINE = 'SMPC_COMBINE',
+  NLP_TOKENIZE = 'NLP_TOKENIZE',
+  NLP_EMBED = 'NLP_EMBED',
+  NLP_TRANSLATE = 'NLP_TRANSLATE',
+  KG_LOAD = 'KG_LOAD',
+  KG_QUERY = 'KG_QUERY',
+  KG_REASON = 'KG_REASON',
 }
 
 export interface Instruction {
@@ -106,6 +112,36 @@ export interface SMPCShareInstruction extends Instruction {
 export interface SMPCCombineInstruction extends Instruction {
   opcode: OpCode.SMPC_COMBINE;
   args: [string, string[]]; // [secretId, shareIds]
+}
+
+export interface NLPTokenizeInstruction extends Instruction {
+  opcode: OpCode.NLP_TOKENIZE;
+  args: [string, string]; // [inputRegister, outputRegister, options?]
+}
+
+export interface NLPEmbedInstruction extends Instruction {
+  opcode: OpCode.NLP_EMBED;
+  args: [string, string]; // [inputRegister, outputRegister]
+}
+
+export interface NLPTranslateInstruction extends Instruction {
+  opcode: OpCode.NLP_TRANSLATE;
+  args: [string, string, string]; // [inputRegister, targetLanguage, outputRegister]
+}
+
+export interface KGLoadInstruction extends Instruction {
+  opcode: OpCode.KG_LOAD;
+  args: [unknown, string]; // [graphData, graphIdRegister]
+}
+
+export interface KGQueryInstruction extends Instruction {
+  opcode: OpCode.KG_QUERY;
+  args: [string, string, string]; // [graphId, queryString, resultRegister]
+}
+
+export interface KGReasonInstruction extends Instruction {
+  opcode: OpCode.KG_REASON;
+  args: [string, string, string]; // [graphId, ruleData, resultRegister]
 }
 
 export function isValidOpCode(code: string): code is OpCode {

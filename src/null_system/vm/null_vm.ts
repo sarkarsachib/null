@@ -210,6 +210,30 @@ export class NullVM {
         this.executeSMPC_COMBINE(instruction);
         break;
 
+      case OpCode.NLP_TOKENIZE:
+        this.executeNLP_TOKENIZE(instruction);
+        break;
+
+      case OpCode.NLP_EMBED:
+        this.executeNLP_EMBED(instruction);
+        break;
+
+      case OpCode.NLP_TRANSLATE:
+        this.executeNLP_TRANSLATE(instruction);
+        break;
+
+      case OpCode.KG_LOAD:
+        this.executeKG_LOAD(instruction);
+        break;
+
+      case OpCode.KG_QUERY:
+        this.executeKG_QUERY(instruction);
+        break;
+
+      case OpCode.KG_REASON:
+        this.executeKG_REASON(instruction);
+        break;
+
       default:
         throw createError(
           ErrorType.InvalidInstruction,
@@ -808,5 +832,107 @@ export class NullVM {
    */
   getHybridRuntimeManager(): HybridExecutionManager | undefined {
     return this.hybridRuntimeManager;
+  }
+
+  /**
+   * Execute NLP_TOKENIZE instruction
+   */
+  private executeNLP_TOKENIZE(instruction: Instruction): void {
+    const [inputReg, outputReg] = instruction.args as [string, string];
+
+    // For now, store a simple token count in output register
+    // In real implementation, this would use the Tokenizer from nlp module
+    const input = this.memory.getRegister(inputReg);
+    const tokenCount = Math.ceil(Math.sqrt(Math.abs(input) + 1)); // Simple heuristic
+    this.memory.setRegister(outputReg, tokenCount);
+    this.binaryBridge.emitRegisterState(outputReg, tokenCount);
+  }
+
+  /**
+   * Execute NLP_EMBED instruction
+   */
+  private executeNLP_EMBED(instruction: Instruction): void {
+    const [inputReg, outputReg] = instruction.args as [string, string];
+
+    // Create a simple embedding tensor and store it
+    const input = this.memory.getRegister(inputReg);
+    const dimension = 128;
+    const bits = new Uint8Array(dimension);
+
+    // Hash-based embedding
+    for (let i = 0; i < dimension; i++) {
+      let hash = input + i;
+      hash = (hash << 5) - hash + 0;
+      bits[i] = Math.abs(hash) % 256;
+    }
+
+    const tensorId = `tensor_${outputReg}_${Date.now()}`;
+    this.memory.storeTensor(tensorId, { dimensions: dimension, bits });
+    this.memory.setRegister(outputReg, 1); // Success flag
+    this.binaryBridge.emitRegisterState(outputReg, 1);
+  }
+
+  /**
+   * Execute NLP_TRANSLATE instruction
+   */
+  private executeNLP_TRANSLATE(instruction: Instruction): void {
+    const [inputReg, targetLang, outputReg] = instruction.args as [string, string, string];
+
+    // Simple translation: mark register with language code
+    const input = this.memory.getRegister(inputReg);
+    const output = (input * 31) ^ targetLang.charCodeAt(0); // Simple hash
+    this.memory.setRegister(outputReg, output);
+    this.binaryBridge.emitRegisterState(outputReg, output);
+  }
+
+  /**
+   * Execute KG_LOAD instruction
+   */
+  private executeKG_LOAD(instruction: Instruction): void {
+    const [graphData, graphIdReg] = instruction.args as [unknown, string];
+
+    // Store the graph in memory
+    const graphId = `graph_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+    const processedGraph =
+      typeof graphData === 'object' ? graphData : { data: String(graphData) };
+
+    this.memory.storeGraph(graphId, processedGraph as Record<string, unknown>);
+    this.memory.setRegister(graphIdReg, 1); // Success flag
+    this.binaryBridge.emitRegisterState(graphIdReg, 1);
+  }
+
+  /**
+   * Execute KG_QUERY instruction
+   */
+  private executeKG_QUERY(instruction: Instruction): void {
+    const [graphIdReg, queryStringReg, resultReg] = instruction.args as [string, string, string];
+
+    const graphIdValue = this.memory.getRegister(graphIdReg);
+    const queryValue = this.memory.getRegister(queryStringReg);
+
+    // Simple query result: hash of query
+    let result = 0;
+    for (let i = 0; i < 32; i++) {
+      result = (result << 5) - result + (graphIdValue + queryValue) * (i + 1);
+      result |= 0;
+    }
+
+    this.memory.setRegister(resultReg, Math.abs(result) % 1000);
+    this.binaryBridge.emitRegisterState(resultReg, Math.abs(result) % 1000);
+  }
+
+  /**
+   * Execute KG_REASON instruction
+   */
+  private executeKG_REASON(instruction: Instruction): void {
+    const [graphIdReg, ruleDataReg, resultReg] = instruction.args as [string, string, string];
+
+    const graphIdValue = this.memory.getRegister(graphIdReg);
+    const ruleValue = this.memory.getRegister(ruleDataReg);
+
+    // Simple inference result: combine graph and rule values
+    const result = (graphIdValue + ruleValue) * 7 % 256;
+    this.memory.setRegister(resultReg, result);
+    this.binaryBridge.emitRegisterState(resultReg, result);
   }
 }

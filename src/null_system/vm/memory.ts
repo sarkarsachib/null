@@ -13,6 +13,12 @@ export interface EncryptedData {
   type: 'encrypted';
 }
 
+export interface StoredTensor {
+  dimensions: number;
+  bits: Uint8Array;
+  metadata?: Record<string, unknown>;
+}
+
 export class Memory {
   private registers: Map<string, number> = new Map();
   private stack: number[] = [];
@@ -21,6 +27,8 @@ export class Memory {
   private heapPointer: number = 0;
   private encryptedValues: Map<string, EncryptedData> = new Map();
   private keys: Map<string, { publicKey: Buffer; privateKey?: Buffer }> = new Map();
+  private tensors: Map<string, StoredTensor> = new Map();
+  private graphs: Map<string, Record<string, unknown>> = new Map();
 
   constructor() {
     this.heap = Buffer.alloc(HEAP_SIZE, 0);
@@ -210,6 +218,34 @@ export class Memory {
   }
 
   /**
+   * Store a tensor
+   */
+  storeTensor(id: string, tensor: StoredTensor): void {
+    this.tensors.set(id, tensor);
+  }
+
+  /**
+   * Get a tensor
+   */
+  getTensor(id: string): StoredTensor | undefined {
+    return this.tensors.get(id);
+  }
+
+  /**
+   * Store a graph
+   */
+  storeGraph(id: string, graph: Record<string, unknown>): void {
+    this.graphs.set(id, graph);
+  }
+
+  /**
+   * Get a graph
+   */
+  getGraph(id: string): Record<string, unknown> | undefined {
+    return this.graphs.get(id);
+  }
+
+  /**
    * Reset all memory
    */
   reset(): void {
@@ -220,6 +256,8 @@ export class Memory {
     this.heapPointer = 0;
     this.encryptedValues.clear();
     this.keys.clear();
+    this.tensors.clear();
+    this.graphs.clear();
   }
 
   /**
@@ -234,6 +272,8 @@ export class Memory {
       heapSize: HEAP_SIZE,
       encryptedValuesCount: this.encryptedValues.size,
       keysCount: this.keys.size,
+      tensorCount: this.tensors.size,
+      graphCount: this.graphs.size,
     };
   }
 }

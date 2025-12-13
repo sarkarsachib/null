@@ -4,8 +4,8 @@ A TypeScript implementation of a virtual machine that executes super-bit program
 
 ## Features
 
-- **Instruction Set Support**: SET, ADD, SHOW, IF, REPEAT, DEFINE, CALL, RETURN, JMP, NOP, and security opcodes
-- **Memory Model**: Registers, stack, and heap abstractions with encrypted value storage
+- **Instruction Set Support**: SET, ADD, SHOW, IF, REPEAT, DEFINE, CALL, RETURN, JMP, NOP, security opcodes, and **NLP/KG opcodes**
+- **Memory Model**: Registers, stack, and heap abstractions with encrypted value storage, **tensors, and graphs**
 - **Control Flow**: Conditional execution (IF) and loops (REPEAT)
 - **Function Definitions**: Define and call custom functions with proper call stack management
 - **Binary Bridge**: Emit binary frames for output, register state, and security metadata
@@ -13,6 +13,8 @@ A TypeScript implementation of a virtual machine that executes super-bit program
 - **Tracing Hooks**: Hook into execution events for debugging and monitoring
 - **Fuzzy Bit Evaluation**: Stubs for probabilistic evaluation support
 - **Cryptographic Primitives**: Homomorphic encryption, secure channels, zero-knowledge proofs, and secure multi-party computation (SMPC)
+- **NLP Module**: Multilingual tokenization, embeddings, translation, and code generation
+- **Knowledge Graphs**: Entity-relationship graphs, ontology management, rule-based inference, and RDF/JSON-LD support
 
 ## Project Structure
 
@@ -21,15 +23,26 @@ src/
 ├── null_system/
 │   ├── vm/
 │   │   ├── null_vm.ts              # Main NullVM class
-│   │   ├── instructions.ts          # Instruction definitions and opcodes (including security opcodes)
+│   │   ├── instructions.ts          # Instruction definitions and opcodes (including NLP/KG opcodes)
 │   │   ├── decoder.ts               # Super-bit program decoder
-│   │   ├── memory.ts                # Memory model (registers, stack, heap, encrypted values, keys)
+│   │   ├── memory.ts                # Memory model (registers, stack, heap, encrypted values, tensors, graphs)
 │   │   ├── execution_context.ts     # Execution state and call stack management
 │   │   ├── binary_bridge.ts         # Binary frame emission (proof transcripts, channel metadata)
 │   │   ├── fuzzy_bits.ts            # Fuzzy/probabilistic evaluation stubs
 │   │   ├── errors.ts                # Error types and handling
+│   │   ├── nlp/                     # NLP module
+│   │   │   ├── tokenizer.ts         # Multilingual text tokenization
+│   │   │   ├── embedder.ts          # Super-bit embedding generation and translation
+│   │   │   ├── codegen_adapter.ts   # Code generation from embeddings
+│   │   │   └── index.ts             # NLP module exports
+│   │   ├── knowledge/               # Knowledge Graph module
+│   │   │   ├── graph_store.ts       # Entity-relationship graph management
+│   │   │   ├── ontology_manager.ts  # Schema and constraint management
+│   │   │   ├── inference_engine.ts  # Rule-based reasoning and inference
+│   │   │   ├── rdf_loader.ts        # RDF/JSON-LD import/export
+│   │   │   └── index.ts             # Knowledge module exports
 │   │   ├── index.ts                 # Module exports
-│   │   └── __tests__/               # Unit tests for VM components
+│   │   └── __tests__/               # Unit and integration tests
 │   ├── security/
 │   │   ├── homomorphic_engine.ts    # Homomorphic encryption (Paillier-style)
 │   │   ├── secure_channel.ts        # Key exchange & authenticated transport (NaCl)
@@ -40,7 +53,12 @@ src/
 ├── examples/
 │   ├── sample_program.ts                  # Sample super-bit programs
 │   ├── distributed_execution.ts           # Distributed workload example
+│   ├── nlp_kg_example.ts                  # NLP and Knowledge Graph example
 │   └── __tests__/                         # End-to-end tests
+├── docs/
+│   ├── knowledge.md                 # NLP & Knowledge Graph documentation
+│   ├── architecture.md              # System architecture
+│   └── hybrid_runtime.md            # Hybrid runtime guide
 └── index.ts                               # Main package exports
 ```
 
@@ -179,6 +197,103 @@ console.log('Result:', state.memory.registers.x); // 15
 ```javascript
 { opcode: 'SMPC_COMBINE', args: ['secret_id', ['share_id_1', 'share_id_2', ...]] }
 // Reconstructs secret from sufficient shares (must meet or exceed threshold)
+```
+
+### NLP_TOKENIZE - Tokenize Text
+```javascript
+{ opcode: 'NLP_TOKENIZE', args: ['input_register', 'output_register'] }
+// Tokenizes text and stores token count
+```
+
+### NLP_EMBED - Generate Embeddings
+```javascript
+{ opcode: 'NLP_EMBED', args: ['input_register', 'output_register'] }
+// Generates super-bit embeddings for text
+```
+
+### NLP_TRANSLATE - Translate Text
+```javascript
+{ opcode: 'NLP_TRANSLATE', args: ['input_register', 'target_language', 'output_register'] }
+// Translates text to target language (es, fr, de, zh, etc.)
+```
+
+### KG_LOAD - Load Knowledge Graph
+```javascript
+{ opcode: 'KG_LOAD', args: [graph_data, 'graph_id_register'] }
+// Loads knowledge graph from data (entities and relationships)
+```
+
+### KG_QUERY - Query Knowledge Graph
+```javascript
+{ opcode: 'KG_QUERY', args: ['graph_id_register', 'query_register', 'result_register'] }
+// Queries knowledge graph and returns semantic results
+```
+
+### KG_REASON - Perform Inference
+```javascript
+{ opcode: 'KG_REASON', args: ['graph_id_register', 'rule_register', 'result_register'] }
+// Performs rule-based reasoning over knowledge graph
+```
+
+## NLP & Knowledge Graph Features
+
+### Tokenization and Embeddings
+
+Process multilingual text with automatic language detection, stopword removal, and stemming:
+
+```typescript
+import { Tokenizer, Embedder } from './null_system/vm/nlp';
+
+const tokenizer = new Tokenizer();
+const embedder = new Embedder(128);
+
+// Tokenize English text
+const tokens = tokenizer.tokenize('Hello world from NullVM', { 
+  language: 'en',
+  lowercase: true,
+  removeStopwords: true 
+});
+
+// Generate embeddings with translation support
+const embedding = embedder.embed('knowledge', 'en');
+const translated = embedder.translate('hello', 'en', 'es');
+```
+
+### Knowledge Graphs
+
+Build and query semantic knowledge graphs with rule-based inference:
+
+```typescript
+import { GraphStore, OntologyManager, InferenceEngine, RDFLoader } from './null_system/vm/knowledge';
+
+const graph = new GraphStore();
+const onto = new OntologyManager();
+const engine = new InferenceEngine();
+
+// Define schema
+onto.defineEntityType({
+  name: 'Person',
+  properties: { name: { type: 'string' } }
+});
+
+// Add entities and relationships
+graph.addEntity({ id: 'alice', label: 'Alice', type: 'Person', properties: {} });
+graph.addEntity({ id: 'bob', label: 'Bob', type: 'Person', properties: {} });
+graph.addRelationship('alice', 'bob', 'knows');
+
+// Define inference rules
+engine.addRule({
+  name: 'mutual_knowledge',
+  condition: [{ type: 'relationship', relationshipType: 'knows' }],
+  conclusion: { type: 'set_property', property: 'isConnected', value: true }
+});
+
+// Execute inference
+const results = engine.forwardChain(graph);
+
+// Import/export RDF/JSON-LD
+const loader = new RDFLoader();
+const jsonLd = loader.exportAsJsonLd(graph);
 ```
 
 ## API Documentation
