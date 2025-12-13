@@ -225,11 +225,7 @@ describe('Decoder', () => {
               { opcode: OpCode.SET, args: ['x', 1] },
               {
                 opcode: OpCode.IF,
-                args: [
-                  'x',
-                  '>',
-                  [{ opcode: OpCode.SET, args: ['y', 2] }],
-                ],
+                args: ['x', '>', [{ opcode: OpCode.SET, args: ['y', 2] }]],
               },
             ],
           ],

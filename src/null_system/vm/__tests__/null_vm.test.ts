@@ -10,9 +10,7 @@ describe('NullVM', () => {
 
   describe('Basic Operations', () => {
     it('should execute SET instruction', () => {
-      const program: Instruction[] = [
-        { opcode: OpCode.SET, args: ['x', 42] },
-      ];
+      const program: Instruction[] = [{ opcode: OpCode.SET, args: ['x', 42] }];
 
       vm.execute(program);
 
@@ -52,7 +50,7 @@ describe('NullVM', () => {
 
       const frames = vm.getBinaryBridge().getFrames();
       expect(frames.length).toBeGreaterThan(0);
-      expect(frames.some(f => f.frameType === 'OUTPUT')).toBe(true);
+      expect(frames.some((f) => f.frameType === 'OUTPUT')).toBe(true);
     });
 
     it('should handle multiple registers', () => {
@@ -78,13 +76,7 @@ describe('NullVM', () => {
         { opcode: OpCode.SET, args: ['x', 5] },
         {
           opcode: OpCode.IF,
-          args: [
-            'x',
-            '>',
-            [
-              { opcode: OpCode.SET, args: ['result', 100] },
-            ],
-          ],
+          args: ['x', '>', [{ opcode: OpCode.SET, args: ['result', 100] }]],
         },
       ];
 
@@ -98,13 +90,7 @@ describe('NullVM', () => {
         { opcode: OpCode.SET, args: ['x', 5] },
         {
           opcode: OpCode.IF,
-          args: [
-            'x',
-            '<',
-            [
-              { opcode: OpCode.SET, args: ['result', 100] },
-            ],
-          ],
+          args: ['x', '<', [{ opcode: OpCode.SET, args: ['result', 100] }]],
         },
         { opcode: OpCode.SET, args: ['result', 0] },
       ];
@@ -119,13 +105,7 @@ describe('NullVM', () => {
         { opcode: OpCode.SET, args: ['x', 0] },
         {
           opcode: OpCode.IF,
-          args: [
-            'x',
-            '==',
-            [
-              { opcode: OpCode.SET, args: ['result', 50] },
-            ],
-          ],
+          args: ['x', '==', [{ opcode: OpCode.SET, args: ['result', 50] }]],
         },
       ];
 
@@ -139,13 +119,7 @@ describe('NullVM', () => {
         { opcode: OpCode.SET, args: ['x', 5] },
         {
           opcode: OpCode.IF,
-          args: [
-            'x',
-            '!=',
-            [
-              { opcode: OpCode.SET, args: ['result', 75] },
-            ],
-          ],
+          args: ['x', '!=', [{ opcode: OpCode.SET, args: ['result', 75] }]],
         },
       ];
 
@@ -159,13 +133,7 @@ describe('NullVM', () => {
         { opcode: OpCode.SET, args: ['x', 5] },
         {
           opcode: OpCode.IF,
-          args: [
-            'x',
-            '>=',
-            [
-              { opcode: OpCode.SET, args: ['result', 60] },
-            ],
-          ],
+          args: ['x', '>=', [{ opcode: OpCode.SET, args: ['result', 60] }]],
         },
       ];
 
@@ -179,13 +147,7 @@ describe('NullVM', () => {
         { opcode: OpCode.SET, args: ['x', -5] },
         {
           opcode: OpCode.IF,
-          args: [
-            'x',
-            '<=',
-            [
-              { opcode: OpCode.SET, args: ['result', 40] },
-            ],
-          ],
+          args: ['x', '<=', [{ opcode: OpCode.SET, args: ['result', 40] }]],
         },
       ];
 
@@ -202,12 +164,7 @@ describe('NullVM', () => {
         { opcode: OpCode.SET, args: ['count', 5] },
         {
           opcode: OpCode.REPEAT,
-          args: [
-            'count',
-            [
-              { opcode: OpCode.ADD, args: ['counter', 1] },
-            ],
-          ],
+          args: ['count', [{ opcode: OpCode.ADD, args: ['counter', 1] }]],
         },
       ];
 
@@ -222,12 +179,7 @@ describe('NullVM', () => {
         { opcode: OpCode.SET, args: ['count', 0] },
         {
           opcode: OpCode.REPEAT,
-          args: [
-            'count',
-            [
-              { opcode: OpCode.ADD, args: ['x', 1] },
-            ],
-          ],
+          args: ['count', [{ opcode: OpCode.ADD, args: ['x', 1] }]],
         },
       ];
 
@@ -263,12 +215,7 @@ describe('NullVM', () => {
       const program: Instruction[] = [
         {
           opcode: OpCode.DEFINE,
-          args: [
-            'add_ten',
-            [
-              { opcode: OpCode.SET, args: ['x', 10] },
-            ],
-          ],
+          args: ['add_ten', [{ opcode: OpCode.SET, args: ['x', 10] }]],
         },
         { opcode: OpCode.CALL, args: ['add_ten'] },
       ];
@@ -282,12 +229,7 @@ describe('NullVM', () => {
       const program: Instruction[] = [
         {
           opcode: OpCode.DEFINE,
-          args: [
-            'increment',
-            [
-              { opcode: OpCode.ADD, args: ['counter', 1] },
-            ],
-          ],
+          args: ['increment', [{ opcode: OpCode.ADD, args: ['counter', 1] }]],
         },
         { opcode: OpCode.SET, args: ['counter', 0] },
         { opcode: OpCode.CALL, args: ['increment'] },
@@ -323,9 +265,7 @@ describe('NullVM', () => {
     });
 
     it('should fail when calling undefined function', () => {
-      const program: Instruction[] = [
-        { opcode: OpCode.CALL, args: ['undefined_function'] },
-      ];
+      const program: Instruction[] = [{ opcode: OpCode.CALL, args: ['undefined_function'] }];
 
       expect(() => vm.execute(program)).toThrow();
     });
@@ -334,21 +274,11 @@ describe('NullVM', () => {
       const program: Instruction[] = [
         {
           opcode: OpCode.DEFINE,
-          args: [
-            'func1',
-            [
-              { opcode: OpCode.SET, args: ['a', 100] },
-            ],
-          ],
+          args: ['func1', [{ opcode: OpCode.SET, args: ['a', 100] }]],
         },
         {
           opcode: OpCode.DEFINE,
-          args: [
-            'func2',
-            [
-              { opcode: OpCode.SET, args: ['b', 200] },
-            ],
-          ],
+          args: ['func2', [{ opcode: OpCode.SET, args: ['b', 200] }]],
         },
         { opcode: OpCode.CALL, args: ['func1'] },
         { opcode: OpCode.CALL, args: ['func2'] },
@@ -374,13 +304,7 @@ describe('NullVM', () => {
               { opcode: OpCode.SET, args: ['val', 10] },
               {
                 opcode: OpCode.IF,
-                args: [
-                  'val',
-                  '>',
-                  [
-                    { opcode: OpCode.ADD, args: ['sum', 'val'] },
-                  ],
-                ],
+                args: ['val', '>', [{ opcode: OpCode.ADD, args: ['sum', 'val'] }]],
               },
             ],
           ],
@@ -396,23 +320,13 @@ describe('NullVM', () => {
       const program: Instruction[] = [
         {
           opcode: OpCode.DEFINE,
-          args: [
-            'add_five',
-            [
-              { opcode: OpCode.ADD, args: ['total', 5] },
-            ],
-          ],
+          args: ['add_five', [{ opcode: OpCode.ADD, args: ['total', 5] }]],
         },
         { opcode: OpCode.SET, args: ['total', 0] },
         { opcode: OpCode.SET, args: ['loops', 3] },
         {
           opcode: OpCode.REPEAT,
-          args: [
-            'loops',
-            [
-              { opcode: OpCode.CALL, args: ['add_five'] },
-            ],
-          ],
+          args: ['loops', [{ opcode: OpCode.CALL, args: ['add_five'] }]],
         },
       ];
 
@@ -433,13 +347,7 @@ describe('NullVM', () => {
             [
               {
                 opcode: OpCode.IF,
-                args: [
-                  'y',
-                  '>',
-                  [
-                    { opcode: OpCode.SET, args: ['result', 100] },
-                  ],
-                ],
+                args: ['y', '>', [{ opcode: OpCode.SET, args: ['result', 100] }]],
               },
             ],
           ],
@@ -462,9 +370,7 @@ describe('NullVM', () => {
     });
 
     it('should handle invalid opcodes', () => {
-      const program = [
-        { opcode: 'INVALID', args: [] },
-      ];
+      const program = [{ opcode: 'INVALID', args: [] }];
 
       expect(() => vm.execute(program)).toThrow();
     });
@@ -491,9 +397,7 @@ describe('NullVM', () => {
 
   describe('VM State and Reset', () => {
     it('should track execution state', () => {
-      const program: Instruction[] = [
-        { opcode: OpCode.SET, args: ['x', 42] },
-      ];
+      const program: Instruction[] = [{ opcode: OpCode.SET, args: ['x', 42] }];
 
       vm.execute(program);
 
@@ -528,18 +432,16 @@ describe('NullVM', () => {
       vm.execute(program);
 
       const frames = vm.getBinaryBridge().getFrames();
-      expect(frames.some(f => f.frameType === 'OUTPUT')).toBe(true);
+      expect(frames.some((f) => f.frameType === 'OUTPUT')).toBe(true);
     });
 
     it('should emit register state frames for SET operations', () => {
-      const program: Instruction[] = [
-        { opcode: OpCode.SET, args: ['myReg', 42] },
-      ];
+      const program: Instruction[] = [{ opcode: OpCode.SET, args: ['myReg', 42] }];
 
       vm.execute(program);
 
       const frames = vm.getBinaryBridge().getFrames();
-      expect(frames.some(f => f.frameType === 'REGISTER')).toBe(true);
+      expect(frames.some((f) => f.frameType === 'REGISTER')).toBe(true);
     });
   });
 

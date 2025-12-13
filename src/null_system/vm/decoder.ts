@@ -17,11 +17,9 @@ export class Decoder {
     const instructions = Array.isArray(program) ? program : program.instructions;
 
     if (!Array.isArray(instructions)) {
-      throw createError(
-        ErrorType.InvalidProgram,
-        'Program must be an array of instructions',
-        { received: typeof instructions }
-      );
+      throw createError(ErrorType.InvalidProgram, 'Program must be an array of instructions', {
+        received: typeof instructions,
+      });
     }
 
     return instructions.map((instr, lineno) => this.decodeInstruction(instr, lineno));
@@ -32,22 +30,20 @@ export class Decoder {
    */
   private decodeInstruction(instr: unknown, lineno: number): Instruction {
     if (!instr || typeof instr !== 'object' || Array.isArray(instr)) {
-      throw createError(
-        ErrorType.InvalidInstruction,
-        'Instruction must be an object',
-        { lineno, received: typeof instr }
-      );
+      throw createError(ErrorType.InvalidInstruction, 'Instruction must be an object', {
+        lineno,
+        received: typeof instr,
+      });
     }
 
     const obj = instr as Record<string, unknown>;
     const opcode = obj.opcode;
 
     if (typeof opcode !== 'string' || !isValidOpCode(opcode)) {
-      throw createError(
-        ErrorType.InvalidInstruction,
-        `Invalid opcode: ${opcode}`,
-        { lineno, opcode }
-      );
+      throw createError(ErrorType.InvalidInstruction, `Invalid opcode: ${opcode}`, {
+        lineno,
+        opcode,
+      });
     }
 
     const args = Array.isArray(obj.args) ? obj.args : [];
@@ -222,6 +218,107 @@ export class Decoder {
           throw createError(
             ErrorType.InvalidInstruction,
             'SMPC_COMBINE requires two arguments: secret_id (string) and share_ids (array)',
+            { lineno, args }
+          );
+        }
+        break;
+
+      case OpCode.AI_EMBED:
+        if (
+          args.length < 3 ||
+          typeof args[0] !== 'string' ||
+          typeof args[1] !== 'string' ||
+          typeof args[2] !== 'number'
+        ) {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'AI_EMBED requires three arguments: output_register (string), embedding_id (string), dimension (number)',
+            { lineno, args }
+          );
+        }
+        break;
+
+      case OpCode.AI_LAYER:
+        if (
+          args.length < 4 ||
+          typeof args[0] !== 'string' ||
+          typeof args[1] !== 'string' ||
+          typeof args[2] !== 'string' ||
+          typeof args[3] !== 'string'
+        ) {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'AI_LAYER requires four arguments: input_register (string), output_register (string), layer_config (string), activation (string)',
+            { lineno, args }
+          );
+        }
+        break;
+
+      case OpCode.AI_ATTEND:
+        if (
+          args.length < 3 ||
+          typeof args[0] !== 'string' ||
+          typeof args[1] !== 'string' ||
+          typeof args[2] !== 'string'
+        ) {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'AI_ATTEND requires three arguments: input_register (string), output_register (string), attention_config (string)',
+            { lineno, args }
+          );
+        }
+        break;
+
+      case OpCode.AI_FUZZY:
+        if (
+          args.length < 3 ||
+          typeof args[0] !== 'string' ||
+          typeof args[1] !== 'string' ||
+          typeof args[2] !== 'number'
+        ) {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'AI_FUZZY requires three arguments: input_register (string), output_register (string), uncertainty_reduction (number)',
+            { lineno, args }
+          );
+        }
+        break;
+
+      case OpCode.SPAWN_VM:
+        if (args.length < 2 || typeof args[0] !== 'string') {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'SPAWN_VM requires at least two arguments: vm_id (string) and config (object)',
+            { lineno, args }
+          );
+        }
+        break;
+
+      case OpCode.SEND_MSG:
+        if (args.length < 3 || typeof args[0] !== 'string' || typeof args[1] !== 'string') {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'SEND_MSG requires at least three arguments: target_vm_id (string), message_type (string), payload',
+            { lineno, args }
+          );
+        }
+        break;
+
+      case OpCode.RECV_MSG:
+        if (args.length < 2 || typeof args[0] !== 'string' || typeof args[1] !== 'number') {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'RECV_MSG requires two arguments: output_register (string), timeout_ms (number)',
+            { lineno, args }
+          );
+        }
+        break;
+
+      case OpCode.SYNC_BARRIER:
+        if (args.length < 2 || typeof args[0] !== 'string' || typeof args[1] !== 'number') {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'SYNC_BARRIER requires two arguments: barrier_id (string), timeout_ms (number)',
             { lineno, args }
           );
         }

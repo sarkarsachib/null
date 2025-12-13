@@ -5,7 +5,7 @@ import json
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Any
 
-from ..superbit.tokens import SuperBitStream
+from ..superbit.tokens import SuperBitGroup
 
 
 @dataclass
@@ -118,7 +118,7 @@ class BinaryGenerator:
         self.metadata.encryption_nonce = nonce
         self.metadata.encryption_tag = tag
     
-    def generate(self, superbit_stream: SuperBitStream) -> List[BinaryFrame]:
+    def generate(self, superbit_stream: SuperBitGroup) -> List[BinaryFrame]:
         """Generate binary frames from a super-bit stream."""
         header = self._generate_header()
         code = superbit_stream.to_bytes()

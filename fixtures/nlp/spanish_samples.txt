@@ -1,0 +1,9 @@
+establecer x a 5
+mostrar x
+añadir 1 y 2
+repetir 10 veces
+si x es mayor que 5 entonces mostrar verdadero
+definir una función llamada sumar_números
+establecer y a 10
+mostrar y
+añadir x y y

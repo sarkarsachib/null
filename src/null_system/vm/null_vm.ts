@@ -10,6 +10,8 @@ import { BinaryBridge } from './binary_bridge';
 import { FuzzyBitEvaluator, FuzzyBitConfig } from './fuzzy_bits';
 import { createError, ErrorType, VMError } from './errors';
 import { HomomorphicEngine, SecureChannel, ZKProofSystem, SMPCOrchestrator } from '../security';
+import { EmbeddingRegistry, NeuralEngine, AttentionModule, DenseLayer } from './ai';
+import { HybridExecutionManager, HybridExecutionConfig, VMCapabilities } from './hybrid_runtime';
 
 export interface NullVMConfig {
   maxCycles?: number;
@@ -37,6 +39,13 @@ export class NullVM {
   private secureChannel: SecureChannel;
   private zkProofSystem: ZKProofSystem;
   private smpcOrchestrator: SMPCOrchestrator;
+  private embeddingRegistry: EmbeddingRegistry;
+  private neuralEngine: NeuralEngine;
+  private attentionModule: AttentionModule;
+  private vmId: string = '';
+  private hybridRuntimeManager?: HybridExecutionManager;
+  private childVMs: Map<string, NullVM> = new Map();
+  private messageQueue: Array<{ messageType: string; payload: unknown; timestamp: number }> = [];
 
   constructor(config: NullVMConfig = {}) {
     this.maxCycles = config.maxCycles || 10000;
@@ -56,6 +65,11 @@ export class NullVM {
       threshold: 2,
       totalParties: 2,
     });
+    this.quantumState = new QuantumState(this.fuzzyEvaluator);
+
+    this.embeddingRegistry = new EmbeddingRegistry();
+    this.neuralEngine = new NeuralEngine();
+    this.attentionModule = new AttentionModule();
 
     if (this.enableTracing) {
       this.context.addTraceHook((event, data) => {
@@ -65,26 +79,33 @@ export class NullVM {
 
     if (config.hybridRuntime?.enabled && config.hybridRuntime.manager) {
       this.hybridRuntimeManager = config.hybridRuntime.manager;
-      
+
       const vmCapabilities: VMCapabilities = {
         vmId: this.vmId,
         maxConcurrentTasks: config.hybridRuntime.capabilities?.maxConcurrentTasks || 10,
-        supportedMessageTypes: config.hybridRuntime.capabilities?.supportedMessageTypes || ['WORK_ASSIGNMENT', 'DATA', 'CONTROL'],
+        supportedMessageTypes: config.hybridRuntime.capabilities?.supportedMessageTypes || [
+          'WORK_ASSIGNMENT',
+          'DATA',
+          'CONTROL',
+        ],
         customMetadata: config.hybridRuntime.capabilities?.customMetadata,
       };
-      
-      this.hybridRuntimeManager.registerVM(this.vmId, vmCapabilities).catch((err) => {
+
+      this.hybridRuntimeManager.registerVM(this.vmId, vmCapabilities).catch((err: unknown) => {
         console.error(`Failed to register VM ${this.vmId}:`, err);
       });
 
-      this.hybridRuntimeManager.registerLogHook((message, data) => {
-        this.binaryBridge.emitControlFlow(`HYBRID_LOG: ${message}`, data as Record<string, unknown>);
+      this.hybridRuntimeManager.registerLogHook((message: string, data: unknown) => {
+        this.binaryBridge.emitControlFlow(
+          `HYBRID_LOG: ${message}`,
+          data as Record<string, unknown>
+        );
       });
     }
   }
 
   /**
-   * Execute a super-bit program
+   * Execute a super-bit program synchronously
    */
   execute(program: SuperBitProgram | unknown[]): void {
     try {
@@ -125,6 +146,87 @@ export class NullVM {
       }
       throw error;
     }
+  }
+
+  /**
+   * Execute a super-bit program asynchronously with hooks
+   */
+  async executeAsync(program: SuperBitProgram | unknown[]): Promise<void> {
+    try {
+      // Decode program
+      const instructions = this.decoder.decode(program);
+
+      // Set program in context
+      this.context.setProgram(instructions);
+      this.context.setRunning(true);
+      this.executionCycle = 0;
+
+      // Execute instructions with hooks
+      while (
+        this.context.getCurrentInstruction() !== null &&
+        this.executionCycle < this.maxCycles
+      ) {
+        const instruction = this.context.getCurrentInstruction();
+        if (instruction) {
+          // Call execution hooks before executing instruction
+          for (const hook of this.executionHooks) {
+            await Promise.resolve(
+              hook(this.executionCycle, instruction, {
+                registers: this.memory.getAllRegisters(),
+                pc: this.context.getProgramCounter(),
+              })
+            );
+          }
+        }
+
+        this.executeInstruction();
+        this.executionCycle++;
+      }
+
+      if (this.executionCycle >= this.maxCycles) {
+        throw createError(
+          ErrorType.ExecutionError,
+          `Execution exceeded maximum cycles (${this.maxCycles})`
+        );
+      }
+
+      this.context.setRunning(false);
+    } catch (error) {
+      this.context.setRunning(false);
+      if (error instanceof VMError) {
+        this.context.emitTrace('error', {
+          type: error.type,
+          message: error.message,
+          context: error.context,
+        });
+        throw error;
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Register an execution hook
+   */
+  registerExecutionHook(hook: ExecutionHook): void {
+    this.executionHooks.push(hook);
+  }
+
+  /**
+   * Unregister an execution hook
+   */
+  unregisterExecutionHook(hook: ExecutionHook): void {
+    const index = this.executionHooks.indexOf(hook);
+    if (index !== -1) {
+      this.executionHooks.splice(index, 1);
+    }
+  }
+
+  /**
+   * Clear all execution hooks
+   */
+  clearExecutionHooks(): void {
+    this.executionHooks = [];
   }
 
   /**
@@ -210,11 +312,33 @@ export class NullVM {
         this.executeSMPC_COMBINE(instruction);
         break;
 
-      default:
+      case OpCode.AI_EMBED:
+        this.executeAI_EMBED(instruction);
+        break;
+
+      case OpCode.AI_LAYER:
+        this.executeAI_LAYER(instruction);
+        break;
+
+      case OpCode.AI_ATTEND:
+        this.executeAI_ATTEND(instruction);
+        break;
+
+      case OpCode.AI_FUZZY:
+        this.executeAI_FUZZY(instruction);
+        break;
+
+      case OpCode.SPAWN_VM:
+      case OpCode.SEND_MSG:
+      case OpCode.RECV_MSG:
+      case OpCode.SYNC_BARRIER:
         throw createError(
-          ErrorType.InvalidInstruction,
-          `Unknown opcode: ${instruction.opcode}`
+          ErrorType.ExecutionError,
+          `${instruction.opcode} requires hybrid runtime - not implemented in standalone VM`
         );
+
+      default:
+        throw createError(ErrorType.InvalidInstruction, `Unknown opcode: ${instruction.opcode}`);
     }
 
     this.context.advanceProgramCounter();
@@ -258,7 +382,7 @@ export class NullVM {
     const [conditionRegister, operator, instructions] = instruction.args as [
       string,
       string,
-      unknown[]
+      unknown[],
     ];
 
     const value = this.memory.getRegister(conditionRegister);
@@ -307,11 +431,9 @@ export class NullVM {
     const [functionName] = instruction.args as [string];
 
     if (!this.context.isFunctionDefined(functionName)) {
-      throw createError(
-        ErrorType.UndefinedFunction,
-        `Function '${functionName}' is not defined`,
-        { functionName }
-      );
+      throw createError(ErrorType.UndefinedFunction, `Function '${functionName}' is not defined`, {
+        functionName,
+      });
     }
 
     const functionInstructions = this.context.getFunction(functionName)!;
@@ -360,10 +482,7 @@ export class NullVM {
     this.context.program = decodedInstructions;
     this.context.setProgramCounter(0);
 
-    while (
-      this.context.getCurrentInstruction() !== null &&
-      this.executionCycle < this.maxCycles
-    ) {
+    while (this.context.getCurrentInstruction() !== null && this.executionCycle < this.maxCycles) {
       this.executeInstruction();
       this.executionCycle++;
     }
@@ -605,11 +724,9 @@ export class NullVM {
         combined: true,
       });
     } catch (error) {
-      throw createError(
-        ErrorType.SMPCError,
-        `Failed to combine shares: ${String(error)}`,
-        { secretId }
-      );
+      throw createError(ErrorType.SMPCError, `Failed to combine shares: ${String(error)}`, {
+        secretId,
+      });
     }
   }
 
@@ -737,11 +854,7 @@ export class NullVM {
   /**
    * Send message to another VM
    */
-  async sendMessageToVM(
-    targetVmId: string,
-    messageType: string,
-    payload: unknown
-  ): Promise<void> {
+  async sendMessageToVM(targetVmId: string, messageType: string, payload: unknown): Promise<void> {
     if (!this.hybridRuntimeManager) {
       throw createError(
         ErrorType.ExecutionError,
@@ -749,12 +862,7 @@ export class NullVM {
       );
     }
 
-    await this.hybridRuntimeManager.sendMessage(
-      this.vmId,
-      targetVmId,
-      messageType,
-      payload
-    );
+    await this.hybridRuntimeManager.sendMessage(this.vmId, targetVmId, messageType, payload);
   }
 
   /**
@@ -771,7 +879,7 @@ export class NullVM {
   /**
    * Join synchronization barrier
    */
-  async joinBarrier(barrierId: string, timeoutMs?: number): Promise<void> {
+  async joinBarrier(barrierId: string, _timeoutMs?: number): Promise<void> {
     if (!this.hybridRuntimeManager) {
       throw createError(
         ErrorType.ExecutionError,
@@ -804,9 +912,249 @@ export class NullVM {
   }
 
   /**
+   * Execute Q_ALLOC instruction: Q_ALLOC <target_reg>
+   */
+  private executeQ_ALLOC(instruction: Instruction): void {
+    const [targetReg] = instruction.args as [string];
+    const qubitIndex = this.quantumState.allocateQubit();
+    this.memory.setRegister(targetReg, qubitIndex);
+    this.binaryBridge.emitControlFlow('Q_ALLOC', { register: targetReg, qubitIndex });
+  }
+
+  /**
+   * Execute Q_SUPERPOSE instruction: Q_SUPERPOSE <qubit_reg>
+   */
+  private executeQ_SUPERPOSE(instruction: Instruction): void {
+    const [qubitReg] = instruction.args as [string];
+    const qubitIndex = this.memory.getRegister(qubitReg);
+    this.quantumState.applyGate('H', [qubitIndex]);
+    this.binaryBridge.emitControlFlow('Q_SUPERPOSE', { register: qubitReg, qubitIndex });
+  }
+
+  /**
+   * Execute Q_ENTANGLE instruction: Q_ENTANGLE <control_reg> <target_reg>
+   */
+  private executeQ_ENTANGLE(instruction: Instruction): void {
+    const [controlReg, targetReg] = instruction.args as [string, string];
+    const controlIndex = this.memory.getRegister(controlReg);
+    const targetIndex = this.memory.getRegister(targetReg);
+    this.quantumState.applyGate('CNOT', [controlIndex, targetIndex]);
+    this.binaryBridge.emitControlFlow('Q_ENTANGLE', { controlReg, targetReg, controlIndex, targetIndex });
+  }
+
+  /**
+   * Execute Q_APPLY instruction: Q_APPLY <gate_name> <qubit_regs>
+   */
+  private executeQ_APPLY(instruction: Instruction): void {
+    const [gateName, qubitRegs] = instruction.args as [string, string[]];
+    const qubitIndices = qubitRegs.map((reg) => this.memory.getRegister(reg));
+    this.quantumState.applyGate(gateName, qubitIndices);
+    this.binaryBridge.emitControlFlow('Q_APPLY', { gateName, qubitRegs, qubitIndices });
+  }
+
+  /**
+   * Execute Q_MEASURE instruction: Q_MEASURE <qubit_reg> <dest_reg>
+   */
+  private executeQ_MEASURE(instruction: Instruction): void {
+    const [qubitReg, destReg] = instruction.args as [string, string];
+    const qubitIndex = this.memory.getRegister(qubitReg);
+    const result = measureQubit(this.quantumState, qubitIndex);
+    this.memory.setRegister(destReg, result.value);
+    this.binaryBridge.emitControlFlow('Q_MEASURE', {
+      qubitReg,
+      destReg,
+      qubitIndex,
+      value: result.value,
+      probability: result.probability,
+    });
+  }
+
+  /**
    * Get hybrid runtime manager
    */
   getHybridRuntimeManager(): HybridExecutionManager | undefined {
     return this.hybridRuntimeManager;
+  }
+
+  /**
+   * Execute AI_EMBED instruction: AI_EMBED <output_register> <embedding_id> <dimension>
+   */
+  private executeAI_EMBED(instruction: Instruction): void {
+    const [outputRegister, embeddingId, dimension] = instruction.args as [string, string, number];
+
+    let embedding = this.embeddingRegistry.getEmbedding(embeddingId);
+    if (!embedding) {
+      embedding = EmbeddingRegistry.createRandomDenseEmbedding(embeddingId, dimension);
+      this.embeddingRegistry.registerEmbedding(embeddingId, embedding, 'dense', 'ai_instruction');
+    }
+
+    this.memory.setTensorRegister(outputRegister, embedding);
+    this.binaryBridge.emitControlFlow('AI_EMBED', {
+      outputRegister,
+      embeddingId,
+      dimension,
+      shape: embedding.getShape().dims,
+    });
+  }
+
+  /**
+   * Execute AI_LAYER instruction: AI_LAYER <input_register> <output_register> <layer_config> <activation>
+   */
+  private executeAI_LAYER(instruction: Instruction): void {
+    const [inputRegister, outputRegister, layerConfigStr, activation] = instruction.args as [
+      string,
+      string,
+      string,
+      string,
+    ];
+
+    const inputTensor = this.memory.getTensorRegister(inputRegister);
+    if (!inputTensor) {
+      throw createError(
+        ErrorType.ExecutionError,
+        `Input tensor register not found: ${inputRegister}`
+      );
+    }
+
+    const inputDim = inputTensor.getShape().dims[inputTensor.getShape().dims.length - 1] || 1;
+
+    try {
+      const layerConfig = JSON.parse(layerConfigStr) as { outputDim?: number };
+      const outputDim = layerConfig.outputDim || inputDim;
+
+      const layer = new DenseLayer(
+        {
+          inputDim,
+          outputDim,
+          activation: (activation as 'relu' | 'sigmoid' | 'tanh' | 'linear') || 'linear',
+          usesBias: true,
+        },
+        undefined,
+        undefined
+      );
+
+      const outputTensor = layer.forward(inputTensor);
+      this.memory.setTensorRegister(outputRegister, outputTensor);
+
+      this.binaryBridge.emitControlFlow('AI_LAYER', {
+        inputRegister,
+        outputRegister,
+        inputShape: inputTensor.getShape().dims,
+        outputShape: outputTensor.getShape().dims,
+        activation,
+      });
+    } catch (error) {
+      throw createError(
+        ErrorType.ExecutionError,
+        `AI_LAYER execution failed: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  /**
+   * Execute AI_ATTEND instruction: AI_ATTEND <input_register> <output_register> <attention_config>
+   */
+  private executeAI_ATTEND(instruction: Instruction): void {
+    const [inputRegister, outputRegister, attentionConfigStr] = instruction.args as [
+      string,
+      string,
+      string,
+    ];
+
+    const inputTensor = this.memory.getTensorRegister(inputRegister);
+    if (!inputTensor) {
+      throw createError(
+        ErrorType.ExecutionError,
+        `Input tensor register not found: ${inputRegister}`
+      );
+    }
+
+    try {
+      const attentionConfig = JSON.parse(attentionConfigStr) as Record<string, unknown>;
+      if (attentionConfig.headCount !== undefined) {
+        this.attentionModule.setConfig({
+          headCount: attentionConfig.headCount as number,
+        });
+      }
+      if (attentionConfig.temperatureScale !== undefined) {
+        this.attentionModule.setConfig({
+          temperatureScale: attentionConfig.temperatureScale as number,
+        });
+      }
+
+      const outputTensor = this.attentionModule.selfAttention(inputTensor);
+      this.memory.setTensorRegister(outputRegister, outputTensor);
+
+      const inputMeta = inputTensor.getMetadata();
+      const outputMeta = outputTensor.getMetadata();
+
+      this.binaryBridge.emitControlFlow('AI_ATTEND', {
+        inputRegister,
+        outputRegister,
+        inputUncertainty: inputMeta.uncertainty,
+        outputUncertainty: outputMeta.uncertainty,
+        uncertaintyReduced: inputMeta.uncertainty - outputMeta.uncertainty,
+      });
+    } catch (error) {
+      throw createError(
+        ErrorType.ExecutionError,
+        `AI_ATTEND execution failed: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
+  }
+
+  /**
+   * Execute AI_FUZZY instruction: AI_FUZZY <input_register> <output_register> <uncertainty_reduction>
+   */
+  private executeAI_FUZZY(instruction: Instruction): void {
+    const [inputRegister, outputRegister, uncertaintyReduction] = instruction.args as [
+      string,
+      string,
+      number,
+    ];
+
+    const inputTensor = this.memory.getTensorRegister(inputRegister);
+    if (!inputTensor) {
+      throw createError(
+        ErrorType.ExecutionError,
+        `Input tensor register not found: ${inputRegister}`
+      );
+    }
+
+    const outputTensor = inputTensor.clone();
+    const inputUncertainty = outputTensor.getMetadata().uncertainty;
+    outputTensor.reduceUncertainty(uncertaintyReduction);
+    const outputUncertainty = outputTensor.getMetadata().uncertainty;
+
+    this.memory.setTensorRegister(outputRegister, outputTensor);
+
+    this.binaryBridge.emitControlFlow('AI_FUZZY', {
+      inputRegister,
+      outputRegister,
+      inputUncertainty,
+      outputUncertainty,
+      reduction: uncertaintyReduction,
+    });
+  }
+
+  /**
+   * Get embedding registry (for external access)
+   */
+  getEmbeddingRegistry(): EmbeddingRegistry {
+    return this.embeddingRegistry;
+  }
+
+  /**
+   * Get neural engine (for external access)
+   */
+  getNeuralEngine(): NeuralEngine {
+    return this.neuralEngine;
+  }
+
+  /**
+   * Get attention module (for external access)
+   */
+  getAttentionModule(): AttentionModule {
+    return this.attentionModule;
   }
 }
