@@ -8,7 +8,7 @@ from ..ast.validator import ASTValidator
 from ..parser.lexer import Lexer
 from ..parser.parser import Parser, ParseError
 from ..superbit.emitter import SuperBitEmitter
-from ..superbit.tokens import SuperBitStream
+from ..superbit.ir import SuperBitStream
 from ..binary.generator import BinaryGenerator, BinaryFrame
 from ..vm.vm import NullVM, ExecutionResult
 from .optimization import OptimizationPass

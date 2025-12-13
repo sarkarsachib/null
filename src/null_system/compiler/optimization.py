@@ -3,7 +3,7 @@
 from abc import ABC, abstractmethod
 from typing import List
 
-from ..superbit.tokens import SuperBitToken, SuperBitStream, SuperBitOpCode
+from ..superbit.ir import SuperBitIRToken, SuperBitStream, SuperBitOpCode
 
 
 class OptimizationPass(ABC):
@@ -31,7 +31,7 @@ class DeduplicationPass(OptimizationPass):
         
         return SuperBitStream(tokens=tokens)
     
-    def _is_duplicate(self, token1: SuperBitToken, token2: SuperBitToken) -> bool:
+    def _is_duplicate(self, token1: SuperBitIRToken, token2: SuperBitIRToken) -> bool:
         """Check if two tokens are duplicates."""
         if token1.opcode != token2.opcode:
             return False
@@ -61,7 +61,7 @@ class CompressionPass(OptimizationPass):
         
         return SuperBitStream(tokens=tokens)
     
-    def _is_constant_binary_op(self, tokens: List[SuperBitToken], idx: int) -> bool:
+    def _is_constant_binary_op(self, tokens: List[SuperBitIRToken], idx: int) -> bool:
         """Check if we have two constants followed by a binary op."""
         if idx + 2 >= len(tokens):
             return False
@@ -77,7 +77,7 @@ class CompressionPass(OptimizationPass):
             ]
         )
     
-    def _fold_constants(self, tokens: List[SuperBitToken], idx: int) -> SuperBitToken:
+    def _fold_constants(self, tokens: List[SuperBitIRToken], idx: int) -> SuperBitIRToken:
         """Fold constant binary operation."""
         left = tokens[idx].operand
         right = tokens[idx + 1].operand
@@ -94,4 +94,4 @@ class CompressionPass(OptimizationPass):
         else:
             result = left
         
-        return SuperBitToken(SuperBitOpCode.LOAD_CONST, result)
+        return SuperBitIRToken(SuperBitOpCode.LOAD_CONST, result)

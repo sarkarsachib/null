@@ -2,9 +2,9 @@
 
 import pytest
 
-from src.null_system.compiler import NullCompiler, CompilationError
-from src.null_system.compiler.optimization import DeduplicationPass, CompressionPass
-from src.null_system.superbit.tokens import SuperBitOpCode
+from null_system.compiler import NullCompiler, CompilationError
+from null_system.compiler.optimization import DeduplicationPass, CompressionPass
+from null_system.superbit.ir import SuperBitOpCode
 
 
 class TestNullCompiler:
@@ -63,13 +63,15 @@ class TestOptimizationPasses:
     
     def test_deduplication_pass(self):
         """Test deduplication optimization pass."""
-        from src.null_system.superbit.tokens import SuperBitToken, SuperBitStream
-        
-        stream = SuperBitStream(tokens=[
-            SuperBitToken(SuperBitOpCode.LOAD_CONST, 5),
-            SuperBitToken(SuperBitOpCode.LOAD_CONST, 5),
-            SuperBitToken(SuperBitOpCode.STORE_VAR, "x"),
-        ])
+        from null_system.superbit.ir import SuperBitIRToken, SuperBitStream
+
+        stream = SuperBitStream(
+            tokens=[
+                SuperBitIRToken(SuperBitOpCode.LOAD_CONST, 5),
+                SuperBitIRToken(SuperBitOpCode.LOAD_CONST, 5),
+                SuperBitIRToken(SuperBitOpCode.STORE_VAR, "x"),
+            ]
+        )
         
         opt = DeduplicationPass()
         optimized = opt.optimize(stream)
@@ -78,13 +80,15 @@ class TestOptimizationPasses:
     
     def test_compression_pass_folds_constants(self):
         """Test constant folding in compression pass."""
-        from src.null_system.superbit.tokens import SuperBitToken, SuperBitStream
-        
-        stream = SuperBitStream(tokens=[
-            SuperBitToken(SuperBitOpCode.LOAD_CONST, 5),
-            SuperBitToken(SuperBitOpCode.LOAD_CONST, 3),
-            SuperBitToken(SuperBitOpCode.BINARY_ADD),
-        ])
+        from null_system.superbit.ir import SuperBitIRToken, SuperBitStream
+
+        stream = SuperBitStream(
+            tokens=[
+                SuperBitIRToken(SuperBitOpCode.LOAD_CONST, 5),
+                SuperBitIRToken(SuperBitOpCode.LOAD_CONST, 3),
+                SuperBitIRToken(SuperBitOpCode.BINARY_ADD),
+            ]
+        )
         
         opt = CompressionPass()
         optimized = opt.optimize(stream)
@@ -95,13 +99,15 @@ class TestOptimizationPasses:
     
     def test_compression_pass_handles_division(self):
         """Test compression pass handles division."""
-        from src.null_system.superbit.tokens import SuperBitToken, SuperBitStream
-        
-        stream = SuperBitStream(tokens=[
-            SuperBitToken(SuperBitOpCode.LOAD_CONST, 10),
-            SuperBitToken(SuperBitOpCode.LOAD_CONST, 2),
-            SuperBitToken(SuperBitOpCode.BINARY_DIV),
-        ])
+        from null_system.superbit.ir import SuperBitIRToken, SuperBitStream
+
+        stream = SuperBitStream(
+            tokens=[
+                SuperBitIRToken(SuperBitOpCode.LOAD_CONST, 10),
+                SuperBitIRToken(SuperBitOpCode.LOAD_CONST, 2),
+                SuperBitIRToken(SuperBitOpCode.BINARY_DIV),
+            ]
+        )
         
         opt = CompressionPass()
         optimized = opt.optimize(stream)

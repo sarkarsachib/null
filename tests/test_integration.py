@@ -2,9 +2,9 @@
 
 import pytest
 
-from src.null_system.compiler import NullCompiler, CompilationError
-from src.null_system.compiler.optimization import DeduplicationPass, CompressionPass
-from src.null_system.superbit.tokens import SuperBitOpCode
+from null_system.compiler import NullCompiler, CompilationError
+from null_system.compiler.optimization import DeduplicationPass, CompressionPass
+from null_system.superbit.ir import SuperBitOpCode
 
 
 class TestIntegration:

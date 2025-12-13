@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 from typing import List
 
-from ..superbit.tokens import SuperBitStream
+from ..superbit.ir import SuperBitStream
 
 
 @dataclass
