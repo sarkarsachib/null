@@ -12,10 +12,8 @@ from rich.table import Table
 
 from .compiler import NullCompiler, CompilationError
 from .compiler.optimization import DeduplicationPass, CompressionPass
-from .nlp.pipeline import NLPPipeline
-from .nlp.tokenizer import Tokenizer
-from .nlp.translation import Translator
-from .nlp.codegen import CodeGenerator
+from .extensions import AdvancedCompressionPass, SuperBitSecurityLayer, KeyManager
+from .extensions.compression import CompressionLevel
 
 app = typer.Typer(
     name="nullc",
@@ -32,6 +30,9 @@ def compile(
     show_ast: bool = typer.Option(False, "--show-ast", help="Display the AST"),
     show_superbit: bool = typer.Option(False, "--show-superbit", help="Display super-bit stream"),
     optimize: bool = typer.Option(True, "--optimize/--no-optimize", help="Apply optimizations"),
+    compress: Optional[str] = typer.Option(None, "--compress", help="Compression level (low, medium, high)"),
+    security_profile: Optional[str] = typer.Option(None, "--security-profile", help="Security profile (dev, prod)"),
+    encryption_key_id: Optional[str] = typer.Option(None, "--key-id", help="Encryption key ID"),
 ):
     """Compile a Null-Lang source file."""
     try:
@@ -47,8 +48,46 @@ def compile(
         if optimize:
             optimization_passes = [DeduplicationPass(), CompressionPass()]
         
+        if compress:
+            try:
+                level = CompressionLevel(compress.lower())
+                optimization_passes.append(AdvancedCompressionPass(level=level))
+            except ValueError:
+                console.print(f"[red]Invalid compression level: {compress}[/red]")
+                raise typer.Exit(1)
+        
         compiler = NullCompiler(optimization_passes=optimization_passes)
         artifact = compiler.compile(source)
+        
+        if security_profile and security_profile.lower() in ["dev", "prod"]:
+            try:
+                key_manager = KeyManager()
+                security_layer = SuperBitSecurityLayer(key_manager=key_manager)
+                
+                if encryption_key_id is None:
+                    try:
+                        encryption_key_id, _ = key_manager.get_active_key()
+                    except ValueError:
+                        if security_profile.lower() == "prod":
+                            console.print("[yellow]No active encryption key found. Generating one...[/yellow]")
+                            encryption_key_id, _ = key_manager.create_key(comment="Default key")
+                        else:
+                            console.print("[yellow]Skipping encryption for dev profile[/yellow]")
+                            encryption_key_id = None
+                
+                if encryption_key_id:
+                    ciphertext, key_id, nonce, tag = security_layer.encrypt_stream(artifact.superbit_stream, encryption_key_id)
+                    console.print(f"[green]✓ Encrypted with key: {key_id}[/green]")
+                    
+                    compiler.binary_generator.set_encryption_metadata(
+                        algorithm="AES-256-GCM",
+                        key_id=key_id,
+                        nonce=nonce.hex(),
+                        tag=tag.hex()
+                    )
+            except Exception as e:
+                console.print(f"[red]Encryption error: {e}[/red]")
+                raise typer.Exit(1)
         
         if not artifact.is_valid():
             console.print("[red]Compilation failed with errors:[/red]")
@@ -93,6 +132,9 @@ def run(
     file: Path = typer.Argument(..., help="Null-Lang source file (.null)"),
     optimize: bool = typer.Option(True, "--optimize/--no-optimize", help="Apply optimizations"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
+    compress: Optional[str] = typer.Option(None, "--compress", help="Compression level (low, medium, high)"),
+    security_profile: Optional[str] = typer.Option(None, "--security-profile", help="Security profile (dev, prod)"),
+    encryption_key_id: Optional[str] = typer.Option(None, "--key-id", help="Encryption key ID"),
 ):
     """Compile and run a Null-Lang source file."""
     try:
@@ -109,8 +151,20 @@ def run(
         if optimize:
             optimization_passes = [DeduplicationPass(), CompressionPass()]
         
+        if compress:
+            try:
+                level = CompressionLevel(compress.lower())
+                optimization_passes.append(AdvancedCompressionPass(level=level))
+            except ValueError:
+                console.print(f"[red]Invalid compression level: {compress}[/red]")
+                raise typer.Exit(1)
+        
         compiler = NullCompiler(optimization_passes=optimization_passes)
-        result = compiler.compile_and_run(source)
+        result = compiler.compile_and_run(
+            source,
+            security_profile=security_profile,
+            encryption_key_id=encryption_key_id
+        )
         
         if not result.success:
             console.print(f"[red]Execution failed: {result.error}[/red]")

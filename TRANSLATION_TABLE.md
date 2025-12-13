@@ -160,162 +160,156 @@ LOAD_CONST, 8
 | `JUMP` | 13 | 0 | Unconditional jump |
 | `NOP` | 14 | 0 | No operation |
 
-## AI/ML Instructions for Super-Bit Tensor Operations
+## Security and Encryption
 
-NullVM extends the instruction set with AI/ML primitives for tensor-aware computation:
+### Binary Metadata
 
-### AI Instruction Opcodes
+When security and compression features are enabled, metadata is embedded in the binary frame:
 
-| OpCode | Args | Description |
-|--------|------|-------------|
-| `AI_EMBED` | `[outputReg, embeddingId, dimension]` | Load or allocate an embedding into a tensor register |
-| `AI_LAYER` | `[inputReg, outputReg, layerConfig, activation]` | Execute a dense layer forward pass |
-| `AI_ATTEND` | `[inputReg, outputReg, attentionConfig]` | Apply self-attention with uncertainty reduction |
-| `AI_FUZZY` | `[inputReg, outputReg, uncertaintyReduction]` | Reduce tensor uncertainty via fuzzy logic |
-
-### Tensor Representation
-
-Tensors in NullVM are represented as `SuperBitTensor` objects with:
-- **Shape**: Multi-dimensional array dimensions (e.g., `[batch_size, seq_len, hidden_dim]`)
-- **Data**: Float32Array containing values
-- **Metadata**:
-  - `uncertainty`: Probabilistic uncertainty value [0.0, 1.0]
-  - `precision`: Numerical precision multiplier
-  - `superbitEncoded`: Whether tensor uses super-bit encoding
-
-### AI Instruction Details
-
-#### AI_EMBED - Embedding Allocation
-
-```javascript
-{ opcode: 'AI_EMBED', args: ['output_register', 'embedding_id', dimension] }
+```json
+{
+    "compression_algorithm": "lz4" or null,
+    "compression_level": "low" | "medium" | "high" or null,
+    "encryption_algorithm": "AES-256-GCM" or null,
+    "encryption_key_id": "key-abc123",
+    "encryption_nonce": "abcd...ef" (hex string),
+    "encryption_tag": "1234...5678" (hex string)
+}
 ```
 
-**Behavior:**
-- Queries the embedding registry for `embedding_id`
-- If not found, creates a random dense embedding of size `dimension`
-- Stores the embedding in `output_register` as a tensor
-- Emits a control flow frame with shape and metadata
+### Advanced Compression
 
-**Example:**
-```javascript
-{ opcode: 'AI_EMBED', args: ['token_embed', 'bert_wordpiece_001', 768] }
+The `AdvancedCompressionPass` provides three levels of compression:
+
+#### LOW Compression
+- Run-Length Encoding (RLE) for consecutive identical tokens
+- Minimal CPU overhead
+- Moderate compression ratio
+
+#### MEDIUM Compression
+- RLE + Dictionary encoding
+- Balances compression ratio and CPU usage
+- Recommended for most use cases
+
+#### HIGH Compression
+- Aggressive RLE + Large dictionary (512 entries)
+- Best compression ratio
+- Higher CPU usage during decompression
+
+#### Compression Impact on OpCodes
+
+Compressed streams introduce new pseudo-opcodes:
+
+| OpCode | Description |
+|--------|-------------|
+| `RLE:LOAD_CONST` | Run-length encoded LOAD_CONST with count operand |
+| `RLE:BINARY_ADD` | Run-length encoded BINARY_ADD |
+| `DICT` | Dictionary reference (operand is dictionary code) |
+
+### Security and Key Management
+
+#### Key Manager Configuration
+
+Keys are stored in `~/.null_security/` by default:
+
+- `keys.json` - Metadata for all keys
+- `{key_id}.key` - Encrypted key material
+- `{key_id}.salt` - Salt for password-derived keys
+
+#### Encryption Flow
+
+1. **Compilation**: Source → AST → SuperBit → Tokens
+2. **Optional Compression**: Tokens → Compressed tokens
+3. **Optional Encryption**: Stream → AES-256-GCM encrypted data
+4. **Binary Generation**: Encrypted data + Metadata → Binary frame
+
+#### Decryption Flow
+
+1. **Binary Loading**: Read binary frame
+2. **Metadata Extraction**: Get key_id, nonce, tag
+3. **Key Lookup**: Load key from key manager
+4. **Decryption**: AES-256-GCM decrypt with key/nonce/tag
+5. **Optional Decompression**: Decompress if needed
+6. **Execution**: Execute SuperBit stream
+
+## CLI Flags for Security and Compression
+
+### Compilation
+
+```bash
+nullc compile <file> \
+  --compress <low|medium|high> \
+  --security-profile <dev|prod> \
+  --key-id <key-id>
 ```
 
-#### AI_LAYER - Dense Layer Forward Pass
+- `--compress`: Enable advanced compression pass
+- `--security-profile`: Enable encryption (prod creates key if needed)
+- `--key-id`: Specify which key to use for encryption
 
-```javascript
-{ opcode: 'AI_LAYER', args: ['input_reg', 'output_reg', '{"outputDim": N}', 'activation'] }
+### Execution
+
+```bash
+nullc run <file> \
+  --compress <low|medium|high> \
+  --security-profile <dev|prod> \
+  --key-id <key-id>
 ```
 
-**Behavior:**
-- Reads tensor from `input_reg`
-- Creates a dense layer with dimensions [inputDim, outputDim]
-- Initializes weights using Xavier/Glorot initialization
-- Applies activation function (relu, sigmoid, tanh, or linear)
-- Stores output in `output_reg`
-- Propagates uncertainty: `output_uncertainty = max(input_uncertainty, weight_uncertainty)`
+The runtime automatically detects and transparently handles:
+- Decompression based on metadata
+- Decryption based on metadata and key lookup
 
-**Supported Activations:**
-- `linear`: No activation (identity)
-- `relu`: Rectified Linear Unit (max(0, x))
-- `sigmoid`: Logistic function (1/(1+e^-x))
-- `tanh`: Hyperbolic tangent
+## Performance Considerations
 
-**Example:**
-```javascript
-{ opcode: 'AI_LAYER', args: ['h0', 'h1', '{"outputDim": 2048}', 'relu'] }
+### Compression Trade-offs
+
+| Level | Compression Ratio | CPU Overhead | Use Case |
+|-------|-------------------|--------------|----------|
+| LOW | ~80% | Very low | Fast startup, moderate size |
+| MEDIUM | ~60% | Low | Balanced (recommended) |
+| HIGH | ~40% | Moderate | Space-constrained environments |
+
+### Encryption Overhead
+
+- AES-256-GCM: ~1-5% CPU overhead (hardware accelerated on modern CPUs)
+- Key derivation (PBKDF2): ~100ms at default 100k iterations
+- Storage overhead: ~28 bytes per frame (nonce + tag)
+
+## Examples with Security
+
+### Compile with Encryption
+
+```bash
+# Compile with production security
+nullc compile program.null -o program.bin --security-profile prod
+
+# Compile with specific compression and encryption
+nullc compile program.null -o program.bin --compress high --security-profile prod
 ```
 
-#### AI_ATTEND - Self-Attention with Uncertainty Reduction
+### Run with Encryption
 
-```javascript
-{ opcode: 'AI_ATTEND', args: ['input_reg', 'output_reg', '{"headCount": N, ...}'] }
+```bash
+# Run with decryption (automatic)
+nullc run program.null --security-profile prod
+
+# Run with both compression and security
+nullc run program.null --compress high --security-profile prod
 ```
 
-**Behavior:**
-- Reads tensor from `input_reg`
-- Applies multi-head self-attention mechanism
-- Computes scaled dot-product attention: `Attention(Q,K,V) = softmax(QK^T/√d_k)V`
-- Each attention head operates on input/N dimensions
-- **Reduces uncertainty** through focused pattern matching
-- Stores output in `output_reg`
-- Default uncertainty reduction: 30% of input uncertainty
+## Metadata Structure in Binary Frames
 
-**Attention Config:**
-- `headCount`: Number of attention heads (default: 1)
-- `temperatureScale`: Softmax temperature scaling (default: 1.0)
-- `uncertaintyReductionFactor`: Fraction of uncertainty to reduce (default: 0.3)
+Binary frames with version 2+ include optional metadata:
 
-**Example:**
-```javascript
-{ opcode: 'AI_ATTEND', args: ['seq', 'attended', '{"headCount": 8, "temperatureScale": 1.0}'] }
+```
+[MAGIC(4)]
+[VERSION(1)]
+[RESERVED(11)]
+[CODE...]
+[CONSTANTS...]
+[METADATA_LENGTH(2)]
+[METADATA_JSON]
 ```
 
-#### AI_FUZZY - Probabilistic Uncertainty Reduction
-
-```javascript
-{ opcode: 'AI_FUZZY', args: ['input_reg', 'output_reg', uncertaintyReduction] }
-```
-
-**Behavior:**
-- Reads tensor from `input_reg`
-- Clones tensor to `output_reg`
-- Reduces uncertainty by specified amount: `new_uncertainty = max(0, old - reduction)`
-- Represents fuzzy logic evaluation refining tensor confidence
-- Useful after probabilistic operations
-
-**Example:**
-```javascript
-{ opcode: 'AI_FUZZY', args: ['noisy_tensor', 'refined_tensor', 0.25] }
-```
-
-### Complete AI Pipeline Example
-
-```javascript
-const program = [
-  // Load embedding for input token
-  { opcode: 'AI_EMBED', args: ['x', 'token_embedding_001', 512] },
-  
-  // First dense layer with ReLU
-  { opcode: 'AI_LAYER', args: ['x', 'h1', '{"outputDim": 2048}', 'relu'] },
-  
-  // Second dense layer (linear)
-  { opcode: 'AI_LAYER', args: ['h1', 'h2', '{"outputDim": 512}', 'linear'] },
-  
-  // Multi-head attention (8 heads)
-  { opcode: 'AI_ATTEND', args: ['h2', 'attended', '{"headCount": 8}'] },
-  
-  // Optional: fuzzy refinement
-  { opcode: 'AI_FUZZY', args: ['attended', 'logits', 0.1] },
-  
-  // Output the result
-  { opcode: 'SHOW', args: ['logits'] }
-];
-```
-
-### Uncertainty Propagation
-
-Uncertainties flow through the computation graph:
-
-1. **Initial embedding uncertainty**: 0.5 (for random embeddings)
-2. **After dense layer**: `uncertainty = max(input_unc, weight_unc) × precision_product`
-3. **After attention**: `uncertainty -= headCount × uncertaintyReductionFactor`
-4. **After fuzzy**: `uncertainty -= specified_reduction`
-
-Final uncertainty reflects cumulative confidence gains from deterministic computations and attention patterns.
-
-### Memory Model Extension
-
-Scalar registers (numeric) and tensor registers (SuperBitTensor) coexist:
-- Scalar ops: `SET x 42`, `ADD x y`, `SHOW x`
-- Tensor ops: `AI_EMBED t1 emb_001 128`, `AI_LAYER t1 t2 {...}`
-- Mixed: Can read scalars, use for loop counts; independently manage tensors
-
-### Binary Frame Emissions
-
-AI instructions emit metadata frames for monitoring:
-- `AI_EMBED`: Frame with embedding ID, dimension, loaded shape
-- `AI_LAYER`: Frame with input/output shapes, activation used
-- `AI_ATTEND`: Frame with input/output uncertainty (showing reduction)
-- `AI_FUZZY`: Frame with uncertainty delta applied
+Where METADATA_JSON contains encryption/compression information that allows downstream tools to properly decode and execute the program.

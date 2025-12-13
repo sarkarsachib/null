@@ -26,3 +26,16 @@ dist/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Security and Keys
+.null_security/
+*.key
+*.salt
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.coverage
+htmlcov/
