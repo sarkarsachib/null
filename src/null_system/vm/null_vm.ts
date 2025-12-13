@@ -10,6 +10,14 @@ import { BinaryBridge } from './binary_bridge';
 import { FuzzyBitEvaluator, FuzzyBitConfig } from './fuzzy_bits';
 import { createError, ErrorType, VMError } from './errors';
 import { HomomorphicEngine, SecureChannel, ZKProofSystem, SMPCOrchestrator } from '../security';
+import { HybridExecutionManager, HybridExecutionConfig, VMCapabilities } from './hybrid_runtime';
+import { StateSnapshot } from './fault_tolerance';
+
+export type ExecutionHook = (
+  cycle: number,
+  instruction: Instruction,
+  context: Record<string, unknown>
+) => Promise<void> | void;
 
 export interface NullVMConfig {
   maxCycles?: number;
@@ -37,6 +45,11 @@ export class NullVM {
   private secureChannel: SecureChannel;
   private zkProofSystem: ZKProofSystem;
   private smpcOrchestrator: SMPCOrchestrator;
+  private executionHooks: ExecutionHook[] = [];
+  private vmId: string = '';
+  private hybridRuntimeManager?: HybridExecutionManager;
+  private childVMs: Map<string, NullVM> = new Map();
+  private messageQueue: Array<{ messageType: string; payload: unknown; timestamp: number }> = [];
 
   constructor(config: NullVMConfig = {}) {
     this.maxCycles = config.maxCycles || 10000;
@@ -73,18 +86,25 @@ export class NullVM {
         customMetadata: config.hybridRuntime.capabilities?.customMetadata,
       };
       
-      this.hybridRuntimeManager.registerVM(this.vmId, vmCapabilities).catch((err) => {
-        console.error(`Failed to register VM ${this.vmId}:`, err);
-      });
+      this.hybridRuntimeManager
+        .registerVM(this.vmId, vmCapabilities)
+        .catch((err: unknown) => {
+          console.error(`Failed to register VM ${this.vmId}:`, err);
+        });
 
-      this.hybridRuntimeManager.registerLogHook((message, data) => {
-        this.binaryBridge.emitControlFlow(`HYBRID_LOG: ${message}`, data as Record<string, unknown>);
-      });
+      this.hybridRuntimeManager.registerLogHook(
+        (message: string, data?: unknown) => {
+          this.binaryBridge.emitControlFlow(
+            `HYBRID_LOG: ${message}`,
+            data as Record<string, unknown>
+          );
+        }
+      );
     }
   }
 
   /**
-   * Execute a super-bit program
+   * Execute a super-bit program synchronously
    */
   execute(program: SuperBitProgram | unknown[]): void {
     try {
@@ -125,6 +145,87 @@ export class NullVM {
       }
       throw error;
     }
+  }
+
+  /**
+   * Execute a super-bit program asynchronously with hooks
+   */
+  async executeAsync(program: SuperBitProgram | unknown[]): Promise<void> {
+    try {
+      // Decode program
+      const instructions = this.decoder.decode(program);
+
+      // Set program in context
+      this.context.setProgram(instructions);
+      this.context.setRunning(true);
+      this.executionCycle = 0;
+
+      // Execute instructions with hooks
+      while (
+        this.context.getCurrentInstruction() !== null &&
+        this.executionCycle < this.maxCycles
+      ) {
+        const instruction = this.context.getCurrentInstruction();
+        if (instruction) {
+          // Call execution hooks before executing instruction
+          for (const hook of this.executionHooks) {
+            await Promise.resolve(
+              hook(this.executionCycle, instruction, {
+                registers: this.memory.getAllRegisters(),
+                pc: this.context.getProgramCounter(),
+              })
+            );
+          }
+        }
+
+        this.executeInstruction();
+        this.executionCycle++;
+      }
+
+      if (this.executionCycle >= this.maxCycles) {
+        throw createError(
+          ErrorType.ExecutionError,
+          `Execution exceeded maximum cycles (${this.maxCycles})`
+        );
+      }
+
+      this.context.setRunning(false);
+    } catch (error) {
+      this.context.setRunning(false);
+      if (error instanceof VMError) {
+        this.context.emitTrace('error', {
+          type: error.type,
+          message: error.message,
+          context: error.context,
+        });
+        throw error;
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Register an execution hook
+   */
+  registerExecutionHook(hook: ExecutionHook): void {
+    this.executionHooks.push(hook);
+  }
+
+  /**
+   * Unregister an execution hook
+   */
+  unregisterExecutionHook(hook: ExecutionHook): void {
+    const index = this.executionHooks.indexOf(hook);
+    if (index !== -1) {
+      this.executionHooks.splice(index, 1);
+    }
+  }
+
+  /**
+   * Clear all execution hooks
+   */
+  clearExecutionHooks(): void {
+    this.executionHooks = [];
   }
 
   /**
@@ -771,7 +872,7 @@ export class NullVM {
   /**
    * Join synchronization barrier
    */
-  async joinBarrier(barrierId: string, timeoutMs?: number): Promise<void> {
+  async joinBarrier(barrierId: string, _timeoutMs?: number): Promise<void> {
     if (!this.hybridRuntimeManager) {
       throw createError(
         ErrorType.ExecutionError,
@@ -808,5 +909,25 @@ export class NullVM {
    */
   getHybridRuntimeManager(): HybridExecutionManager | undefined {
     return this.hybridRuntimeManager;
+  }
+
+  /**
+   * Create a state snapshot for fault tolerance
+   */
+  createSnapshot() {
+    return StateSnapshot.createSnapshot(
+      this.vmId,
+      this.memory,
+      this.context,
+      this.executionCycle
+    );
+  }
+
+  /**
+   * Restore from a state snapshot
+   */
+  restoreSnapshot(snapshot: unknown): void {
+    StateSnapshot.restoreSnapshot(snapshot as any, this.memory, this.context);
+    this.executionCycle = (snapshot as any).executionCycle;
   }
 }
