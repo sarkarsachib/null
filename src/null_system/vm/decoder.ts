@@ -227,6 +227,38 @@ export class Decoder {
         }
         break;
 
+      case OpCode.Q_ALLOC:
+      case OpCode.Q_SUPERPOSE:
+        if (args.length < 1 || typeof args[0] !== 'string') {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            `${opcode} requires one argument: register (string)`,
+            { lineno, args }
+          );
+        }
+        break;
+
+      case OpCode.Q_ENTANGLE:
+      case OpCode.Q_MEASURE:
+        if (args.length < 2 || typeof args[0] !== 'string' || typeof args[1] !== 'string') {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            `${opcode} requires two arguments: reg1 (string) and reg2 (string)`,
+            { lineno, args }
+          );
+        }
+        break;
+
+      case OpCode.Q_APPLY:
+        if (args.length < 2 || typeof args[0] !== 'string' || !Array.isArray(args[1])) {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'Q_APPLY requires two arguments: gate_name (string) and qubit_regs (array)',
+            { lineno, args }
+          );
+        }
+        break;
+
       default:
         throw createError(ErrorType.InvalidInstruction, `Unknown opcode: ${opcode}`, {
           lineno,

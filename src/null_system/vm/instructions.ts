@@ -20,6 +20,11 @@ export enum OpCode {
   ZK_VERIFY = 'ZK_VERIFY',
   SMPC_SHARE = 'SMPC_SHARE',
   SMPC_COMBINE = 'SMPC_COMBINE',
+  Q_ALLOC = 'Q_ALLOC',
+  Q_SUPERPOSE = 'Q_SUPERPOSE',
+  Q_ENTANGLE = 'Q_ENTANGLE',
+  Q_APPLY = 'Q_APPLY',
+  Q_MEASURE = 'Q_MEASURE',
 }
 
 export interface Instruction {
@@ -106,6 +111,31 @@ export interface SMPCShareInstruction extends Instruction {
 export interface SMPCCombineInstruction extends Instruction {
   opcode: OpCode.SMPC_COMBINE;
   args: [string, string[]]; // [secretId, shareIds]
+}
+
+export interface QAllocInstruction extends Instruction {
+  opcode: OpCode.Q_ALLOC;
+  args: [string]; // [target_register]
+}
+
+export interface QSuperposeInstruction extends Instruction {
+  opcode: OpCode.Q_SUPERPOSE;
+  args: [string]; // [qubit_register]
+}
+
+export interface QEntangleInstruction extends Instruction {
+  opcode: OpCode.Q_ENTANGLE;
+  args: [string, string]; // [control_qubit_reg, target_qubit_reg]
+}
+
+export interface QApplyInstruction extends Instruction {
+  opcode: OpCode.Q_APPLY;
+  args: [string, string[]]; // [gate_name, qubit_registers]
+}
+
+export interface QMeasureInstruction extends Instruction {
+  opcode: OpCode.Q_MEASURE;
+  args: [string, string]; // [qubit_register, dest_register]
 }
 
 export function isValidOpCode(code: string): code is OpCode {

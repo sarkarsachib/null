@@ -302,6 +302,36 @@ See [docs/hybrid_execution.md](docs/hybrid_execution.md) for comprehensive hybri
 // Reconstructs secret from sufficient shares (must meet or exceed threshold)
 ```
 
+### Q_ALLOC - Allocate Qubit
+```javascript
+{ opcode: 'Q_ALLOC', args: ['target_reg'] }
+// Allocates a new qubit and stores its index in the target register
+```
+
+### Q_SUPERPOSE - Superpose Qubit
+```javascript
+{ opcode: 'Q_SUPERPOSE', args: ['qubit_reg'] }
+// Applies a Hadamard gate to the qubit
+```
+
+### Q_ENTANGLE - Entangle Qubits
+```javascript
+{ opcode: 'Q_ENTANGLE', args: ['control_reg', 'target_reg'] }
+// Entangles two qubits using a CNOT operation
+```
+
+### Q_APPLY - Apply Quantum Gate
+```javascript
+{ opcode: 'Q_APPLY', args: ['gate_name', ['qubit_reg']] }
+// Applies a specified gate (e.g. 'X', 'Y', 'Z') to the qubit(s)
+```
+
+### Q_MEASURE - Measure Qubit
+```javascript
+{ opcode: 'Q_MEASURE', args: ['qubit_reg', 'dest_reg'] }
+// Measures a qubit and stores the result (0 or 1) in the destination register
+```
+
 ## API Documentation
 
 ### NullVM

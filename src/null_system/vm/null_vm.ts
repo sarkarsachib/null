@@ -10,14 +10,10 @@ import { BinaryBridge } from './binary_bridge';
 import { FuzzyBitEvaluator, FuzzyBitConfig } from './fuzzy_bits';
 import { createError, ErrorType, VMError } from './errors';
 import { HomomorphicEngine, SecureChannel, ZKProofSystem, SMPCOrchestrator } from '../security';
-import { HybridExecutionManager, HybridExecutionConfig, VMCapabilities } from './hybrid_runtime';
-import { StateSnapshot } from './fault_tolerance';
-
-export type ExecutionHook = (
-  cycle: number,
-  instruction: Instruction,
-  context: Record<string, unknown>
-) => Promise<void> | void;
+import { QuantumState } from './quantum/quantum_state';
+import { measureQubit } from './quantum/measurement';
+import { HybridExecutionManager, HybridExecutionConfig } from './hybrid_runtime/hybrid_execution_manager';
+import { VMCapabilities } from './hybrid_runtime/transport_adapter';
 
 export interface NullVMConfig {
   maxCycles?: number;
@@ -45,8 +41,8 @@ export class NullVM {
   private secureChannel: SecureChannel;
   private zkProofSystem: ZKProofSystem;
   private smpcOrchestrator: SMPCOrchestrator;
-  private executionHooks: ExecutionHook[] = [];
-  private vmId: string = '';
+  private quantumState: QuantumState;
+  private vmId: string;
   private hybridRuntimeManager?: HybridExecutionManager;
   private childVMs: Map<string, NullVM> = new Map();
   private messageQueue: Array<{ messageType: string; payload: unknown; timestamp: number }> = [];
@@ -69,6 +65,7 @@ export class NullVM {
       threshold: 2,
       totalParties: 2,
     });
+    this.quantumState = new QuantumState(this.fuzzyEvaluator);
 
     if (this.enableTracing) {
       this.context.addTraceHook((event, data) => {
@@ -309,6 +306,26 @@ export class NullVM {
 
       case OpCode.SMPC_COMBINE:
         this.executeSMPC_COMBINE(instruction);
+        break;
+
+      case OpCode.Q_ALLOC:
+        this.executeQ_ALLOC(instruction);
+        break;
+
+      case OpCode.Q_SUPERPOSE:
+        this.executeQ_SUPERPOSE(instruction);
+        break;
+
+      case OpCode.Q_ENTANGLE:
+        this.executeQ_ENTANGLE(instruction);
+        break;
+
+      case OpCode.Q_APPLY:
+        this.executeQ_APPLY(instruction);
+        break;
+
+      case OpCode.Q_MEASURE:
+        this.executeQ_MEASURE(instruction);
         break;
 
       default:
@@ -902,6 +919,64 @@ export class NullVM {
    */
   getChildVMs(): Map<string, NullVM> {
     return this.childVMs;
+  }
+
+  /**
+   * Execute Q_ALLOC instruction: Q_ALLOC <target_reg>
+   */
+  private executeQ_ALLOC(instruction: Instruction): void {
+    const [targetReg] = instruction.args as [string];
+    const qubitIndex = this.quantumState.allocateQubit();
+    this.memory.setRegister(targetReg, qubitIndex);
+    this.binaryBridge.emitControlFlow('Q_ALLOC', { register: targetReg, qubitIndex });
+  }
+
+  /**
+   * Execute Q_SUPERPOSE instruction: Q_SUPERPOSE <qubit_reg>
+   */
+  private executeQ_SUPERPOSE(instruction: Instruction): void {
+    const [qubitReg] = instruction.args as [string];
+    const qubitIndex = this.memory.getRegister(qubitReg);
+    this.quantumState.applyGate('H', [qubitIndex]);
+    this.binaryBridge.emitControlFlow('Q_SUPERPOSE', { register: qubitReg, qubitIndex });
+  }
+
+  /**
+   * Execute Q_ENTANGLE instruction: Q_ENTANGLE <control_reg> <target_reg>
+   */
+  private executeQ_ENTANGLE(instruction: Instruction): void {
+    const [controlReg, targetReg] = instruction.args as [string, string];
+    const controlIndex = this.memory.getRegister(controlReg);
+    const targetIndex = this.memory.getRegister(targetReg);
+    this.quantumState.applyGate('CNOT', [controlIndex, targetIndex]);
+    this.binaryBridge.emitControlFlow('Q_ENTANGLE', { controlReg, targetReg, controlIndex, targetIndex });
+  }
+
+  /**
+   * Execute Q_APPLY instruction: Q_APPLY <gate_name> <qubit_regs>
+   */
+  private executeQ_APPLY(instruction: Instruction): void {
+    const [gateName, qubitRegs] = instruction.args as [string, string[]];
+    const qubitIndices = qubitRegs.map((reg) => this.memory.getRegister(reg));
+    this.quantumState.applyGate(gateName, qubitIndices);
+    this.binaryBridge.emitControlFlow('Q_APPLY', { gateName, qubitRegs, qubitIndices });
+  }
+
+  /**
+   * Execute Q_MEASURE instruction: Q_MEASURE <qubit_reg> <dest_reg>
+   */
+  private executeQ_MEASURE(instruction: Instruction): void {
+    const [qubitReg, destReg] = instruction.args as [string, string];
+    const qubitIndex = this.memory.getRegister(qubitReg);
+    const result = measureQubit(this.quantumState, qubitIndex);
+    this.memory.setRegister(destReg, result.value);
+    this.binaryBridge.emitControlFlow('Q_MEASURE', {
+      qubitReg,
+      destReg,
+      qubitIndex,
+      value: result.value,
+      probability: result.probability,
+    });
   }
 
   /**
