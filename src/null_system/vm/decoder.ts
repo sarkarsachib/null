@@ -227,33 +227,61 @@ export class Decoder {
         }
         break;
 
-      case OpCode.Q_ALLOC:
-      case OpCode.Q_SUPERPOSE:
-        if (args.length < 1 || typeof args[0] !== 'string') {
-          throw createError(
-            ErrorType.InvalidInstruction,
-            `${opcode} requires one argument: register (string)`,
-            { lineno, args }
-          );
-        }
-        break;
-
-      case OpCode.Q_ENTANGLE:
-      case OpCode.Q_MEASURE:
+      case OpCode.NLP_TOKENIZE:
         if (args.length < 2 || typeof args[0] !== 'string' || typeof args[1] !== 'string') {
           throw createError(
             ErrorType.InvalidInstruction,
-            `${opcode} requires two arguments: reg1 (string) and reg2 (string)`,
+            'NLP_TOKENIZE requires two arguments: input_register (string) and output_register (string)',
             { lineno, args }
           );
         }
         break;
 
-      case OpCode.Q_APPLY:
-        if (args.length < 2 || typeof args[0] !== 'string' || !Array.isArray(args[1])) {
+      case OpCode.NLP_EMBED:
+        if (args.length < 2 || typeof args[0] !== 'string' || typeof args[1] !== 'string') {
           throw createError(
             ErrorType.InvalidInstruction,
-            'Q_APPLY requires two arguments: gate_name (string) and qubit_regs (array)',
+            'NLP_EMBED requires two arguments: input_register (string) and output_register (string)',
+            { lineno, args }
+          );
+        }
+        break;
+
+      case OpCode.NLP_TRANSLATE:
+        if (args.length < 3 || typeof args[0] !== 'string' || typeof args[1] !== 'string' || typeof args[2] !== 'string') {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'NLP_TRANSLATE requires three arguments: input_register (string), target_language (string), and output_register (string)',
+            { lineno, args }
+          );
+        }
+        break;
+
+      case OpCode.KG_LOAD:
+        if (args.length < 2 || typeof args[1] !== 'string') {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'KG_LOAD requires two arguments: graph_data (any) and graph_id_register (string)',
+            { lineno, args }
+          );
+        }
+        break;
+
+      case OpCode.KG_QUERY:
+        if (args.length < 3 || typeof args[0] !== 'string' || typeof args[1] !== 'string' || typeof args[2] !== 'string') {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'KG_QUERY requires three arguments: graph_id (string), query_string (string), and result_register (string)',
+            { lineno, args }
+          );
+        }
+        break;
+
+      case OpCode.KG_REASON:
+        if (args.length < 3 || typeof args[0] !== 'string' || typeof args[1] !== 'string' || typeof args[2] !== 'string') {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'KG_REASON requires three arguments: graph_id (string), rule_data (string), and result_register (string)',
             { lineno, args }
           );
         }

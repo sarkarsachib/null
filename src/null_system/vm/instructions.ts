@@ -20,11 +20,12 @@ export enum OpCode {
   ZK_VERIFY = 'ZK_VERIFY',
   SMPC_SHARE = 'SMPC_SHARE',
   SMPC_COMBINE = 'SMPC_COMBINE',
-  Q_ALLOC = 'Q_ALLOC',
-  Q_SUPERPOSE = 'Q_SUPERPOSE',
-  Q_ENTANGLE = 'Q_ENTANGLE',
-  Q_APPLY = 'Q_APPLY',
-  Q_MEASURE = 'Q_MEASURE',
+  NLP_TOKENIZE = 'NLP_TOKENIZE',
+  NLP_EMBED = 'NLP_EMBED',
+  NLP_TRANSLATE = 'NLP_TRANSLATE',
+  KG_LOAD = 'KG_LOAD',
+  KG_QUERY = 'KG_QUERY',
+  KG_REASON = 'KG_REASON',
 }
 
 export interface Instruction {
@@ -113,29 +114,34 @@ export interface SMPCCombineInstruction extends Instruction {
   args: [string, string[]]; // [secretId, shareIds]
 }
 
-export interface QAllocInstruction extends Instruction {
-  opcode: OpCode.Q_ALLOC;
-  args: [string]; // [target_register]
+export interface NLPTokenizeInstruction extends Instruction {
+  opcode: OpCode.NLP_TOKENIZE;
+  args: [string, string]; // [inputRegister, outputRegister, options?]
 }
 
-export interface QSuperposeInstruction extends Instruction {
-  opcode: OpCode.Q_SUPERPOSE;
-  args: [string]; // [qubit_register]
+export interface NLPEmbedInstruction extends Instruction {
+  opcode: OpCode.NLP_EMBED;
+  args: [string, string]; // [inputRegister, outputRegister]
 }
 
-export interface QEntangleInstruction extends Instruction {
-  opcode: OpCode.Q_ENTANGLE;
-  args: [string, string]; // [control_qubit_reg, target_qubit_reg]
+export interface NLPTranslateInstruction extends Instruction {
+  opcode: OpCode.NLP_TRANSLATE;
+  args: [string, string, string]; // [inputRegister, targetLanguage, outputRegister]
 }
 
-export interface QApplyInstruction extends Instruction {
-  opcode: OpCode.Q_APPLY;
-  args: [string, string[]]; // [gate_name, qubit_registers]
+export interface KGLoadInstruction extends Instruction {
+  opcode: OpCode.KG_LOAD;
+  args: [unknown, string]; // [graphData, graphIdRegister]
 }
 
-export interface QMeasureInstruction extends Instruction {
-  opcode: OpCode.Q_MEASURE;
-  args: [string, string]; // [qubit_register, dest_register]
+export interface KGQueryInstruction extends Instruction {
+  opcode: OpCode.KG_QUERY;
+  args: [string, string, string]; // [graphId, queryString, resultRegister]
+}
+
+export interface KGReasonInstruction extends Instruction {
+  opcode: OpCode.KG_REASON;
+  args: [string, string, string]; // [graphId, ruleData, resultRegister]
 }
 
 export function isValidOpCode(code: string): code is OpCode {
