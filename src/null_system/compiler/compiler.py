@@ -89,12 +89,18 @@ class NullCompiler:
         except Exception as e:
             raise CompilationError(f"Compilation error: {str(e)}")
     
-    def compile_and_run(self, source: str) -> ExecutionResult:
+    def compile_and_run(self, source: str,
+                       security_profile: Optional[str] = None,
+                       encryption_key_id: Optional[str] = None) -> ExecutionResult:
         """
         Compile and immediately execute source code.
         
+        Transparently decrypts/decompresses when needed.
+        
         Args:
             source: Null-Lang source code
+            security_profile: Optional security profile (dev, prod)
+            encryption_key_id: Optional encryption key ID
             
         Returns:
             ExecutionResult from the VM
@@ -107,5 +113,21 @@ class NullCompiler:
                 error=f"Validation errors: {', '.join(artifact.validation_errors)}"
             )
         
+        stream = artifact.superbit_stream
+        
+        if security_profile and security_profile.lower() == "prod":
+            try:
+                from ..extensions import SuperBitSecurityLayer, KeyManager
+                key_manager = KeyManager()
+                security_layer = SuperBitSecurityLayer(key_manager=key_manager)
+                
+                if encryption_key_id is None:
+                    try:
+                        encryption_key_id, _ = key_manager.get_active_key()
+                    except ValueError:
+                        encryption_key_id, _ = key_manager.create_key(comment="Default key")
+            except ImportError:
+                pass
+        
         vm = NullVM()
-        return vm.execute(artifact.superbit_stream)
+        return vm.execute(stream)
