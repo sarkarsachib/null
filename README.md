@@ -19,6 +19,7 @@ A TypeScript implementation of a virtual machine that executes super-bit program
 - **Cryptographic Primitives**: Homomorphic encryption, secure channels, zero-knowledge proofs, and secure multi-party computation (SMPC)
 - **NLP Module**: Multilingual tokenization, embeddings, translation, and code generation
 - **Knowledge Graphs**: Entity-relationship graphs, ontology management, rule-based inference, and RDF/JSON-LD support
+- **ML Runtime**: PyTorch-backed inference, super-bit quantization (<10MB), semantic embeddings, probabilistic attention, gradient-free optimization
 
 ## Project Structure
 
@@ -51,6 +52,21 @@ src/
 │   │   ├── smpc_orchestrator.ts            # Secret sharing & SMPC
 │   │   ├── index.ts
 │   │   └── __tests__/                      # Security module tests
+│   ├── ml/
+│   │   ├── engine.py                       # ML inference engine
+│   │   ├── quantization.py                 # Super-bit quantization
+│   │   ├── embeddings.py                   # Semantic embeddings
+│   │   ├── attention.py                    # Attention mechanisms
+│   │   ├── optimizers.py                   # Gradient-free optimizers
+│   │   ├── benchmarks.py                   # Performance profiling
+│   │   ├── backends/
+│   │   │   ├── torch_backend.py            # PyTorch inference engine
+│   │   │   └── __init__.py
+│   │   └── __init__.py
+│   ├── lib/
+│   │   ├── ml_ops.py                       # ML library operations
+│   │   ├── registry.py                     # Function registry (including ML)
+│   │   └── ...
 │   ├── compiler/
 │   │   ├── hybrid_runner.py                # Python bridge for distributed execution
 │   │   └── ...
@@ -61,11 +77,15 @@ src/
 │   ├── sample_program.ts                  # Sample super-bit programs
 │   ├── distributed_execution.ts           # Distributed workload example
 │   ├── ai_inference.ts                    # AI tensor pipeline demonstration
+│   ├── phase6/
+│   │   └── ml_inference.null              # ML inference example in Null-Lang
 │   └── __tests__/                         # End-to-end tests
 ├── docs/
 │   ├── knowledge.md                 # NLP & Knowledge Graph documentation
 │   ├── architecture.md              # System architecture
-│   └── hybrid_runtime.md            # Hybrid runtime guide
+│   ├── hybrid_runtime.md            # Hybrid runtime guide
+│   └── phase6/
+│       └── null_ml.md               # ML Runtime documentation
 └── index.ts                               # Main package exports
 ```
 

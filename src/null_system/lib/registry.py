@@ -6,8 +6,7 @@ from typing import Callable
 from ..errors import NullArityError, NullLibNotFoundError
 from ..runtime import NullCallContext
 from ..types import NullValue
-from . import array_ops, io_ops, math_ops, object_ops, text_ops, nlp_ops
-from . import kg_ops
+from . import array_ops, io_ops, math_ops, object_ops, text_ops, nlp_ops, ml_ops
 
 
 LibImpl = Callable[[NullCallContext, list[NullValue]], NullValue]
@@ -108,9 +107,10 @@ def default_registry() -> LibraryRegistry:
         "nlp.ENTITIES": LibFunction("nlp.ENTITIES", 1, _wrap(nlp_ops.ENTITIES)),
         "nlp.TRANSLATE": LibFunction("nlp.TRANSLATE", 2, _wrap(nlp_ops.TRANSLATE)),
         "nlp.CODEGEN": LibFunction("nlp.CODEGEN", 2, _wrap(nlp_ops.CODEGEN)),
-        "kg.UPSERT": LibFunction("kg.UPSERT", 4, _wrap(kg_ops.UPSERT)),
-        "kg.QUERY": LibFunction("kg.QUERY", 3, _wrap(kg_ops.QUERY)),
-        "kg.REASON": LibFunction("kg.REASON", 2, _wrap(kg_ops.REASON)),
-        "kg.LINK_EXTERNAL": LibFunction("kg.LINK_EXTERNAL", 3, _wrap(kg_ops.LINK_EXTERNAL)),
+        "ml.LOAD_MODEL": LibFunction("ml.LOAD_MODEL", 1, _wrap(ml_ops.LOAD_MODEL)),
+        "ml.INFER": LibFunction("ml.INFER", 2, _wrap(ml_ops.INFER)),
+        "ml.EMBED": LibFunction("ml.EMBED", 2, _wrap(ml_ops.EMBED)),
+        "ml.ATTEND": LibFunction("ml.ATTEND", 3, _wrap(ml_ops.ATTEND)),
+        "ml.TUNE": LibFunction("ml.TUNE", 2, _wrap(ml_ops.TUNE)),
     }
     return LibraryRegistry(fns)

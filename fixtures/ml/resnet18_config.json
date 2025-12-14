@@ -1,0 +1,13 @@
+{
+  "model_name": "resnet18",
+  "model_type": "image_classification",
+  "input_shape": [1, 3, 224, 224],
+  "output_shape": [1, 1000],
+  "pretrained": true,
+  "quantization_bits": 8,
+  "expected_size_mb": 46,
+  "expected_quantized_size_mb": 6,
+  "mean": [0.485, 0.456, 0.406],
+  "std": [0.229, 0.224, 0.225],
+  "classes": 1000
+}
