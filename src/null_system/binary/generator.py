@@ -3,9 +3,30 @@
 import struct
 import json
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 
-from ..superbit.ir import SuperBitStream
+from ..superbit.tokens import SuperBitGroup, SuperBitStream
+
+
+@dataclass
+class BinaryMetadata:
+    """Metadata for binary frames."""
+    compression_algorithm: Optional[str] = None
+    compression_level: Optional[str] = None
+    encryption_algorithm: Optional[str] = None
+    encryption_key_id: Optional[str] = None
+    encryption_nonce: Optional[str] = None
+    encryption_tag: Optional[str] = None
+    
+    def to_bytes(self) -> bytes:
+        """Convert metadata to bytes."""
+        meta_dict = {
+            'compression_algorithm': self.compression_algorithm,
+            'compression_level': self.compression_level,
+            'encryption_algorithm': self.encryption_algorithm,
+            'encryption_key_id': self.encryption_key_id,
+        }
+        return json.dumps(meta_dict).encode('utf-8')
 
 
 @dataclass
@@ -69,7 +90,7 @@ class BinaryGenerator:
         self.metadata.encryption_nonce = nonce
         self.metadata.encryption_tag = tag
     
-    def generate(self, superbit_stream: SuperBitGroup) -> List[BinaryFrame]:
+    def generate(self, superbit_stream: Union[SuperBitGroup, SuperBitStream]) -> List[BinaryFrame]:
         """Generate binary frames from a super-bit stream."""
         header = self._generate_header()
         code = superbit_stream.to_bytes()

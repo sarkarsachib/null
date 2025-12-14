@@ -1,0 +1,56 @@
+{
+  "Set Variable": {
+    "prefix": "set",
+    "body": "SET ${1:variable} TO ${2:value}",
+    "description": "Create a variable assignment"
+  },
+  "Show Output": {
+    "prefix": "show",
+    "body": "SHOW ${1:expression}",
+    "description": "Display output to console"
+  },
+  "If Statement": {
+    "prefix": "if",
+    "body": [
+      "IF ${1:condition} THEN",
+      "\t${2:statement}"
+    ],
+    "description": "Conditional statement"
+  },
+  "If-Else Statement": {
+    "prefix": "if-else",
+    "body": [
+      "IF ${1:condition} THEN",
+      "\t${2:then_statement}",
+      "ELSE",
+      "\t${3:else_statement}"
+    ],
+    "description": "Conditional statement with else block"
+  },
+  "Repeat Loop": {
+    "prefix": "repeat",
+    "body": [
+      "REPEAT ${1:count} TIMES",
+      "\t${2:statement}"
+    ],
+    "description": "Loop statement"
+  },
+  "Define Function": {
+    "prefix": "define",
+    "body": [
+      "DEFINE ${1:function_name} WITH ${2:parameters} DOES",
+      "\t${3:body}"
+    ],
+    "description": "Function definition"
+  },
+  "Add Operation": {
+    "prefix": "add",
+    "body": "ADD ${1:left} AND ${2:right}",
+    "description": "Addition operation"
+  },
+  "Comparison": {
+    "prefix": "compare",
+    "body": "${1:left} IS ${2|GREATER,LESS|} THAN ${3:right}",
+    "description": "Comparison expression"
+  }
+}

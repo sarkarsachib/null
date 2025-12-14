@@ -1,9 +1,10 @@
 """NullVM - Virtual machine for executing super-bit code."""
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Union
 
 from ..superbit.ir import SuperBitIRToken as SuperBitToken, SuperBitStream, SuperBitOpCode
+from ..superbit.tokens import SuperBitGroup
 
 
 @dataclass
@@ -24,7 +25,7 @@ class NullVM:
         self.output: List[str] = []
         self.pc = 0
     
-    def execute(self, superbit_stream: SuperBitGroup) -> ExecutionResult:
+    def execute(self, superbit_stream: Union[SuperBitGroup, SuperBitStream]) -> ExecutionResult:
         """Execute a super-bit stream."""
         self.stack = []
         self.variables = {}

@@ -17,6 +17,8 @@ A TypeScript implementation of a virtual machine that executes super-bit program
 - **Cryptographic Primitives**: Homomorphic encryption, secure channels, zero-knowledge proofs, and secure multi-party computation (SMPC)
 - **NLP Module**: Multilingual tokenization, embeddings, translation, and code generation
 - **Knowledge Graphs**: Entity-relationship graphs, ontology management, rule-based inference, and RDF/JSON-LD support
+- **Language Server Protocol (LSP)**: Full LSP implementation with code completion, diagnostics, and hover support
+- **VS Code Extension**: Complete IDE support with syntax highlighting, snippets, and inline commands
 
 ## Project Structure
 
@@ -853,6 +855,54 @@ Run the distributed execution example:
 ```bash
 npx ts-node examples/distributed_execution.ts
 ```
+
+## Language Server Protocol & IDE Support
+
+Null-Lang includes a full Language Server Protocol (LSP) implementation and VS Code extension for an integrated development experience.
+
+### Starting the LSP Server
+
+```bash
+# Install dependencies (if not already done)
+pip install -e .
+
+# Start the LSP server
+python -m tools.null_lsp.server
+```
+
+The server will listen on `127.0.0.1:8080` for client connections.
+
+### VS Code Extension
+
+Install and activate the extension:
+
+```bash
+cd tools/vscode-null
+npm install
+npm run build
+
+# Install extension in VS Code
+code --install-extension ./vscode-null-0.1.0.vsix
+```
+
+Or for development:
+
+```bash
+cd tools/vscode-null
+npm run watch
+# Press F5 in VS Code to launch debug window
+```
+
+### Features
+
+- **Syntax Highlighting**: TextMate grammar for keyword and syntax highlighting
+- **Code Completion**: Intelligent completions for keywords, variables, and library functions
+- **Diagnostics**: Real-time parsing errors, undefined variables, and validation issues
+- **Hover Documentation**: View keyword syntax, variable names, and function documentation
+- **Snippets**: Quick templates for common constructs (SET, SHOW, IF, REPEAT, DEFINE, etc.)
+- **Commands**: Run/compile files with integrated terminal support
+
+For detailed information, see [docs/developer_tools.md](docs/developer_tools.md).
 
 ## License
 

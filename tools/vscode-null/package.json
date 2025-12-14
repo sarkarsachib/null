@@ -1,0 +1,73 @@
+{
+  "name": "vscode-null",
+  "displayName": "Null Language Support",
+  "description": "Language support for Null-Lang with syntax highlighting, completions, and diagnostics",
+  "version": "0.1.0",
+  "publisher": "null-lang",
+  "engines": {
+    "vscode": "^1.60.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Snippets"
+  ],
+  "activationEvents": [
+    "onLanguage:null"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "languages": [
+      {
+        "id": "null",
+        "aliases": [
+          "Null-Lang",
+          "null"
+        ],
+        "extensions": [
+          ".null"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "null",
+        "scopeName": "source.null",
+        "path": "./syntaxes/null.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "null",
+        "path": "./snippets/null.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "nullLang.runFile",
+        "title": "Null: Run File",
+        "when": "editorLangId == null"
+      },
+      {
+        "command": "nullLang.compileFile",
+        "title": "Null: Compile File",
+        "when": "editorLangId == null"
+      }
+    ]
+  },
+  "dependencies": {
+    "vscode-languageclient": "^8.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^18.0.0",
+    "@types/vscode": "^1.60.0",
+    "typescript": "^4.7.0"
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "tsc -p ./tsconfig.json",
+    "compile": "tsc -p ./tsconfig.json",
+    "watch": "tsc -w -p ./tsconfig.json",
+    "test": "echo 'No tests yet'"
+  }
+}

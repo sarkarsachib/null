@@ -1,7 +1,7 @@
 """Main Null compiler orchestration."""
 
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, Union
 
 from ..ast.nodes import Program
 from ..ast.validator import ASTValidator
@@ -9,6 +9,7 @@ from ..parser.lexer import Lexer
 from ..parser.parser import Parser, ParseError
 from ..superbit.emitter import SuperBitEmitter
 from ..superbit.ir import SuperBitStream
+from ..superbit.tokens import SuperBitGroup
 from ..binary.generator import BinaryGenerator, BinaryFrame
 from ..vm.vm import NullVM, ExecutionResult
 from .optimization import OptimizationPass
@@ -23,7 +24,7 @@ class CompilationError(Exception):
 class CompilationArtifact:
     """Result of compilation containing all intermediate artifacts."""
     ast: Program
-    superbit_stream: SuperBitGroup
+    superbit_stream: Union[SuperBitGroup, SuperBitStream]
     binary_frames: List[BinaryFrame]
     validation_errors: List[str]
     

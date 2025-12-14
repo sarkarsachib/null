@@ -1,0 +1,19 @@
+# Sample Null-Lang program for testing
+SET x TO 10
+SET y TO 20
+SHOW x
+SHOW y
+
+IF x IS GREATER THAN 5 THEN
+  SHOW "x is greater than 5"
+END IF
+
+REPEAT 3 TIMES
+  SHOW "hello"
+END REPEAT
+
+DEFINE add_numbers WITH a, b
+  SHOW a
+END DEFINE
+
+CALL add_numbers WITH 5, 10

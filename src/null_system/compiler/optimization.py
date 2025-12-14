@@ -1,16 +1,17 @@
 """Optimization passes for the compiler."""
 
 from abc import ABC, abstractmethod
-from typing import List
+from typing import List, Union
 
 from ..superbit.ir import SuperBitIRToken, SuperBitStream, SuperBitOpCode
+from ..superbit.tokens import SuperBitGroup
 
 
 class OptimizationPass(ABC):
     """Base class for optimization passes."""
     
     @abstractmethod
-    def optimize(self, stream: SuperBitGroup) -> SuperBitGroup:
+    def optimize(self, stream: Union[SuperBitGroup, SuperBitStream]) -> Union[SuperBitGroup, SuperBitStream]:
         """Apply optimization to a super-bit stream."""
         pass
 
@@ -18,7 +19,7 @@ class OptimizationPass(ABC):
 class DeduplicationPass(OptimizationPass):
     """Remove duplicate consecutive operations."""
     
-    def optimize(self, stream: SuperBitGroup) -> SuperBitGroup:
+    def optimize(self, stream: Union[SuperBitGroup, SuperBitStream]) -> Union[SuperBitGroup, SuperBitStream]:
         """Remove duplicate consecutive LOAD_CONST operations."""
         tokens = []
         prev_token = None
@@ -45,7 +46,7 @@ class DeduplicationPass(OptimizationPass):
 class CompressionPass(OptimizationPass):
     """Compress constant operations."""
     
-    def optimize(self, stream: SuperBitGroup) -> SuperBitGroup:
+    def optimize(self, stream: Union[SuperBitGroup, SuperBitStream]) -> Union[SuperBitGroup, SuperBitStream]:
         """Fold constant expressions."""
         tokens = []
         i = 0
