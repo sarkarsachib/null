@@ -24,7 +24,7 @@ class NullVM:
         self.output: List[str] = []
         self.pc = 0
     
-    def execute(self, superbit_stream: SuperBitGroup) -> ExecutionResult:
+    def execute(self, superbit_stream: SuperBitStream) -> ExecutionResult:
         """Execute a super-bit stream."""
         self.stack = []
         self.variables = {}

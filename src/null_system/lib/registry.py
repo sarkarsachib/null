@@ -7,6 +7,7 @@ from ..errors import NullArityError, NullLibNotFoundError
 from ..runtime import NullCallContext
 from ..types import NullValue
 from . import array_ops, io_ops, math_ops, object_ops, text_ops, nlp_ops
+from . import kg_ops
 
 
 LibImpl = Callable[[NullCallContext, list[NullValue]], NullValue]
@@ -107,5 +108,9 @@ def default_registry() -> LibraryRegistry:
         "nlp.ENTITIES": LibFunction("nlp.ENTITIES", 1, _wrap(nlp_ops.ENTITIES)),
         "nlp.TRANSLATE": LibFunction("nlp.TRANSLATE", 2, _wrap(nlp_ops.TRANSLATE)),
         "nlp.CODEGEN": LibFunction("nlp.CODEGEN", 2, _wrap(nlp_ops.CODEGEN)),
+        "kg.UPSERT": LibFunction("kg.UPSERT", 4, _wrap(kg_ops.UPSERT)),
+        "kg.QUERY": LibFunction("kg.QUERY", 3, _wrap(kg_ops.QUERY)),
+        "kg.REASON": LibFunction("kg.REASON", 2, _wrap(kg_ops.REASON)),
+        "kg.LINK_EXTERNAL": LibFunction("kg.LINK_EXTERNAL", 3, _wrap(kg_ops.LINK_EXTERNAL)),
     }
     return LibraryRegistry(fns)
