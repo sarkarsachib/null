@@ -48,6 +48,13 @@ nlp = [
     "fasttext>=0.9.2",
     "jieba>=0.42.1",
 ]
+kg = [
+    "networkx>=3.0",
+    "neo4j>=5.0.0",
+    "rdflib>=7.0.0",
+    "requests>=2.31.0",
+    "pydantic>=2.0.0",
+]
 
 [project.urls]
 Repository = "https://github.com/null-lang/null-lang"

@@ -10,7 +10,7 @@ class OptimizationPass(ABC):
     """Base class for optimization passes."""
     
     @abstractmethod
-    def optimize(self, stream: SuperBitGroup) -> SuperBitGroup:
+    def optimize(self, stream: SuperBitStream) -> SuperBitStream:
         """Apply optimization to a super-bit stream."""
         pass
 
@@ -18,7 +18,7 @@ class OptimizationPass(ABC):
 class DeduplicationPass(OptimizationPass):
     """Remove duplicate consecutive operations."""
     
-    def optimize(self, stream: SuperBitGroup) -> SuperBitGroup:
+    def optimize(self, stream: SuperBitStream) -> SuperBitStream:
         """Remove duplicate consecutive LOAD_CONST operations."""
         tokens = []
         prev_token = None
@@ -29,7 +29,7 @@ class DeduplicationPass(OptimizationPass):
             tokens.append(token)
             prev_token = token
         
-        return SuperBitGroup(tokens=tokens)
+        return SuperBitStream(tokens=tokens)
     
     def _is_duplicate(self, token1: SuperBitIRToken, token2: SuperBitIRToken) -> bool:
         """Check if two tokens are duplicates."""
@@ -45,7 +45,7 @@ class DeduplicationPass(OptimizationPass):
 class CompressionPass(OptimizationPass):
     """Compress constant operations."""
     
-    def optimize(self, stream: SuperBitGroup) -> SuperBitGroup:
+    def optimize(self, stream: SuperBitStream) -> SuperBitStream:
         """Fold constant expressions."""
         tokens = []
         i = 0
@@ -59,7 +59,7 @@ class CompressionPass(OptimizationPass):
                 tokens.append(stream.tokens[i])
                 i += 1
         
-        return SuperBitGroup(tokens=tokens)
+        return SuperBitStream(tokens=tokens)
     
     def _is_constant_binary_op(self, tokens: List[SuperBitIRToken], idx: int) -> bool:
         """Check if we have two constants followed by a binary op."""

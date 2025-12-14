@@ -1,5 +1,7 @@
 # Null Compiler Architecture
 
+> **🚀 Next Generation**: This document describes the current v1 architecture. See the [**Null v2 Language Specification**](docs/null_v2_language_spec.md) for the future roadmap including dual syntax support, ownership system, pattern matching, async/await, SIMD, and more.
+
 ## Overview
 
 The Null compiler is a multi-stage compilation system that transforms English-based Null-Lang source code into executable binary frames and optionally executes them in the NullVM.
@@ -240,11 +242,37 @@ pytest tests/ --cov=src/null_system --cov-report=html
 
 ## Future Enhancements
 
-1. **Function definitions and calls**
-2. **Loops (while, for)**
-3. **Arrays and data structures**
-4. **Module system and imports**
-5. **Type inference and checking**
+See the [**Null v2 Language Specification**](docs/null_v2_language_spec.md) for the complete roadmap. Key upcoming features include:
+
+### Phase 1-2 (Months 1-5)
+- **Dual Parser System**: Modern syntax alongside English syntax
+- **Sealed & Data Classes**: Kotlin-inspired type hierarchies
+- **Pattern Matching**: Rust-style match expressions with exhaustiveness checking
+- **Union Types**: Type-safe sum types
+
+### Phase 3-4 (Months 6-10)
+- **Ownership System**: Rust-inspired borrow checker and move semantics
+- **Lifetime Annotations**: Memory safety without garbage collection
+- **Inline Types**: Zero-cost wrapper types
+- **Context Receivers**: Kotlin-style implicit context
+
+### Phase 5-7 (Months 11-17)
+- **Async/Await**: First-class async support with coroutines
+- **Channels**: Multi-producer, multi-consumer message passing
+- **Comprehensions**: Python-style list/dict comprehensions
+- **Pipelines**: F#-style pipeline operator
+- **SIMD**: Vector operations and auto-vectorization
+- **Performance Optimizations**: Zero-cost abstractions
+
+### Phase 8-10 (Months 16-24)
+- **Enhanced Super-Bit Encoding**: Compression and lazy decoding
+- **AI/ML Integration**: First-class tensor types, GPU acceleration
+- **V10 Runtime**: Production-grade distributed runtime with fault tolerance
+
+### Long-term (Phase 11+)
+1. **Language Server Protocol (LSP)** for IDE integration
+2. **Foreign Function Interface (FFI)** for C/Rust/Python interop
+3. **JIT Compilation** for hot code paths
+4. **Debugging support** (breakpoints, step execution)
+5. **Module system and imports**
 6. **Advanced optimizations** (dead code elimination, inlining)
-7. **Debugging support** (breakpoints, step execution)
-8. **JIT compilation** for hot code paths

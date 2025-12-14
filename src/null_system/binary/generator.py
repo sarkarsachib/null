@@ -9,6 +9,33 @@ from ..superbit.ir import SuperBitStream
 
 
 @dataclass
+class BinaryMetadata:
+    """Metadata for binary frames including compression and encryption info."""
+    compression_algorithm: Optional[str] = None
+    compression_level: Optional[str] = None
+    encryption_algorithm: Optional[str] = None
+    encryption_key_id: Optional[str] = None
+    encryption_nonce: Optional[str] = None
+    encryption_tag: Optional[str] = None
+    
+    def to_bytes(self) -> bytes:
+        """Convert metadata to bytes."""
+        data = {
+            "compression": {
+                "algorithm": self.compression_algorithm,
+                "level": self.compression_level
+            },
+            "encryption": {
+                "algorithm": self.encryption_algorithm,
+                "key_id": self.encryption_key_id,
+                "nonce": self.encryption_nonce,
+                "tag": self.encryption_tag
+            }
+        }
+        return json.dumps(data).encode('utf-8')
+
+
+@dataclass
 class BinaryFrame:
     """A binary frame containing compiled code with optional metadata."""
     header: bytes
@@ -69,7 +96,7 @@ class BinaryGenerator:
         self.metadata.encryption_nonce = nonce
         self.metadata.encryption_tag = tag
     
-    def generate(self, superbit_stream: SuperBitGroup) -> List[BinaryFrame]:
+    def generate(self, superbit_stream: SuperBitStream) -> List[BinaryFrame]:
         """Generate binary frames from a super-bit stream."""
         header = self._generate_header()
         code = superbit_stream.to_bytes()
