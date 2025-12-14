@@ -1,0 +1,22 @@
+// Null-Lang example demonstrating ML inference capabilities
+// Shows usage of ml.LOAD_MODEL, ml.INFER, ml.EMBED operations
+
+// Load a ResNet18 model
+let model_meta = ml.LOAD_MODEL("resnet18")
+show(model_meta)
+
+// Prepare sample image data (normally from input)
+// This would be a 3x224x224 image
+let image_data = [0.5, 0.6, 0.7]
+
+// Run inference
+let infer_result = ml.INFER("resnet18", image_data)
+show(infer_result)
+
+// Generate embeddings
+let embedding = ml.EMBED("resnet18", image_data)
+show(embedding)
+
+// Demonstrate tuning with gradient-free optimization
+let tune_result = ml.TUNE("nelder_mead", 50)
+show(tune_result)

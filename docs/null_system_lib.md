@@ -75,6 +75,31 @@ HALT
 - `io.SHOW(value) -> null` (writes a display string to the VM output)
 - `io.READ() -> string` (reads a single line from the VM input)
 
+### `ml.*` (`ml_ops`) - Machine Learning
+
+- `ml.LOAD_MODEL(model_name) -> object` - Load a machine learning model
+  - `model_name`: String name of model to load (e.g., "resnet18")
+  - Returns: Object with model metadata (name, type, size_mb, quantized)
+
+- `ml.INFER(model_name, input_data) -> object` - Run inference on a model
+  - `model_name`: String name of loaded model
+  - `input_data`: Array of input values
+  - Returns: Object with inference results (model, output_shape, output_size, success)
+
+- `ml.EMBED(model_name, input_data) -> object` - Generate embeddings from a model
+  - `model_name`: String name of loaded model
+  - `input_data`: Array of input values
+  - Returns: Object with embedding metadata (embedding_shape, embedding_dim, success)
+
+- `ml.ATTEND(query, key, value) -> object` - Apply attention mechanism
+  - `query`, `key`, `value`: Arrays of tensors
+  - Returns: Object with attention output (output_shape, type, success)
+
+- `ml.TUNE(method, iterations) -> object` - Tune model parameters without gradients
+  - `method`: String optimization method ("nelder_mead", "cmaes", "random_search")
+  - `iterations`: Integer maximum iterations
+  - Returns: Object with tuning results (method, iterations, best_loss, success)
+
 ## Errors
 
 Unknown libraries/functions, type mismatches, arity mismatches, and runtime faults (e.g. division by zero) raise typed `NullError` subclasses.
