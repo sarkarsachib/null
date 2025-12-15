@@ -87,12 +87,14 @@ class SetCommand(ASTNode):
     """Represents a SET command: SET variable TO value."""
     target: Union[Identifier, MemberAccess]
     value: ASTNode
+    annotations: List['Union[LayerAnnotation, RequireAnnotation, PreferAnnotation]'] = field(default_factory=list)
 
 
 @dataclass
 class AddCommand(ASTNode):
     """Represents an ADD command: ADD operand1 AND operand2."""
     operands: List[ASTNode]
+    annotations: List['Union[LayerAnnotation, RequireAnnotation, PreferAnnotation]'] = field(default_factory=list)
 
 
 @dataclass
@@ -101,12 +103,14 @@ class IfCommand(ASTNode):
     condition: ASTNode
     then_block: List[ASTNode]
     else_block: Optional[List[ASTNode]] = None
+    annotations: List['Union[LayerAnnotation, RequireAnnotation, PreferAnnotation]'] = field(default_factory=list)
 
 
 @dataclass
 class ShowCommand(ASTNode):
     """Represents a SHOW command to display output."""
     value: ASTNode
+    annotations: List['Union[LayerAnnotation, RequireAnnotation, PreferAnnotation]'] = field(default_factory=list)
 
 
 @dataclass
@@ -114,6 +118,7 @@ class RepeatCommand(ASTNode):
     """Represents a REPEAT command for loops."""
     count: ASTNode
     body: List[ASTNode]
+    annotations: List['Union[LayerAnnotation, RequireAnnotation, PreferAnnotation]'] = field(default_factory=list)
 
 
 @dataclass
@@ -122,6 +127,7 @@ class DefineCommand(ASTNode):
     name: str
     parameters: List[str]
     body: List[ASTNode]
+    annotations: List['Union[LayerAnnotation, RequireAnnotation, PreferAnnotation]'] = field(default_factory=list)
 
 
 # Expression Nodes
@@ -194,6 +200,26 @@ class NullLibAnnotation(ASTNode):
 class Program(ASTNode):
     """Represents a complete program (top-level AST node)."""
     statements: List[ASTNode]
+
+
+# Annotation Nodes
+
+@dataclass
+class LayerAnnotation(ASTNode):
+    """Represents a layer annotation: @layer(name)."""
+    layer: str
+
+
+@dataclass
+class RequireAnnotation(ASTNode):
+    """Represents a require annotation: @require(layer1, layer2, ...)."""
+    layers: List[str]
+
+
+@dataclass
+class PreferAnnotation(ASTNode):
+    """Represents a prefer annotation: @prefer(layer1, layer2, ...)."""
+    layers: List[str]
 
 
 # Comment Node

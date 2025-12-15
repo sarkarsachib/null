@@ -5,6 +5,26 @@ This is distinct from the bit-level Super-Bit encoding layer implemented in
 
 The compiler pipeline emits opcode/operand tokens that are executed by the
 Python NullVM and serialized into the binary frame code section.
+
+Layer Annotation Metadata
+=========================
+
+The compiler threads layer annotation metadata into each SuperBitIRToken via the
+`metadata` dictionary. This metadata allows downstream tooling (VMs, debuggers,
+profilers) to route instructions to specific execution layers.
+
+Metadata Keys:
+- 'layer' (str): Name of the layer this instruction executes on (e.g., 'binary', 'superbit')
+- 'requires' (list[str]): List of layers that must be available for this instruction
+- 'prefers' (list[str]): List of preferred/optimized layers for this instruction
+- 'source_layer_line' (int): Source line number where layer annotation appeared
+
+Example:
+    token = SuperBitIRToken(
+        opcode=SuperBitOpCode.LOAD_CONST,
+        operand=42,
+        metadata={'layer': 'binary', 'requires': ['superbit']}
+    )
 """
 
 from __future__ import annotations

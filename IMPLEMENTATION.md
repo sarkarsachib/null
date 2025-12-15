@@ -11,8 +11,10 @@ This implementation provides a complete English-like programming language parser
 - **Literal nodes**: TextLiteral, NumLiteral, BoolLiteral, ArrayLiteral, ObjectLiteral
 - **Command nodes**: SetCommand, AddCommand, IfCommand, ShowCommand, RepeatCommand, DefineCommand
 - **Expression nodes**: BinaryExpression, UnaryExpression, ComparisonExpression
+- **Annotation nodes**: LayerAnnotation, RequireAnnotation, PreferAnnotation
 - **Other nodes**: Identifier, MemberAccess, FunctionCall, NullLibAnnotation, Program, Comment
 - **Source tracking**: SourceSpan class for error reporting with line/column information
+- **Annotation support**: All command nodes have optional `annotations` field for layer metadata
 
 ### 2. **Grammar Definition** (`src/null_system/lang/grammar.lark`)
 - Lark-based LALR grammar
@@ -24,7 +26,8 @@ This implementation provides a complete English-like programming language parser
   - Operators: arithmetic, comparison, logical
   - Member access: property and index notation
   - Function calls: CALL syntax and parentheses syntax
-  - Null-Lib annotations: @lib.function(args)
+  - Layer annotations: @layer(name), @require(layer1, layer2), @prefer(layer1, layer2)
+  - Legacy Null-Lib annotations: @lib.function(args) - fully backward compatible
   - Comments: hash-style (#)
 
 ### 3. **Parser Implementation** (`src/null_system/lang/parser.py`)
@@ -33,6 +36,14 @@ This implementation provides a complete English-like programming language parser
 - Convenience functions: `parse()`, `parse_statement()`
 - Comprehensive span tracking for all nodes
 - Detailed error handling
+- Annotation transformation: Converts layer annotation syntax to AST nodes with proper attachment to statements
+
+### 3.5. **Compiler to Super-Bit IR** (`src/null_system/lang/compiler.py`)
+- `NullLangCompiler`: Compiles Null-Lang AST to Super-Bit IR tokens
+- Threads layer annotation metadata into each IR token via `metadata` dictionary
+- Metadata keys: `layer`, `requires`, `prefers`, `source_layer_line`
+- Allows downstream VMs/tooling to route instructions to specific execution layers
+- Convenience function: `compile_program()` for end-to-end source-to-IR compilation
 
 ### 4. **Error Reporting** (`src/null_system/lang/errors.py`)
 - Base `NullLangError` class
@@ -52,8 +63,8 @@ Seven comprehensive fixture files demonstrating all language features:
 - `null_lib_annotations.null`: @lib.function syntax
 - `complete_program.null`: Complex multi-feature program
 
-### 6. **Unit Tests** (`tests/lang/test_parser.py`)
-75 comprehensive tests organized into 10 test classes:
+### 6. **Unit Tests** (`tests/lang/test_parser.py` and `tests/lang/test_annotations.py`)
+**Parser Tests** - 75 comprehensive tests organized into 10 test classes:
 - **TestLiterals**: 14 tests for all literal types
 - **TestIdentifiersAndMemberAccess**: 4 tests for identifiers and access patterns
 - **TestCommands**: 11 tests for all command types
@@ -66,11 +77,20 @@ Seven comprehensive fixture files demonstrating all language features:
 - **TestFixtures**: 7 tests verifying all fixture files parse correctly
 - **TestEdgeCases**: 6 tests for edge cases and complex scenarios
 
+**Layer Annotation Tests** - 32 comprehensive tests organized into 6 test classes:
+- **TestLayerAnnotationParsing**: 15 tests for @layer, @require, @prefer syntax
+- **TestAnnotationCompilation**: 6 tests for IR metadata threading
+- **TestAnnotationErrors**: 5 tests for error handling
+- **TestAnnotationIntegration**: 3 tests for end-to-end workflows
+- **TestEdgeCases**: 3 tests for corner cases
+
 All tests cover:
 - ✅ Happy paths (correct syntax)
 - ✅ Malformed input diagnostics
 - ✅ Error message quality
 - ✅ Source span accuracy
+- ✅ Legacy construct compatibility (@lib.fn still works)
+- ✅ Metadata round-trip through parse→compile
 
 ## Language Syntax Examples
 
@@ -122,6 +142,43 @@ SET data TO @http.get("https://api.example.com")
 SET result TO @math.calculate("sum", 10, 20, 30)
 ```
 
+### Layer Annotations (Multi-Layer Execution)
+Layer annotations specify which execution layer(s) should handle a statement:
+
+```null
+# Execute on binary layer
+@layer(binary) SET x TO 42
+
+# Require superbit and binary layers
+@require(superbit, binary) SET y TO x
+
+# Prefer GPU execution with fallback to CPU
+@prefer(gpu, cpu) SET z TO y PLUS 100
+
+# Multiple annotations on a single statement
+@layer(superbit) @require(binary) SET result TO x TIMES y
+
+# Annotations work on all statement types
+@layer(binary) IF x IS GREATER THAN 10 THEN
+    SHOW "Greater"
+END IF
+
+@prefer(gpu) REPEAT 1000 TIMES
+    SET x TO x PLUS 1
+END REPEAT
+
+@require(ml) DEFINE neural_forward WITH input
+    # Neural network forward pass
+END DEFINE
+```
+
+Metadata is threaded into the compiled IR:
+- `@layer(name)` → `metadata['layer'] = 'name'`
+- `@require(l1, l2)` → `metadata['requires'] = ['l1', 'l2']`
+- `@prefer(l1, l2)` → `metadata['prefers'] = ['l1', 'l2']`
+
+Downstream tooling (VMs, debuggers) can use this metadata to route instructions to the appropriate execution layer.
+
 ## Technical Decisions
 
 ### 1. Expression Precedence
@@ -164,29 +221,44 @@ except SyntaxError as e:
 ## Testing
 
 ```bash
-# Run all tests
+# Run parser tests
 pytest tests/lang/test_parser.py -v
 
+# Run annotation tests
+pytest tests/lang/test_annotations.py -v
+
+# Run all lang tests
+pytest tests/lang/ -v
+
 # Run with coverage
-pytest tests/lang/test_parser.py --cov=src/null_system/lang
+pytest tests/lang/ --cov=src/null_system/lang
 
 # Run specific test class
 pytest tests/lang/test_parser.py::TestLiterals -v
+pytest tests/lang/test_annotations.py::TestLayerAnnotationParsing -v
+
+# Run with detailed output
+pytest tests/lang/test_annotations.py::TestAnnotationCompilation -xvs
 ```
 
-## Files Created
+## Files Created/Modified
 
 ```
 src/null_system/lang/
-├── __init__.py              # Public API exports
-├── ast_nodes.py             # 205 lines - AST definitions
+├── __init__.py              # Public API exports (updated for annotations)
+├── ast_nodes.py             # 225 lines - AST definitions (added annotation nodes)
+├── compiler.py              # 280 lines NEW - Null-Lang to Super-Bit IR compiler
 ├── errors.py                # 64 lines - Error classes
-├── grammar.lark             # 142 lines - Language grammar
-└── parser.py                # 376 lines - Parser implementation
+├── grammar.lark             # 175 lines - Language grammar (added layer annotation rules)
+└── parser.py                # 420+ lines - Parser implementation (added annotation handling)
+
+src/null_system/superbit/
+└── ir.py                    # Updated docstring with metadata contract
 
 tests/lang/
 ├── __init__.py
-└── test_parser.py           # 541 lines - 75 comprehensive tests
+├── test_parser.py           # 541 lines - 75 comprehensive tests
+└── test_annotations.py      # 400+ lines NEW - 32 comprehensive layer annotation tests
 
 fixtures/lang/
 ├── collections.null         # Array and object examples
@@ -200,6 +272,7 @@ fixtures/lang/
 requirements.txt             # Dependencies
 setup.py                     # Package configuration
 README.md                    # Documentation
+IMPLEMENTATION.md            # Updated with annotation features
 example.py                   # Usage examples
 .gitignore                   # Git ignore rules
 ```

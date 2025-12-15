@@ -15,7 +15,8 @@ from .ast_nodes import (
     Identifier, MemberAccess,
     SetCommand, AddCommand, IfCommand, ShowCommand, RepeatCommand, DefineCommand,
     BinaryExpression, UnaryExpression, ComparisonExpression, BinaryOperator, UnaryOperator,
-    FunctionCall, NullLibAnnotation, Comment
+    FunctionCall, NullLibAnnotation, Comment,
+    LayerAnnotation, RequireAnnotation, PreferAnnotation
 )
 from .errors import SyntaxError, LexerError
 
@@ -266,6 +267,58 @@ class NullLangTransformer(Transformer):
         if len(items) > 2:
             arguments = items[2] if isinstance(items[2], list) else [items[2]]
         return NullLibAnnotation(lib_name=lib_name, function=function, arguments=arguments)
+    
+    # Annotations
+    
+    def annotation(self, items):
+        return items[0]
+    
+    def make_layer_annotation(self, items):
+        layer_name = items[0].name if isinstance(items[0], Identifier) else str(items[0])
+        return LayerAnnotation(layer=layer_name)
+    
+    def make_require_annotation(self, items):
+        layers = []
+        for item in items:
+            if isinstance(item, Identifier):
+                layers.append(item.name)
+            elif isinstance(item, list):
+                layers.extend([id.name if isinstance(id, Identifier) else str(id) for id in item])
+        return RequireAnnotation(layers=layers)
+    
+    def make_prefer_annotation(self, items):
+        layers = []
+        for item in items:
+            if isinstance(item, Identifier):
+                layers.append(item.name)
+            elif isinstance(item, list):
+                layers.extend([id.name if isinstance(id, Identifier) else str(id) for id in item])
+        return PreferAnnotation(layers=layers)
+    
+    def identifier_list(self, items):
+        return items
+    
+    def attach_annotations(self, items):
+        annotations = []
+        base_stmt = None
+        
+        for item in items:
+            if isinstance(item, (LayerAnnotation, RequireAnnotation, PreferAnnotation)):
+                annotations.append(item)
+            elif isinstance(item, list):
+                for sub_item in item:
+                    if isinstance(sub_item, (LayerAnnotation, RequireAnnotation, PreferAnnotation)):
+                        annotations.append(sub_item)
+                    else:
+                        base_stmt = sub_item
+            else:
+                base_stmt = item
+        
+        if base_stmt is not None:
+            if hasattr(base_stmt, 'annotations'):
+                base_stmt.annotations = annotations
+        
+        return base_stmt if base_stmt is not None else annotations
     
     # Statements
     
