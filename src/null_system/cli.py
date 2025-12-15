@@ -23,6 +23,7 @@ from .knowledge import GraphStore, InMemoryBackend, SuperBitEncoder
 from .knowledge.query_language import QueryEngine
 from .knowledge.inference import InferenceEngine, Rule, RuleType
 from .knowledge.external.wikidata import ExternalKnowledgeBase
+from .lsp import run_lsp_server
 
 app = typer.Typer(
     name="nullc",
@@ -199,6 +200,17 @@ def run(
     except Exception as e:
         console.print(f"[red]Unexpected error: {e}[/red]")
         raise typer.Exit(1)
+
+
+@app.command()
+def lsp(
+    syntax: str = typer.Option("auto", "--syntax", help="Syntax mode (english|modern|hybrid|auto)"),
+    port: int = typer.Option(2087, "--port", help="TCP port when not using --stdio"),
+    stdio: bool = typer.Option(True, "--stdio/--tcp", help="Use stdio (default) or TCP"),
+):
+    """Start the Null Language Server (LSP)."""
+
+    run_lsp_server(syntax=syntax, port=port, stdio=stdio)
 
 
 @app.command()

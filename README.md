@@ -92,9 +92,35 @@ src/
 
 ## Installation
 
+TypeScript (VM):
+
 ```bash
 npm install
 ```
+
+Python (compiler tooling + LSP):
+
+```bash
+pip install -e .
+```
+
+## Language Server (LSP)
+
+Start an editor-friendly LSP server (stdio):
+
+```bash
+nullc lsp --syntax auto --stdio
+```
+
+Pin the syntax mode:
+
+```bash
+nullc lsp --syntax english --stdio
+nullc lsp --syntax modern --stdio
+nullc lsp --syntax hybrid --stdio
+```
+
+See [`docs/ide/dual_syntax.md`](docs/ide/dual_syntax.md) for initialization options, dual-mode highlighting assets, and editor integration notes.
 
 ## Usage
 
