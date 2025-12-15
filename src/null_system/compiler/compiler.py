@@ -7,10 +7,11 @@ from ..ast.nodes import Program
 from ..ast.validator import ASTValidator
 from ..parser.lexer import Lexer
 from ..parser.parser import Parser, ParseError
+from ..superbit import SuperBitStream, SuperBitGroup
 from ..superbit.emitter import SuperBitEmitter
-from ..superbit.ir import SuperBitStream
 from ..binary.generator import BinaryGenerator, BinaryFrame
 from ..vm.vm import NullVM, ExecutionResult
+from ..lang.syntax_modes import SyntaxConfig
 from .optimization import OptimizationPass
 
 
@@ -26,6 +27,7 @@ class CompilationArtifact:
     superbit_stream: SuperBitGroup
     binary_frames: List[BinaryFrame]
     validation_errors: List[str]
+    syntax_config: Optional[SyntaxConfig] = None
     
     def is_valid(self) -> bool:
         """Check if compilation was successful."""
@@ -41,7 +43,7 @@ class NullCompiler:
         self.emitter = SuperBitEmitter()
         self.binary_generator = BinaryGenerator()
     
-    def compile(self, source: str) -> CompilationArtifact:
+    def compile(self, source: str, syntax_config: Optional[SyntaxConfig] = None) -> CompilationArtifact:
         """
         Compile Null-Lang source code.
         
@@ -55,6 +57,7 @@ class NullCompiler:
         
         Args:
             source: Null-Lang source code
+            syntax_config: Optional syntax configuration
             
         Returns:
             CompilationArtifact containing all intermediate results
@@ -81,7 +84,8 @@ class NullCompiler:
                 ast=ast,
                 superbit_stream=superbit_stream,
                 binary_frames=binary_frames,
-                validation_errors=validation_errors
+                validation_errors=validation_errors,
+                syntax_config=syntax_config
             )
         
         except ParseError as e:
@@ -90,6 +94,7 @@ class NullCompiler:
             raise CompilationError(f"Compilation error: {str(e)}")
     
     def compile_and_run(self, source: str,
+                       syntax_config: Optional[SyntaxConfig] = None,
                        security_profile: Optional[str] = None,
                        encryption_key_id: Optional[str] = None) -> ExecutionResult:
         """
@@ -99,13 +104,14 @@ class NullCompiler:
         
         Args:
             source: Null-Lang source code
+            syntax_config: Optional syntax configuration
             security_profile: Optional security profile (dev, prod)
             encryption_key_id: Optional encryption key ID
             
         Returns:
             ExecutionResult from the VM
         """
-        artifact = self.compile(source)
+        artifact = self.compile(source, syntax_config=syntax_config)
         
         if not artifact.is_valid():
             return ExecutionResult(

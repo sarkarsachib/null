@@ -5,6 +5,7 @@ import pytest
 from null_system.compiler import NullCompiler, CompilationError
 from null_system.compiler.optimization import DeduplicationPass, CompressionPass
 from null_system.superbit.ir import SuperBitOpCode
+from null_system.lang.syntax_modes import SyntaxMode, SyntaxConfig
 
 
 class TestNullCompiler:
@@ -33,12 +34,48 @@ class TestNullCompiler:
         assert artifact.binary_frames is not None
         assert artifact.is_valid()
     
+    def test_compile_with_syntax_config(self):
+        """Test compilation with syntax configuration."""
+        compiler = NullCompiler()
+        syntax_config = SyntaxConfig(mode=SyntaxMode.MODERN)
+        artifact = compiler.compile("set x to 5", syntax_config=syntax_config)
+        
+        assert artifact is not None
+        assert artifact.syntax_config == syntax_config
+        assert artifact.syntax_config.mode == SyntaxMode.MODERN
+    
+    def test_compile_with_default_syntax_config(self):
+        """Test compilation with default syntax configuration."""
+        compiler = NullCompiler()
+        artifact = compiler.compile("set x to 5")  # No syntax config provided
+        
+        assert artifact is not None
+        assert artifact.syntax_config is None  # Should be None when not provided
+    
+    def test_compile_and_run_with_syntax_config(self):
+        """Test compile_and_run with syntax configuration."""
+        compiler = NullCompiler()
+        syntax_config = SyntaxConfig(mode=SyntaxMode.HYBRID, allow_hybrid=True)
+        result = compiler.compile_and_run("set x to 5", syntax_config=syntax_config)
+        
+        assert result is not None
+        assert result.success
+        assert result.final_state["x"] == 5
+    
     def test_compile_invalid_syntax(self):
         """Test compilation with invalid syntax."""
         compiler = NullCompiler()
         
         with pytest.raises(CompilationError):
             compiler.compile("invalid syntax here")
+    
+    def test_compile_and_run_invalid_syntax(self):
+        """Test compile_and_run with invalid syntax."""
+        compiler = NullCompiler()
+        result = compiler.compile_and_run("invalid syntax here")
+        
+        assert not result.success
+        assert "Parse error" in result.error
     
     def test_compile_and_run_returns_result(self):
         """Test compile_and_run returns ExecutionResult."""

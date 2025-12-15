@@ -2,6 +2,76 @@
 
 This document describes how AST nodes are translated into Super-bit tokens during compilation.
 
+## Syntax Modes and Directives
+
+Null-Lang supports multiple syntax modes that can be configured per project or per file:
+
+- **English mode**: Natural English-like syntax (`set x to 5`, `print x`)
+- **Modern mode**: Concise syntax (`let x = 5`, `console.log(x)`)  
+- **Hybrid mode**: Mix of both syntaxes with flexible parsing
+
+### @syntax Directive
+
+Files can specify their syntax mode using the `@syntax` directive:
+
+```null
+@syntax modern
+let x = 42
+console.log(x)
+
+@syntax english  
+set x to 42
+print x
+
+@syntax hybrid
+let y = 10
+set z to y add 5  # Mix of modern and English syntax
+```
+
+The directive must appear in the first 10 lines of the file and is case-insensitive.
+
+### Configuration Precedence
+
+Syntax mode resolution follows this precedence (highest to lowest):
+
+1. **CLI flag**: `--syntax modern` overrides all other settings
+2. **@syntax directive**: `@syntax hybrid` overrides project defaults  
+3. **Project configuration**: `default_syntax = "english"` in project files
+4. **System default**: Falls back to English mode
+
+### Supported Configuration Files
+
+Project-level configuration can be specified in:
+
+- `nullproject.toml` (TOML format)
+- `project.null.config` (custom key=value format)
+- `.nullproject.json` (JSON format)
+
+Example TOML configuration:
+
+```toml
+[project]
+default_syntax = "hybrid"
+english_warnings = true
+allow_hybrid_mode = true
+auto_translate = false
+linting = true
+source_dir = "src"
+build_dir = "build"
+```
+
+Example custom format:
+
+```ini
+# Null-Lang Project Configuration
+default_syntax=hybrid
+english_warnings=true
+allow_hybrid_mode=true
+auto_translate=false
+source_dir=src
+build_dir=build
+```
+
 ## Translation Mappings
 
 ### Literals and Variables
