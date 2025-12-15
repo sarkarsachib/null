@@ -11,6 +11,10 @@ from ..ast.nodes import (
     IfStatement,
     Identifier,
     Literal,
+    MatchExpression,
+    MatchCase,
+    Pattern,
+    WhenGuard,
 )
 from .ir import SuperBitIRToken, SuperBitOpCode, SuperBitStream
 
@@ -119,3 +123,52 @@ class SuperBitEmitter:
     def _visit_Literal(self, node: Literal):
         """Emit tokens for literal value."""
         self._emit(SuperBitOpCode.LOAD_CONST, node.value, line=node.line)
+
+    def _visit_MatchExpression(self, node: MatchExpression):
+        """Emit tokens for match expression."""
+        self._visit(node.expr)
+
+        case_jump_indices = []
+        for case in node.cases:
+            if case.pattern:
+                self._emit_pattern_match(case.pattern, line=node.line)
+                pattern_jump_idx = len(self.tokens)
+                self._emit(SuperBitOpCode.JUMP_IF_FALSE, 0, line=node.line)
+                case_jump_indices.append(pattern_jump_idx)
+
+            if case.guard and case.guard.condition:
+                self._visit(case.guard.condition)
+                guard_jump_idx = len(self.tokens)
+                self._emit(SuperBitOpCode.JUMP_IF_FALSE, 0, line=node.line)
+                case_jump_indices.append(guard_jump_idx)
+
+            for stmt in case.body:
+                self._visit(stmt)
+
+            end_jump = len(self.tokens)
+            self._emit(SuperBitOpCode.JUMP, 0, line=node.line)
+            case_jump_indices.append(end_jump)
+
+        end_idx = len(self.tokens)
+        for jump_idx in case_jump_indices:
+            token = self.tokens[jump_idx]
+            self.tokens[jump_idx] = SuperBitIRToken(
+                opcode=token.opcode,
+                operand=end_idx,
+                source_line=token.source_line,
+            )
+
+    def _emit_pattern_match(self, pattern: Pattern, *, line: int | None = None):
+        """Emit tokens for pattern matching."""
+        if pattern.pattern_type == "tag":
+            self._emit(SuperBitOpCode.MATCH_TAG, pattern.tag, line=line)
+            if pattern.binding_name:
+                self._emit(SuperBitOpCode.UNWRAP_UNION, None, line=line)
+                self._emit(SuperBitOpCode.STORE_VAR, pattern.binding_name, line=line)
+        elif pattern.pattern_type == "binding":
+            if pattern.binding_name:
+                self._emit(SuperBitOpCode.STORE_VAR, pattern.binding_name, line=line)
+        elif pattern.pattern_type == "tuple" or pattern.pattern_type == "list":
+            if pattern.inner_patterns:
+                for inner in pattern.inner_patterns:
+                    self._emit_pattern_match(inner, line=line)

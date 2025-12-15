@@ -24,6 +24,9 @@ export enum OpCode {
   AI_LAYER = 'AI_LAYER',
   AI_ATTEND = 'AI_ATTEND',
   AI_FUZZY = 'AI_FUZZY',
+  MATCH_TAG = 'MATCH_TAG',
+  UNWRAP_UNION = 'UNWRAP_UNION',
+  MATCH_PATTERN = 'MATCH_PATTERN',
   SPAWN_VM = 'SPAWN_VM',
   SEND_MSG = 'SEND_MSG',
   RECV_MSG = 'RECV_MSG',
@@ -134,6 +137,21 @@ export interface AIAttendInstruction extends Instruction {
 export interface AIFuzzyInstruction extends Instruction {
   opcode: OpCode.AI_FUZZY;
   args: [string, string, number]; // [inputRegister, outputRegister, uncertaintyReduction]
+}
+
+export interface MatchTagInstruction extends Instruction {
+  opcode: OpCode.MATCH_TAG;
+  args: [string]; // [tag]
+}
+
+export interface UnwrapUnionInstruction extends Instruction {
+  opcode: OpCode.UNWRAP_UNION;
+  args: [];
+}
+
+export interface MatchPatternInstruction extends Instruction {
+  opcode: OpCode.MATCH_PATTERN;
+  args: [string]; // [pattern_tag]
 }
 
 export function isValidOpCode(code: string): code is OpCode {

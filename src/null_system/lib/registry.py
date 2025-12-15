@@ -6,7 +6,7 @@ from typing import Callable
 from ..errors import NullArityError, NullLibNotFoundError
 from ..runtime import NullCallContext
 from ..types import NullValue
-from . import array_ops, io_ops, math_ops, object_ops, text_ops, nlp_ops, ml_ops
+from . import array_ops, io_ops, math_ops, object_ops, text_ops, nlp_ops, ml_ops, option_ops, result_ops
 
 
 LibImpl = Callable[[NullCallContext, list[NullValue]], NullValue]
@@ -112,5 +112,16 @@ def default_registry() -> LibraryRegistry:
         "ml.EMBED": LibFunction("ml.EMBED", 2, _wrap(ml_ops.EMBED)),
         "ml.ATTEND": LibFunction("ml.ATTEND", 3, _wrap(ml_ops.ATTEND)),
         "ml.TUNE": LibFunction("ml.TUNE", 2, _wrap(ml_ops.TUNE)),
+        "option.SOME": LibFunction("option.SOME", 1, _wrap(option_ops.SOME)),
+        "option.NONE": LibFunction("option.NONE", 0, _wrap(option_ops.NONE)),
+        "option.IS_SOME": LibFunction("option.IS_SOME", 1, _wrap(option_ops.IS_SOME)),
+        "option.IS_NONE": LibFunction("option.IS_NONE", 1, _wrap(option_ops.IS_NONE)),
+        "option.UNWRAP": LibFunction("option.UNWRAP", 1, _wrap(option_ops.UNWRAP)),
+        "result.OK": LibFunction("result.OK", 1, _wrap(result_ops.OK)),
+        "result.ERR": LibFunction("result.ERR", 1, _wrap(result_ops.ERR)),
+        "result.IS_OK": LibFunction("result.IS_OK", 1, _wrap(result_ops.IS_OK)),
+        "result.IS_ERR": LibFunction("result.IS_ERR", 1, _wrap(result_ops.IS_ERR)),
+        "result.UNWRAP": LibFunction("result.UNWRAP", 1, _wrap(result_ops.UNWRAP)),
+        "result.UNWRAP_ERR": LibFunction("result.UNWRAP_ERR", 1, _wrap(result_ops.UNWRAP_ERR)),
     }
     return LibraryRegistry(fns)

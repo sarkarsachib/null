@@ -33,6 +33,10 @@ class SuperBitOpCode(IntEnum):
     JUMP_IF_FALSE = 40
     JUMP = 41
 
+    MATCH_TAG = 50
+    UNWRAP_UNION = 51
+    MATCH_PATTERN = 52
+
     NOP = 255
 
 

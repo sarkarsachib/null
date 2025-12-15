@@ -28,6 +28,9 @@ class SuperBitOpCode(str, Enum):
     JUMP = "JUMP"
     JUMP_IF_FALSE = "JUMP_IF_FALSE"
     PRINT = "PRINT"
+    MATCH_TAG = "MATCH_TAG"
+    UNWRAP_UNION = "UNWRAP_UNION"
+    MATCH_PATTERN = "MATCH_PATTERN"
     NOP = "NOP"
 
 

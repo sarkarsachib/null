@@ -57,3 +57,34 @@ class IfStatement(ASTNode):
 class Program(ASTNode):
     """Root program node."""
     statements: List[ASTNode] = field(default_factory=list)
+
+
+@dataclass
+class Pattern(ASTNode):
+    """Pattern for destructuring in match expressions."""
+    pattern_type: str = ""
+    name: Optional[str] = None
+    tag: Optional[str] = None
+    inner_patterns: Optional[List["Pattern"]] = None
+    binding_name: Optional[str] = None
+
+
+@dataclass
+class WhenGuard(ASTNode):
+    """Guard clause for pattern match cases."""
+    condition: Optional[ASTNode] = None
+
+
+@dataclass
+class MatchCase(ASTNode):
+    """A single case in a match expression."""
+    pattern: Optional[Pattern] = None
+    guard: Optional[WhenGuard] = None
+    body: List[ASTNode] = field(default_factory=list)
+
+
+@dataclass
+class MatchExpression(ASTNode):
+    """Pattern matching expression."""
+    expr: Optional[ASTNode] = None
+    cases: List[MatchCase] = field(default_factory=list)

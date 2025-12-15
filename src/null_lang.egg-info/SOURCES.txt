@@ -27,6 +27,14 @@ src/null_system/data/types.py
 src/null_system/extensions/__init__.py
 src/null_system/extensions/compression.py
 src/null_system/extensions/security.py
+src/null_system/knowledge/__init__.py
+src/null_system/knowledge/entity_resolution.py
+src/null_system/knowledge/graph_store.py
+src/null_system/knowledge/inference.py
+src/null_system/knowledge/query_language.py
+src/null_system/knowledge/superbit_encoder.py
+src/null_system/knowledge/transaction.py
+src/null_system/knowledge/external/wikidata.py
 src/null_system/lang/__init__.py
 src/null_system/lang/ast_nodes.py
 src/null_system/lang/errors.py
@@ -35,11 +43,14 @@ src/null_system/lang/parser.py
 src/null_system/lib/__init__.py
 src/null_system/lib/array_ops.py
 src/null_system/lib/io_ops.py
+src/null_system/lib/kg_ops.py
 src/null_system/lib/math_ops.py
 src/null_system/lib/ml_ops.py
 src/null_system/lib/nlp_ops.py
 src/null_system/lib/object_ops.py
+src/null_system/lib/option_ops.py
 src/null_system/lib/registry.py
+src/null_system/lib/result_ops.py
 src/null_system/lib/text_ops.py
 src/null_system/ml/__init__.py
 src/null_system/ml/attention.py
@@ -76,4 +87,5 @@ tests/test_compiler.py
 tests/test_compression.py
 tests/test_integration.py
 tests/test_null_system_lib.py
+tests/test_pattern_matching.py
 tests/test_security.py
