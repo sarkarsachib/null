@@ -33,6 +33,32 @@ console = Console()
 
 
 @app.command()
+def observe(
+    host: str = typer.Option("0.0.0.0", "--host", help="Bind host"),
+    port: int = typer.Option(8000, "--port", help="HTTP port"),
+):
+    """Run an HTTP server exposing /metrics, /healthz, /readyz."""
+    from .observability import create_observability_app, init_observability
+
+    init_observability(enabled=True)
+    api_app = create_observability_app()
+
+    console.print(
+        Panel.fit(
+            f"[bold cyan]Null Observability[/bold cyan]\n\n"
+            f"Metrics: http://{host}:{port}/metrics\n"
+            f"Health:  http://{host}:{port}/healthz\n"
+            f"Ready:   http://{host}:{port}/readyz",
+            border_style="cyan",
+        )
+    )
+
+    import uvicorn
+
+    uvicorn.run(api_app, host=host, port=port, log_level=os.getenv("NULL_OBSERVABILITY_LOG_LEVEL", "warning"))
+
+
+@app.command()
 def compile(
     file: Path = typer.Argument(..., help="Null-Lang source file (.null)"),
     output: Optional[Path] = typer.Option(None, "--output", "-o", help="Output file for binary"),

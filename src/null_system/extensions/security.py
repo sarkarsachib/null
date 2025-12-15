@@ -4,19 +4,22 @@ Provides SuperBitSecurityLayer for AES-GCM encryption of binary frames,
 and KeyManager for managing encryption keys and metadata.
 """
 
-import os
-import json
 import hashlib
+import json
+import os
+import time
 import uuid
-from pathlib import Path
-from dataclasses import dataclass, field, asdict
-from typing import Optional, Dict, List, Any, Union
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Union
+
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.backends import default_backend
 
+from ..observability import get_observability
 from ..superbit.tokens import SuperBitStream, SuperBitToken
 
 
@@ -113,77 +116,139 @@ class KeyManager:
         key = kdf.derive(password.encode())
         return key, salt
     
-    def create_key(self, key_id: Optional[str] = None,
-                   password: Optional[str] = None,
-                   comment: Optional[str] = None) -> tuple[str, bytes]:
+    def create_key(
+        self,
+        key_id: Optional[str] = None,
+        password: Optional[str] = None,
+        comment: Optional[str] = None,
+    ) -> tuple[str, bytes]:
         """Create a new encryption key.
-        
+
         Args:
             key_id: Optional key ID. Generated if not provided
             password: Optional password to derive key from. If not provided, generates random key
             comment: Optional comment for the key
-            
+
         Returns:
             Tuple of (key_id, key_bytes)
         """
-        if key_id is None:
-            key_id = f"key-{uuid.uuid4().hex[:12]}"
-        
-        if password:
-            key, salt = self.derive_key(password)
-            salt_file = self.config_dir / f"{key_id}.salt"
-            with open(salt_file, "wb") as f:
-                f.write(salt)
-        else:
-            key = os.urandom(32)
-        
-        self.keys[key_id] = key
-        self.metadata[key_id] = KeyMetadata(
-            key_id=key_id,
-            algorithm="AES-256-GCM",
-            created_at=datetime.utcnow().isoformat(),
-            is_active=True,
-            comment=comment
-        )
-        
-        key_file = self.config_dir / f"{key_id}.key"
-        with open(key_file, "wb") as f:
-            f.write(key)
-        
-        self._save_metadata()
-        return key_id, key
+        obs = get_observability()
+        started = time.perf_counter()
+
+        with obs.tracing.span(
+            "null.security.key_manager.create_key",
+            attributes={"has_password": bool(password)},
+        ):
+            try:
+                if key_id is None:
+                    key_id = f"key-{uuid.uuid4().hex[:12]}"
+
+                if password:
+                    key, salt = self.derive_key(password)
+                    salt_file = self.config_dir / f"{key_id}.salt"
+                    with open(salt_file, "wb") as f:
+                        f.write(salt)
+                else:
+                    key = os.urandom(32)
+
+                self.keys[key_id] = key
+                self.metadata[key_id] = KeyMetadata(
+                    key_id=key_id,
+                    algorithm="AES-256-GCM",
+                    created_at=datetime.utcnow().isoformat(),
+                    is_active=True,
+                    comment=comment,
+                )
+
+                key_file = self.config_dir / f"{key_id}.key"
+                with open(key_file, "wb") as f:
+                    f.write(key)
+
+                self._save_metadata()
+
+                obs.logger.info(
+                    "security.key_manager.create_key",
+                    key_id=key_id,
+                    has_password=bool(password),
+                    duration_s=time.perf_counter() - started,
+                )
+                return key_id, key
+            except Exception as e:
+                obs.metrics.inc_error(component="security", error_type=type(e).__name__)
+                obs.logger.exception(
+                    "security.key_manager.create_key",
+                    status="error",
+                    error_type=type(e).__name__,
+                )
+                obs.capture_exception(
+                    e,
+                    component="security",
+                    action="key_manager.create_key",
+                    error_type=type(e).__name__,
+                )
+                raise
     
     def load_key(self, key_id: str, password: Optional[str] = None) -> bytes:
         """Load a key by ID.
-        
+
         Args:
             key_id: ID of the key to load
             password: Optional password if key was derived
-            
+
         Returns:
             The key bytes
-            
+
         Raises:
             ValueError: If key not found
         """
-        if key_id in self.keys:
-            return self.keys[key_id]
-        
-        key_file = self.config_dir / f"{key_id}.key"
-        if not key_file.exists():
-            raise ValueError(f"Key '{key_id}' not found")
-        
-        with open(key_file, "rb") as f:
-            key = f.read()
-        
-        salt_file = self.config_dir / f"{key_id}.salt"
-        if salt_file.exists() and password:
-            with open(salt_file, "rb") as f:
-                salt = f.read()
-            key, _ = self.derive_key(password, salt)
-        
-        self.keys[key_id] = key
-        return key
+        obs = get_observability()
+        started = time.perf_counter()
+
+        with obs.tracing.span(
+            "null.security.key_manager.load_key",
+            attributes={"key_id": key_id, "has_password": bool(password)},
+        ):
+            try:
+                if key_id in self.keys:
+                    return self.keys[key_id]
+
+                key_file = self.config_dir / f"{key_id}.key"
+                if not key_file.exists():
+                    raise ValueError(f"Key '{key_id}' not found")
+
+                with open(key_file, "rb") as f:
+                    key = f.read()
+
+                salt_file = self.config_dir / f"{key_id}.salt"
+                if salt_file.exists() and password:
+                    with open(salt_file, "rb") as f:
+                        salt = f.read()
+                    key, _ = self.derive_key(password, salt)
+
+                self.keys[key_id] = key
+
+                obs.logger.info(
+                    "security.key_manager.load_key",
+                    key_id=key_id,
+                    duration_s=time.perf_counter() - started,
+                )
+                return key
+            except Exception as e:
+                obs.metrics.inc_error(component="security", error_type=type(e).__name__)
+                obs.logger.exception(
+                    "security.key_manager.load_key",
+                    key_id=key_id,
+                    status="error",
+                    error_type=type(e).__name__,
+                )
+                obs.capture_exception(
+                    e,
+                    component="security",
+                    action="key_manager.load_key",
+                    key_id=key_id,
+                    error_type=type(e).__name__,
+                )
+                raise
     
     def get_active_key(self) -> tuple[str, bytes]:
         """Get the currently active key.
@@ -247,55 +312,126 @@ class SuperBitSecurityLayer:
         self.config = config or EncryptionConfig()
         self.opcode_map: Dict[str, str] = {}
     
-    def encrypt_stream(self, stream: SuperBitStream,
-                      key_id: Optional[str] = None) -> tuple[bytes, str, bytes, bytes]:
+    def encrypt_stream(
+        self,
+        stream: SuperBitStream,
+        key_id: Optional[str] = None,
+    ) -> tuple[bytes, str, bytes, bytes]:
         """Encrypt a super-bit stream using AES-GCM.
-        
+
         Args:
             stream: SuperBitStream to encrypt
             key_id: Key ID to use. Uses active key if not provided
-            
+
         Returns:
             Tuple of (ciphertext, key_id, nonce, tag) for storage
         """
-        if key_id is None:
-            key_id, _ = self.key_manager.get_active_key()
-        
-        key = self.key_manager.load_key(key_id)
-        nonce = os.urandom(12)
-        
-        plaintext = stream.to_bytes()
-        
-        cipher = AESGCM(key)
-        ciphertext = cipher.encrypt(nonce, plaintext, None)
-        
-        tag = ciphertext[-16:]
-        actual_ciphertext = ciphertext[:-16]
-        
-        return actual_ciphertext, key_id, nonce, tag
+        obs = get_observability()
+        started = time.perf_counter()
+
+        with obs.tracing.span(
+            "null.security.encrypt_stream",
+            attributes={"token_count": len(stream.tokens), "key_id": key_id or "active"},
+        ):
+            try:
+                if key_id is None:
+                    key_id, _ = self.key_manager.get_active_key()
+
+                key = self.key_manager.load_key(key_id)
+                nonce = os.urandom(12)
+
+                plaintext = stream.to_bytes()
+
+                cipher = AESGCM(key)
+                ciphertext = cipher.encrypt(nonce, plaintext, None)
+
+                tag = ciphertext[-16:]
+                actual_ciphertext = ciphertext[:-16]
+
+                obs.logger.info(
+                    "security.encrypt_stream",
+                    key_id=key_id,
+                    token_count=len(stream.tokens),
+                    plaintext_bytes=len(plaintext),
+                    ciphertext_bytes=len(actual_ciphertext),
+                    duration_s=time.perf_counter() - started,
+                )
+
+                return actual_ciphertext, key_id, nonce, tag
+            except Exception as e:
+                obs.metrics.inc_error(component="security", error_type=type(e).__name__)
+                obs.logger.exception(
+                    "security.encrypt_stream",
+                    status="error",
+                    error_type=type(e).__name__,
+                )
+                obs.capture_exception(
+                    e,
+                    component="security",
+                    action="encrypt_stream",
+                    error_type=type(e).__name__,
+                )
+                raise
     
-    def decrypt_stream(self, ciphertext: bytes, key_id: str,
-                      nonce: bytes, tag: bytes) -> SuperBitStream:
+    def decrypt_stream(
+        self,
+        ciphertext: bytes,
+        key_id: str,
+        nonce: bytes,
+        tag: bytes,
+    ) -> SuperBitStream:
         """Decrypt a super-bit stream using AES-GCM.
-        
+
         Args:
             ciphertext: Encrypted data
             key_id: Key ID used for encryption
             nonce: Nonce used for encryption
             tag: Authentication tag
-            
+
         Returns:
             Decrypted SuperBitStream
-            
+
         Raises:
             ValueError: If decryption fails (wrong key or corrupted data)
         """
-        key = self.key_manager.load_key(key_id)
-        
-        cipher = AESGCM(key)
-        plaintext = cipher.decrypt(nonce, ciphertext + tag, None)
-        
-        return SuperBitStream.from_bytes(plaintext)
+        obs = get_observability()
+        started = time.perf_counter()
+
+        with obs.tracing.span(
+            "null.security.decrypt_stream",
+            attributes={"key_id": key_id, "ciphertext_bytes": len(ciphertext)},
+        ):
+            try:
+                key = self.key_manager.load_key(key_id)
+
+                cipher = AESGCM(key)
+                plaintext = cipher.decrypt(nonce, ciphertext + tag, None)
+
+                obs.logger.info(
+                    "security.decrypt_stream",
+                    key_id=key_id,
+                    ciphertext_bytes=len(ciphertext),
+                    plaintext_bytes=len(plaintext),
+                    duration_s=time.perf_counter() - started,
+                )
+
+                return SuperBitStream.from_bytes(plaintext)
+            except Exception as e:
+                obs.metrics.inc_error(component="security", error_type=type(e).__name__)
+                obs.logger.exception(
+                    "security.decrypt_stream",
+                    key_id=key_id,
+                    status="error",
+                    error_type=type(e).__name__,
+                )
+                obs.capture_exception(
+                    e,
+                    component="security",
+                    action="decrypt_stream",
+                    key_id=key_id,
+                    error_type=type(e).__name__,
+                )
+                raise
     
     def encrypt_message(self, message: str,
                        key_id: Optional[str] = None) -> tuple[bytes, str, bytes, bytes]:

@@ -34,6 +34,13 @@ setup(
         "dev": [
             "pytest>=7.0.0",
         ],
+        "observability": [
+            "prometheus-client>=0.20.0",
+            "structlog>=24.0.0",
+            "opentelemetry-sdk>=1.25.0",
+            "opentelemetry-exporter-otlp>=1.25.0",
+            "sentry-sdk>=2.20.0",
+        ],
     },
     package_data={
         "null_system.lang": ["*.lark"],
