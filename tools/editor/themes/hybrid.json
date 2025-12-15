@@ -1,0 +1,35 @@
+{
+  "name": "null-hybrid",
+  "description": "Dual-mode highlighting for mixed English + modern Null syntax",
+  "tokens": {
+    "english_keywords": {
+      "SET": "#3b82f6",
+      "SHOW": "#22c55e",
+      "ADD": "#a855f7",
+      "IF": "#f97316",
+      "THEN": "#f97316",
+      "ELSE": "#f97316",
+      "DEFINE": "#eab308",
+      "REPEAT": "#eab308",
+      "END": "#64748b"
+    },
+    "modern_keywords": {
+      "let": "#3b82f6",
+      "fn": "#eab308",
+      "if": "#f97316",
+      "match": "#a855f7",
+      "return": "#22c55e",
+      "print": "#22c55e"
+    },
+    "transition": {
+      "pragma": "#ef4444",
+      "markers": "#ef4444"
+    },
+    "comments": "#94a3b8"
+  },
+  "guides": {
+    "blocks": "#334155",
+    "transition_markers": "#ef4444",
+    "dual_mode": true
+  }
+}

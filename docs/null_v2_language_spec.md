@@ -351,6 +351,24 @@ SET result TO data
 - ✅ Error messages show correct line/column for both syntaxes
 - ✅ All existing v1 tests pass
 
+#### Editor Tooling (LSP)
+
+Null ships a basic Language Server Protocol (LSP) server for dual-syntax editing.
+
+```bash
+nullc lsp --syntax auto --stdio
+```
+
+Pin a syntax mode:
+
+```bash
+nullc lsp --syntax english --stdio
+nullc lsp --syntax modern --stdio
+nullc lsp --syntax hybrid --stdio
+```
+
+The LSP provides diagnostics, keyword completions, hovers with alternate-syntax snippets, and code actions to rewrite between syntaxes. See `docs/ide/dual_syntax.md`.
+
 ---
 
 ### Phase 2: Type System Enhancements (Months 3-5)

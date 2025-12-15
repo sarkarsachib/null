@@ -35,6 +35,11 @@ setup(
             "pytest>=7.0.0",
         ],
     },
+    entry_points={
+        "console_scripts": [
+            "nullc=null_system.cli:app",
+        ],
+    },
     package_data={
         "null_system.lang": ["*.lark"],
     },

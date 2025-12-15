@@ -1,0 +1,27 @@
+{
+  "name": "null-english",
+  "description": "Keyword colors for Null English syntax (dual-mode highlighting)",
+  "tokens": {
+    "keywords": {
+      "SET": "#3b82f6",
+      "SHOW": "#22c55e",
+      "ADD": "#a855f7",
+      "IF": "#f97316",
+      "THEN": "#f97316",
+      "ELSE": "#f97316",
+      "DEFINE": "#eab308",
+      "REPEAT": "#eab308",
+      "END": "#64748b"
+    },
+    "literals": {
+      "string": "#10b981",
+      "number": "#06b6d4",
+      "boolean": "#f59e0b"
+    },
+    "comments": "#94a3b8"
+  },
+  "guides": {
+    "blocks": "#334155",
+    "transition_markers": "#ef4444"
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "name": "null-modern",
+  "description": "Keyword colors for Null modern syntax (dual-mode highlighting)",
+  "tokens": {
+    "keywords": {
+      "let": "#3b82f6",
+      "mut": "#60a5fa",
+      "fn": "#eab308",
+      "if": "#f97316",
+      "else": "#f97316",
+      "match": "#a855f7",
+      "return": "#22c55e",
+      "true": "#f59e0b",
+      "false": "#f59e0b",
+      "print": "#22c55e"
+    },
+    "operators": {
+      "=": "#94a3b8",
+      "+": "#94a3b8",
+      "-": "#94a3b8",
+      "*": "#94a3b8",
+      "/": "#94a3b8"
+    },
+    "comments": "#94a3b8"
+  },
+  "guides": {
+    "blocks": "#334155",
+    "transition_markers": "#ef4444"
+  }
+}
