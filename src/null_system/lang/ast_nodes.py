@@ -202,3 +202,98 @@ class Program(ASTNode):
 class Comment(ASTNode):
     """Represents a comment in the source code."""
     text: str
+
+
+# Type Declaration Nodes
+
+@dataclass
+class TypeAnnotation(ASTNode):
+    """Represents a type annotation."""
+    type_name: str
+    nullable: bool = False
+    type_args: List[str] = field(default_factory=list)
+
+
+@dataclass
+class TypeAlias(ASTNode):
+    """Represents a type alias declaration: type UserId = String"""
+    name: str
+    target_type: str
+
+
+@dataclass
+class DataClass(ASTNode):
+    """Represents a data class declaration."""
+    name: str
+    fields: List[tuple[str, str]]
+    type_params: List[str] = field(default_factory=list)
+
+
+@dataclass
+class SealedTrait(ASTNode):
+    """Represents a sealed trait declaration."""
+    name: str
+    subclasses: List[str] = field(default_factory=list)
+    type_params: List[str] = field(default_factory=list)
+
+
+# Null-Safety Nodes
+
+class SafeCallOperator(Enum):
+    """Null-safety operators."""
+    SAFE_ACCESS = "?."
+    ELVIS = "?:"
+    NOT_NULL = "!!"
+
+
+@dataclass
+class SafeAccess(ASTNode):
+    """Represents safe access: obj?.property"""
+    object: ASTNode
+    member: Union[str, ASTNode]
+
+
+@dataclass
+class ElvisOperator(ASTNode):
+    """Represents elvis operator: value ?: default"""
+    value: ASTNode
+    default: ASTNode
+
+
+@dataclass
+class NotNullAssertion(ASTNode):
+    """Represents not-null assertion: value!!"""
+    value: ASTNode
+
+
+@dataclass
+class SmartCast(ASTNode):
+    """Represents a smart cast in a conditional context."""
+    variable: str
+    target_type: str
+
+
+# Extended Set Command with Type Annotation
+
+@dataclass
+class SetCommandTyped(ASTNode):
+    """Represents a SET command with type annotation: SET x: Int TO 5"""
+    target: Union[Identifier, MemberAccess]
+    type_annotation: Optional[TypeAnnotation]
+    value: ASTNode
+
+
+# Match/When for Sealed Classes
+
+@dataclass
+class MatchCase(ASTNode):
+    """Represents a single case in a match statement."""
+    pattern: str
+    body: List[ASTNode]
+
+
+@dataclass
+class MatchStatement(ASTNode):
+    """Represents a match expression for sealed types."""
+    value: ASTNode
+    cases: List[MatchCase]

@@ -119,3 +119,40 @@ class SuperBitEmitter:
     def _visit_Literal(self, node: Literal):
         """Emit tokens for literal value."""
         self._emit(SuperBitOpCode.LOAD_CONST, node.value, line=node.line)
+    
+    def emit_safe_access(self, object_node: ASTNode, member: str, line: int | None = None) -> None:
+        """Emit tokens for safe access (obj?.property)."""
+        self._visit(object_node)
+        self._emit(SuperBitOpCode.SAFE_LOAD, member, line=line)
+    
+    def emit_elvis_operator(self, value_node: ASTNode, default_node: ASTNode, 
+                           line: int | None = None) -> None:
+        """Emit tokens for elvis operator (value ?: default)."""
+        self._visit(value_node)
+        elvis_idx = len(self.tokens)
+        self._emit(SuperBitOpCode.ELVIS_OP, 0, line=line)
+        
+        self._visit(default_node)
+        
+        end_idx = len(self.tokens)
+        self.tokens[elvis_idx] = SuperBitIRToken(
+            opcode=SuperBitOpCode.ELVIS_OP,
+            operand=end_idx,
+            source_line=line,
+        )
+    
+    def emit_not_null_assertion(self, value_node: ASTNode, line: int | None = None) -> None:
+        """Emit tokens for not-null assertion (value!!)."""
+        self._visit(value_node)
+        self._emit(SuperBitOpCode.NOT_NULL_ASSERT, None, line=line)
+    
+    def emit_type_check(self, value_node: ASTNode, type_name: str, 
+                       line: int | None = None) -> None:
+        """Emit tokens for type check (runtime type check)."""
+        self._visit(value_node)
+        self._emit(SuperBitOpCode.TYPE_CHECK, type_name, line=line)
+    
+    def emit_smart_cast(self, var_name: str, target_type: str, 
+                       line: int | None = None) -> None:
+        """Emit tokens for smart cast."""
+        self._emit(SuperBitOpCode.SMART_CAST, (var_name, target_type), line=line)

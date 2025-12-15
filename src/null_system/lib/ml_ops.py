@@ -1,7 +1,11 @@
 """ML operations for Null-Lang library."""
 
 from typing import Any
-import numpy as np
+
+try:
+    import numpy as np
+except ImportError:
+    np = None
 
 from ..runtime import NullCallContext
 from ..types import NullValue, to_null

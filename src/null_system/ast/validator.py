@@ -1,6 +1,6 @@
 """AST validation logic."""
 
-from typing import List, Set
+from typing import List, Set, Optional, Dict, Any
 
 from .nodes import (
     ASTNode,
@@ -20,11 +20,17 @@ class ValidationError(Exception):
 
 
 class ASTValidator:
-    """Validates AST for semantic correctness."""
+    """Validates AST for semantic correctness.
     
-    def __init__(self):
+    Can optionally consume type inference results for null-safety checking.
+    """
+    
+    def __init__(self, inferred_types: Optional[Dict[int, Any]] = None):
         self.defined_variables: Set[str] = set()
+        self.inferred_types = inferred_types or {}
         self.errors: List[str] = []
+        self.nullable_variables: Set[str] = set()
+        self.sealed_trait_handlers: Dict[str, Set[str]] = {}
     
     def validate(self, node: ASTNode) -> bool:
         """Validate an AST node and its children."""
@@ -90,3 +96,34 @@ class ASTValidator:
     def _visit_Literal(self, node: Literal):
         """Validate a literal value."""
         pass
+    
+    def check_non_null_safety(self, var_name: str, node: ASTNode) -> bool:
+        """Check if a variable is safely accessed (not null-unsafe)."""
+        if var_name in self.nullable_variables:
+            self.errors.append(f"Potentially null reference: {var_name} at line {node.line}")
+            return False
+        return True
+    
+    def enforce_exhaustive_match(self, sealed_trait: str, 
+                                handlers: Set[str]) -> bool:
+        """Enforce exhaustive handling for sealed traits."""
+        if sealed_trait not in self.sealed_trait_handlers:
+            return True
+        
+        required = self.sealed_trait_handlers[sealed_trait]
+        if not required.issubset(handlers):
+            missing = required - handlers
+            self.errors.append(f"Non-exhaustive match for {sealed_trait}. Missing: {missing}")
+            return False
+        return True
+    
+    def set_nullable_variable(self, var_name: str) -> None:
+        """Mark a variable as nullable."""
+        self.nullable_variables.add(var_name)
+    
+    def narrow_type(self, var_name: str, condition: str) -> None:
+        """Narrow a variable type based on null-check condition."""
+        if condition == "is_not_null":
+            self.nullable_variables.discard(var_name)
+        elif condition == "is_null":
+            self.nullable_variables.add(var_name)

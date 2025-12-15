@@ -33,6 +33,12 @@ class SuperBitOpCode(IntEnum):
     JUMP_IF_FALSE = 40
     JUMP = 41
 
+    SAFE_LOAD = 50
+    ELVIS_OP = 51
+    NOT_NULL_ASSERT = 52
+    TYPE_CHECK = 53
+    SMART_CAST = 54
+
     NOP = 255
 
 

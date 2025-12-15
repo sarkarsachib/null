@@ -1,0 +1,115 @@
+-- Null-Lang Phase 3-4: Type System and Null Safety Example
+-- Demonstrates type annotations, null safety operators, and sealed traits
+
+-- Type aliases for domain-specific types
+TYPE UserId = String
+TYPE Email = String?
+TYPE Age = Int
+
+-- Data class representing a user
+CLASS DATA User WITH
+  id: UserId,
+  name: String,
+  email: Email,
+  age: Age
+END CLASS
+
+-- Data class for API responses
+CLASS DATA ApiResponse WITH
+  status: String,
+  data: String?,
+  error: String?
+END CLASS
+
+-- Sealed trait for Result type (exhaustive pattern matching)
+SEALED TRAIT Result WITH Ok, Error
+END SEALED
+
+-- Example 1: Type annotations with null safety
+DEFINE getUserEmail WITH user
+  -- Safe access to potentially null email
+  SET email: String? TO user?.email
+  
+  -- Elvis operator: provide default if null
+  SET displayEmail: String TO email ?: "no-email@example.com"
+  
+  SHOW displayEmail
+END DEFINE
+
+-- Example 2: Null-safe chaining
+DEFINE getFormattedUser WITH user
+  -- Safe access chains
+  SET formattedEmail: String? TO user?.email
+  
+  IF user IS NOT NULL THEN
+    -- After null check, user is narrowed to non-null
+    SET name: String TO user.name
+    SET id: UserId TO user.id
+    SHOW name
+    SHOW id
+  END IF
+END DEFINE
+
+-- Example 3: Data class usage
+DEFINE createUser WITH id, name, email, age
+  CLASS DATA newUser WITH
+    id: UserId,
+    name: String,
+    email: Email,
+    age: Age
+  END CLASS
+  
+  SET userObj: User TO newUser
+  SHOW userObj
+END DEFINE
+
+-- Example 4: Exhaustive matching on sealed types
+DEFINE handleResult WITH result
+  MATCH result WHEN
+    Ok THEN
+      SET value: String TO result.data ?: "no data"
+      SHOW "Success: "
+      SHOW value
+    
+    Error THEN
+      SET errorMsg: String TO result.error ?: "unknown error"
+      SHOW "Error: "
+      SHOW errorMsg
+  END MATCH
+END DEFINE
+
+-- Example 5: Smart casting with type narrowing
+DEFINE processResponse WITH response
+  -- Type narrowing in conditions
+  IF response IS NOT NULL THEN
+    -- response is non-null here
+    SET status: String TO response.status
+    
+    -- Safe access to optional field
+    SET data: String? TO response?.data
+    
+    -- Elvis operator with default
+    SET displayData: String TO data ?: "no response data"
+    
+    SHOW status
+    SHOW displayData
+  END IF
+END DEFINE
+
+-- Example 6: Not-null assertion
+DEFINE forceUnwrap WITH maybeValue
+  -- Assert that value is non-null (runtime check)
+  SET nonNull: Int TO maybeValue!!
+  SHOW nonNull
+END DEFINE
+
+-- Main program
+SET response: ApiResponse TO ApiResponse
+
+-- Safe navigation
+SET msg: String? TO response?.error
+
+-- Provide fallback
+SET displayMsg: String TO msg ?: "Request succeeded"
+
+SHOW displayMsg
