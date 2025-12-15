@@ -84,6 +84,7 @@ src/
 │   ├── knowledge.md                 # NLP & Knowledge Graph documentation
 │   ├── architecture.md              # System architecture
 │   ├── hybrid_runtime.md            # Hybrid runtime guide
+│   ├── use_cases_market.md          # Use-case & market brief (11 domains)
 │   └── phase6/
 │       └── null_ml.md               # ML Runtime documentation
 └── index.ts                               # Main package exports
