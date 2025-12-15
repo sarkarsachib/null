@@ -13,14 +13,17 @@ from .ast_nodes import (
     SetCommand, AddCommand, IfCommand, ShowCommand, RepeatCommand, DefineCommand,
     BinaryExpression, UnaryExpression, ComparisonExpression,
     BinaryOperator, UnaryOperator,
-    FunctionCall, NullLibAnnotation, Comment
+    FunctionCall, NullLibAnnotation, Comment,
+    LayerAnnotation, RequireAnnotation, PreferAnnotation
 )
+from .compiler import NullLangCompiler, compile_program
 from .errors import NullLangError, SyntaxError, SemanticError, LexerError
 from .syntax_router import SyntaxMode, SyntaxAdvisor, ParserDispatcher, HybridParser, DiagnosticIssue
 from .transpiler import to_english, to_modern
 
 __all__ = [
     'NullLangParser', 'parse', 'parse_statement',
+    'NullLangCompiler', 'compile_program',
     'ASTNode', 'Program', 'SourceSpan',
     'TextLiteral', 'NumLiteral', 'BoolLiteral', 'ArrayLiteral', 'ObjectLiteral',
     'Identifier', 'MemberAccess',
@@ -28,6 +31,7 @@ __all__ = [
     'BinaryExpression', 'UnaryExpression', 'ComparisonExpression',
     'BinaryOperator', 'UnaryOperator',
     'FunctionCall', 'NullLibAnnotation', 'Comment',
+    'LayerAnnotation', 'RequireAnnotation', 'PreferAnnotation',
     'NullLangError', 'SyntaxError', 'SemanticError', 'LexerError',
     'SyntaxMode', 'SyntaxAdvisor', 'ParserDispatcher', 'HybridParser', 'DiagnosticIssue',
     'to_english', 'to_modern',

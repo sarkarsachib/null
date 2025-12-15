@@ -5,14 +5,32 @@
 
 program: statement*
 
-?statement: set_statement
-          | add_statement
-          | if_statement
-          | show_statement
-          | repeat_statement
-          | define_statement
-          | expression_statement
+?statement: annotated_statement
           | comment
+
+annotated_statement: annotation* base_statement -> attach_annotations
+
+?base_statement: set_statement
+               | add_statement
+               | if_statement
+               | show_statement
+               | repeat_statement
+               | define_statement
+               | expression_statement
+
+// Annotations
+
+annotation: layer_annotation
+          | require_annotation
+          | prefer_annotation
+
+layer_annotation: "@" "layer" "(" identifier ")" -> make_layer_annotation
+
+require_annotation: "@" "require" "(" identifier_list ")" -> make_require_annotation
+
+prefer_annotation: "@" "prefer" "(" identifier_list ")" -> make_prefer_annotation
+
+identifier_list: identifier ("," identifier)*
 
 // Commands
 
@@ -76,7 +94,7 @@ comparison_op: "IS" "NOT" -> is_not
      | identifier
      | member_access
      | function_call
-     | null_lib_annotation
+     | legacy_null_lib_annotation
      | "(" expression ")"
 
 // Literals
@@ -114,9 +132,9 @@ function_call: "CALL" identifier ("WITH" argument_list)? -> call_func
 
 argument_list: expression ("," expression)*
 
-// Null-Lib Annotations
+// Legacy Null-Lib Annotations (inline library calls)
 
-null_lib_annotation: "@" identifier "." identifier ("(" (argument_list)? ")")? -> null_lib_call
+legacy_null_lib_annotation: "@" identifier "." identifier ("(" (argument_list)? ")")? -> null_lib_call
 
 // Identifiers
 
