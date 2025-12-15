@@ -1,9 +1,12 @@
 """NullVM - Virtual machine for executing super-bit code."""
 
+import resource
+import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
 
-from ..superbit.ir import SuperBitIRToken as SuperBitToken, SuperBitStream, SuperBitOpCode
+from ..observability import get_observability
+from ..superbit.ir import SuperBitIRToken as SuperBitToken, SuperBitOpCode, SuperBitStream
 
 
 @dataclass
@@ -26,29 +29,73 @@ class NullVM:
     
     def execute(self, superbit_stream: SuperBitStream) -> ExecutionResult:
         """Execute a super-bit stream."""
+        obs = get_observability()
+
         self.stack = []
         self.variables = {}
         self.output = []
         self.pc = 0
-        
-        try:
-            while self.pc < len(superbit_stream.tokens):
-                token = superbit_stream.tokens[self.pc]
-                self._execute_token(token)
-                self.pc += 1
-            
-            return ExecutionResult(
-                success=True,
-                output=self.output,
-                final_state=self.variables.copy()
-            )
-        except Exception as e:
-            return ExecutionResult(
-                success=False,
-                output=self.output,
-                error=str(e),
-                final_state=self.variables.copy()
-            )
+
+        started = time.perf_counter()
+        executed = 0
+
+        with obs.tracing.span(
+            "null.vm.execute",
+            attributes={"token_count": len(superbit_stream.tokens)},
+        ):
+            try:
+                while self.pc < len(superbit_stream.tokens):
+                    token = superbit_stream.tokens[self.pc]
+                    obs.metrics.inc_vm_instruction(opcode=token.opcode.name)
+                    self._execute_token(token)
+
+                    executed += 1
+                    obs.metrics.set_vm_stack_depth(len(self.stack))
+                    obs.metrics.set_vm_variable_count(len(self.variables))
+
+                    self.pc += 1
+
+                duration_s = time.perf_counter() - started
+                obs.metrics.observe_vm_execution(duration_s=duration_s, status="ok")
+                obs.metrics.set_process_max_rss_bytes(
+                    int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024)
+                )
+                if duration_s > 0:
+                    obs.metrics.set_vm_instruction_throughput(executed / duration_s)
+                obs.logger.info(
+                    "vm.execute",
+                    status="ok",
+                    duration_s=duration_s,
+                    instructions=executed,
+                )
+
+                return ExecutionResult(
+                    success=True,
+                    output=self.output,
+                    final_state=self.variables.copy(),
+                )
+            except Exception as e:
+                duration_s = time.perf_counter() - started
+                obs.metrics.observe_vm_execution(duration_s=duration_s, status="error")
+                obs.metrics.set_process_max_rss_bytes(
+                    int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024)
+                )
+                obs.metrics.inc_error(component="vm", error_type=type(e).__name__)
+                obs.logger.exception(
+                    "vm.execute",
+                    status="error",
+                    duration_s=duration_s,
+                    instructions=executed,
+                    error_type=type(e).__name__,
+                )
+                obs.capture_exception(e, component="vm", error_type=type(e).__name__)
+
+                return ExecutionResult(
+                    success=False,
+                    output=self.output,
+                    error=str(e),
+                    final_state=self.variables.copy(),
+                )
     
     def _execute_token(self, token: SuperBitToken):
         """Execute a single super-bit token."""
