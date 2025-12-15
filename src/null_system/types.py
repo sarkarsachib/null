@@ -53,6 +53,14 @@ class NullValue:
             actual=self.type_name(),
         )
 
+    def as_union(self) -> "NullUnion":
+        raise NullTypeError(
+            f"Expected union, got {self.type_name()}",
+            code="NULL_TYPE_ERROR",
+            expected="union",
+            actual=self.type_name(),
+        )
+
 
 @dataclass
 class NullNumber(NullValue):
@@ -138,13 +146,106 @@ class _NullNull(NullValue):
 NULL = _NullNull()
 
 
+@dataclass
+class NullUnion(NullValue):
+    tag: str
+    value: NullValue
+
+    def type_name(self) -> str:
+        return f"union({self.tag})"
+
+    def as_union(self) -> "NullUnion":
+        return self
+
+    def __str__(self) -> str:
+        return f"{self.tag}({self.value.display()})"
+
+
+@dataclass
+class NullOption(NullUnion):
+    def __post_init__(self):
+        if self.tag not in ("Some", "None"):
+            raise NullTypeError(
+                f"Invalid Option tag: {self.tag}",
+                code="NULL_TYPE_ERROR",
+                expected="Some|None",
+                actual=self.tag,
+            )
+
+    def type_name(self) -> str:
+        return "option"
+
+    def is_some(self) -> bool:
+        return self.tag == "Some"
+
+    def is_none(self) -> bool:
+        return self.tag == "None"
+
+    def unwrap(self) -> NullValue:
+        if self.tag == "None":
+            raise NullTypeError(
+                "Called unwrap on None",
+                code="NULL_UNWRAP_ERROR",
+                actual="None",
+            )
+        return self.value
+
+    def __str__(self) -> str:
+        if self.tag == "None":
+            return "None"
+        return f"Some({self.value.display()})"
+
+
+@dataclass
+class NullResult(NullUnion):
+    def __post_init__(self):
+        if self.tag not in ("Ok", "Err"):
+            raise NullTypeError(
+                f"Invalid Result tag: {self.tag}",
+                code="NULL_TYPE_ERROR",
+                expected="Ok|Err",
+                actual=self.tag,
+            )
+
+    def type_name(self) -> str:
+        return "result"
+
+    def is_ok(self) -> bool:
+        return self.tag == "Ok"
+
+    def is_err(self) -> bool:
+        return self.tag == "Err"
+
+    def unwrap(self) -> NullValue:
+        if self.tag == "Err":
+            raise NullTypeError(
+                f"Called unwrap on Err: {self.value.display()}",
+                code="NULL_UNWRAP_ERROR",
+                actual="Err",
+            )
+        return self.value
+
+    def unwrap_err(self) -> NullValue:
+        if self.tag == "Ok":
+            raise NullTypeError(
+                "Called unwrap_err on Ok",
+                code="NULL_UNWRAP_ERROR",
+                actual="Ok",
+            )
+        return self.value
+
+    def __str__(self) -> str:
+        if self.tag == "Ok":
+            return f"Ok({self.value.display()})"
+        return f"Err({self.value.display()})"
+
+
 def to_null(value: Any) -> NullValue:
     if isinstance(value, NullValue):
         return value
     if value is None:
         return NULL
     if isinstance(value, bool):
-        # Not used by primitives yet; represent as numbers for now.
         return NullNumber(1.0 if value else 0.0)
     if isinstance(value, (int, float)):
         return NullNumber(float(value))
@@ -172,3 +273,19 @@ def to_null(value: Any) -> NullValue:
         expected="null_value",
         actual=type(value).__name__,
     )
+
+
+def none_val() -> NullOption:
+    return NullOption(tag="None", value=NULL)
+
+
+def some_val(value: NullValue) -> NullOption:
+    return NullOption(tag="Some", value=value)
+
+
+def ok_val(value: NullValue) -> NullResult:
+    return NullResult(tag="Ok", value=value)
+
+
+def err_val(value: NullValue) -> NullResult:
+    return NullResult(tag="Err", value=value)

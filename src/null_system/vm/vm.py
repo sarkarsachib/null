@@ -116,5 +116,33 @@ class NullVM:
         elif token.opcode == SuperBitOpCode.JUMP:
             self.pc = token.operand - 1
         
+        elif token.opcode == SuperBitOpCode.MATCH_TAG:
+            if not self.stack:
+                raise RuntimeError("Stack underflow for MATCH_TAG")
+            value = self.stack.pop()
+            if hasattr(value, 'tag') and value.tag == token.operand:
+                self.stack.append(True)
+            else:
+                self.stack.append(False)
+
+        elif token.opcode == SuperBitOpCode.UNWRAP_UNION:
+            if not self.stack:
+                raise RuntimeError("Stack underflow for UNWRAP_UNION")
+            value = self.stack.pop()
+            if hasattr(value, 'value'):
+                self.stack.append(value.value)
+            else:
+                raise RuntimeError(f"Cannot unwrap non-union value: {value}")
+
+        elif token.opcode == SuperBitOpCode.MATCH_PATTERN:
+            if not self.stack:
+                raise RuntimeError("Stack underflow for MATCH_PATTERN")
+            value = self.stack.pop()
+            pattern_tag = token.operand
+            if hasattr(value, 'tag') and value.tag == pattern_tag:
+                self.stack.append(True)
+            else:
+                self.stack.append(False)
+
         elif token.opcode == SuperBitOpCode.NOP:
             pass

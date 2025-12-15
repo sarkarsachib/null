@@ -23,6 +23,18 @@ class TokenType(Enum):
     LESS = auto()
     THAN = auto()
     EQUALS = auto()
+    MATCH = auto()
+    CASE = auto()
+    WHEN = auto()
+    LPAREN = auto()
+    RPAREN = auto()
+    LBRACE = auto()
+    RBRACE = auto()
+    LBRACKET = auto()
+    RBRACKET = auto()
+    COMMA = auto()
+    PIPE = auto()
+    ARROW = auto()
     IDENTIFIER = auto()
     NUMBER = auto()
     STRING = auto()
@@ -59,6 +71,9 @@ class Lexer:
         "less": TokenType.LESS,
         "than": TokenType.THAN,
         "equals": TokenType.EQUALS,
+        "match": TokenType.MATCH,
+        "case": TokenType.CASE,
+        "when": TokenType.WHEN,
     }
     
     def __init__(self, source: str):
@@ -99,6 +114,52 @@ class Lexer:
                 self._read_word()
                 continue
             
+            if self._current_char() == '(':
+                self._add_token(TokenType.LPAREN, '(')
+                self._advance()
+                continue
+            
+            if self._current_char() == ')':
+                self._add_token(TokenType.RPAREN, ')')
+                self._advance()
+                continue
+            
+            if self._current_char() == '{':
+                self._add_token(TokenType.LBRACE, '{')
+                self._advance()
+                continue
+            
+            if self._current_char() == '}':
+                self._add_token(TokenType.RBRACE, '}')
+                self._advance()
+                continue
+            
+            if self._current_char() == '[':
+                self._add_token(TokenType.LBRACKET, '[')
+                self._advance()
+                continue
+            
+            if self._current_char() == ']':
+                self._add_token(TokenType.RBRACKET, ']')
+                self._advance()
+                continue
+            
+            if self._current_char() == ',':
+                self._add_token(TokenType.COMMA, ',')
+                self._advance()
+                continue
+            
+            if self._current_char() == '|':
+                self._add_token(TokenType.PIPE, '|')
+                self._advance()
+                continue
+            
+            if self._current_char() == '=' and self._peek() == '>':
+                self._advance()
+                self._advance()
+                self._add_token(TokenType.ARROW, '=>')
+                continue
+            
             self._advance()
         
         self._add_token(TokenType.EOF, "")
@@ -108,6 +169,13 @@ class Lexer:
         """Get the current character."""
         if self.position < len(self.source):
             return self.source[self.position]
+        return '\0'
+    
+    def _peek(self, offset: int = 1) -> str:
+        """Peek at character ahead without advancing."""
+        pos = self.position + offset
+        if pos < len(self.source):
+            return self.source[pos]
         return '\0'
     
     def _advance(self) -> str:

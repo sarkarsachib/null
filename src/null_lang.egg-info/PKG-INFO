@@ -36,12 +36,20 @@ Requires-Dist: transformers>=4.30.0; extra == "nlp"
 Requires-Dist: spacy>=3.5.0; extra == "nlp"
 Requires-Dist: fasttext>=0.9.2; extra == "nlp"
 Requires-Dist: jieba>=0.42.1; extra == "nlp"
+Provides-Extra: kg
+Requires-Dist: networkx>=3.0; extra == "kg"
+Requires-Dist: neo4j>=5.0.0; extra == "kg"
+Requires-Dist: rdflib>=7.0.0; extra == "kg"
+Requires-Dist: requests>=2.31.0; extra == "kg"
+Requires-Dist: pydantic>=2.0.0; extra == "kg"
 Dynamic: home-page
 Dynamic: requires-python
 
 # NullVM - Virtual Machine for Super-Bit Programs
 
 A TypeScript implementation of a virtual machine that executes super-bit programs with support for instruction decoding, execution contexts, memory management, and binary frame emission.
+
+> **🚀 Null v2 in Development**: We're building the next generation of Null with modern language features including ownership system, pattern matching, async/await, SIMD, and more. See the [**Null v2 Language Specification**](docs/null_v2_language_spec.md) for the complete roadmap and blueprint.
 
 ## Features
 
@@ -914,6 +922,24 @@ Run the distributed execution example:
 ```bash
 npx ts-node examples/distributed_execution.ts
 ```
+
+## Documentation
+
+### Core Documentation
+- **[Null v2 Language Specification](docs/null_v2_language_spec.md)** - Complete roadmap for Null v2 with modern language features (ownership, pattern matching, async/await, SIMD, and more)
+- **[v2 Implementation Issues](ISSUES_V2.md)** - Comprehensive task list and open questions for implementing v2 features
+- **[Architecture](ARCHITECTURE.md)** - System architecture and compilation pipeline
+- **[Architecture Details](docs/architecture.md)** - Five-layer architecture (Lang, Data, Super-Bit, VM, Runtime)
+
+### Feature-Specific Guides
+- **[Hybrid Runtime](docs/hybrid_runtime.md)** - Distributed execution with work-stealing scheduler
+- **[Hybrid Execution](docs/hybrid_execution.md)** - Comprehensive hybrid executor documentation
+- **[Knowledge Graphs & NLP](docs/knowledge.md)** - NLP module and knowledge graph integration
+- **[Security](docs/security.md)** - Cryptographic primitives (encryption, ZK proofs, SMPC)
+
+### Reference
+- **[Translation Table](TRANSLATION_TABLE.md)** - Super-bit encoding reference
+- **[Implementation Summary](IMPLEMENTATION_SUMMARY.md)** - Implementation details
 
 ## License
 

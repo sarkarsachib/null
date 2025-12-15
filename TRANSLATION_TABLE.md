@@ -51,6 +51,49 @@ This document describes how AST nodes are translated into Super-bit tokens durin
 | `IfStatement(condition, then_branch, None)` | `[emit(condition), JUMP_IF_FALSE(end), emit(then_branch)]` | If without else |
 | `IfStatement(condition, then_branch, else_branch)` | `[emit(condition), JUMP_IF_FALSE(else_start), emit(then_branch), JUMP(end), emit(else_branch)]` | If with else |
 
+## Pattern Matching
+
+### Match Expression
+
+| AST Node | Super-Bit Sequence | Description |
+|----------|-------------------|-------------|
+| `MatchExpression(expr, cases)` | `[emit(expr), case1_pattern, case1_body, JUMP(end), case2_pattern, case2_body, JUMP(end), ...]` | Pattern matching with multiple cases |
+
+### Patterns
+
+| Pattern Type | Super-Bit Token | Description |
+|---|---|---|
+| Tag pattern | `MATCH_TAG` | Match union by tag (e.g., Some/None, Ok/Err) |
+| Binding pattern | `STORE_VAR` | Bind matched value to variable |
+| Tuple/List pattern | `MATCH_PATTERN` | Match structured patterns |
+
+### Guard Clauses
+
+Guard clauses are compiled as conditional jumps:
+```
+MATCH_TAG(Some)
+JUMP_IF_FALSE(next_case)
+# guard condition
+guard_expr
+JUMP_IF_FALSE(next_case)
+# case body
+case_body
+JUMP(end)
+next_case: ...
+```
+
+### Algebraic Data Types
+
+Option type (None/Some):
+- Constructor: `option.NONE()`, `option.SOME(value)`
+- Predicates: `option.IS_NONE`, `option.IS_SOME`
+- Unwrap: `option.UNWRAP`
+
+Result type (Ok/Err):
+- Constructor: `result.OK(value)`, `result.ERR(error)`
+- Predicates: `result.IS_OK`, `result.IS_ERR`
+- Unwrap: `result.UNWRAP`, `result.UNWRAP_ERR`
+
 ## Example Translations
 
 ### Example 1: Simple Assignment
@@ -119,6 +162,83 @@ IfStatement(
 0008: PRINT
 ```
 
+### Example 4: Option Pattern Matching
+
+**Null-Lang:**
+```null
+match opt {
+  case Some(value) => print value
+  case None => print "no value"
+}
+```
+
+**AST:**
+```
+MatchExpression(
+  expr=Identifier(name="opt"),
+  cases=[
+    MatchCase(
+      pattern=Pattern(pattern_type="tag", tag="Some", binding_name="value"),
+      body=[PrintStatement(value=Identifier(name="value"))]
+    ),
+    MatchCase(
+      pattern=Pattern(pattern_type="tag", tag="None"),
+      body=[PrintStatement(value=Literal(value="no value"))]
+    )
+  ]
+)
+```
+
+**Super-bit:**
+```
+0000: LOAD_VAR, opt
+0001: MATCH_TAG, Some
+0002: JUMP_IF_FALSE, 6
+0003: LOAD_VAR, value
+0004: PRINT
+0005: JUMP, 9
+0006: MATCH_TAG, None
+0007: JUMP_IF_FALSE, 9
+0008: LOAD_CONST, no value
+0009: PRINT
+```
+
+### Example 5: Result Pattern Matching with Guard
+
+**Null-Lang:**
+```null
+match result {
+  case Ok(x) when x > 0 => print "positive"
+  case Ok(_) => print "zero or negative"
+  case Err(e) => print e
+}
+```
+
+**Super-bit:**
+```
+0000: LOAD_VAR, result
+0001: MATCH_TAG, Ok
+0002: JUMP_IF_FALSE, 12
+0003: LOAD_VAR, x
+0004: LOAD_CONST, 0
+0005: COMPARE_GT
+0006: JUMP_IF_FALSE, 12
+0007: LOAD_CONST, positive
+0008: PRINT
+0009: JUMP, 20
+0010: MATCH_TAG, Ok
+0011: JUMP_IF_FALSE, 15
+0012: LOAD_CONST, zero or negative
+0013: PRINT
+0014: JUMP, 20
+0015: MATCH_TAG, Err
+0016: JUMP_IF_FALSE, 20
+0017: UNWRAP_UNION
+0018: STORE_VAR, e
+0019: LOAD_VAR, e
+0020: PRINT
+```
+
 ## Optimization Impact
 
 The translation table can be affected by optimization passes:
@@ -148,17 +268,20 @@ LOAD_CONST, 8
 | `LOAD_CONST` | 1 | +1 | Push constant onto stack |
 | `LOAD_VAR` | 2 | +1 | Push variable value onto stack |
 | `STORE_VAR` | 3 | -1 | Pop value and store in variable |
-| `BINARY_ADD` | 4 | -1 | Pop two values, push sum |
-| `BINARY_SUB` | 5 | -1 | Pop two values, push difference |
-| `BINARY_MUL` | 6 | -1 | Pop two values, push product |
-| `BINARY_DIV` | 7 | -1 | Pop two values, push quotient |
-| `COMPARE_GT` | 8 | -1 | Pop two values, push comparison result |
-| `COMPARE_LT` | 9 | -1 | Pop two values, push comparison result |
-| `COMPARE_EQ` | 10 | -1 | Pop two values, push comparison result |
-| `PRINT` | 11 | -1 | Pop value and print to output |
-| `JUMP_IF_FALSE` | 12 | -1 | Pop value, jump if false |
-| `JUMP` | 13 | 0 | Unconditional jump |
-| `NOP` | 14 | 0 | No operation |
+| `BINARY_ADD` | 10 | -1 | Pop two values, push sum |
+| `BINARY_SUB` | 11 | -1 | Pop two values, push difference |
+| `BINARY_MUL` | 12 | -1 | Pop two values, push product |
+| `BINARY_DIV` | 13 | -1 | Pop two values, push quotient |
+| `COMPARE_GT` | 20 | -1 | Pop two values, push comparison result |
+| `COMPARE_LT` | 21 | -1 | Pop two values, push comparison result |
+| `COMPARE_EQ` | 22 | -1 | Pop two values, push comparison result |
+| `PRINT` | 30 | -1 | Pop value and print to output |
+| `JUMP_IF_FALSE` | 40 | -1 | Pop value, jump if false |
+| `JUMP` | 41 | 0 | Unconditional jump |
+| `MATCH_TAG` | 50 | 0 | Pop union, push 1 if tag matches, 0 otherwise |
+| `UNWRAP_UNION` | 51 | -1 | Pop union, push inner value |
+| `MATCH_PATTERN` | 52 | 0 | Pop union, push 1 if pattern matches, 0 otherwise |
+| `NOP` | 255 | 0 | No operation |
 
 ## Security and Encryption
 

@@ -328,6 +328,18 @@ export class NullVM {
         this.executeAI_FUZZY(instruction);
         break;
 
+      case OpCode.MATCH_TAG:
+        this.executeMATCH_TAG(instruction);
+        break;
+
+      case OpCode.UNWRAP_UNION:
+        this.executeUNWRAP_UNION(instruction);
+        break;
+
+      case OpCode.MATCH_PATTERN:
+        this.executeMATCH_PATTERN(instruction);
+        break;
+
       case OpCode.SPAWN_VM:
       case OpCode.SEND_MSG:
       case OpCode.RECV_MSG:
@@ -1138,15 +1150,73 @@ export class NullVM {
   }
 
   /**
-   * Get embedding registry (for external access)
+   * Execute MATCH_TAG instruction: MATCH_TAG <tag>
    */
+  private executeMATCH_TAG(instruction: Instruction): void {
+    const [tag] = instruction.args as [string];
+    const stackTop = this.memory.getStackTop();
+
+    if (stackTop && typeof stackTop === 'object' && 'tag' in stackTop) {
+      const value = stackTop as Record<string, unknown>;
+      const matches = value.tag === tag;
+      this.memory.pushStack(matches ? 1 : 0);
+    } else {
+      throw createError(
+        ErrorType.ExecutionError,
+        `MATCH_TAG failed: stack top is not a union value`
+      );
+    }
+    this.binaryBridge.emitControlFlow('MATCH_TAG', { tag });
+  }
+
+  /**
+   * Execute UNWRAP_UNION instruction: UNWRAP_UNION
+   */
+  private executeUNWRAP_UNION(instruction: Instruction): void {
+    const stackTop = this.memory.popStack();
+
+    if (stackTop && typeof stackTop === 'object' && 'value' in stackTop) {
+      const union = stackTop as Record<string, unknown>;
+      this.memory.pushStack(union.value);
+    } else {
+      throw createError(
+        ErrorType.ExecutionError,
+        `UNWRAP_UNION failed: stack top is not a union value`
+      );
+    }
+    this.binaryBridge.emitControlFlow('UNWRAP_UNION', {});
+  }
+
+  /**
+   * Execute MATCH_PATTERN instruction: MATCH_PATTERN <pattern_tag>
+   */
+  private executeMATCH_PATTERN(instruction: Instruction): void {
+    const [patternTag] = instruction.args as [string];
+    const stackTop = this.memory.getStackTop();
+
+    if (stackTop && typeof stackTop === 'object' && 'tag' in stackTop) {
+      const value = stackTop as Record<string, unknown>;
+      const matches = value.tag === patternTag;
+      this.memory.pushStack(matches ? 1 : 0);
+    } else {
+      throw createError(
+        ErrorType.ExecutionError,
+        `MATCH_PATTERN failed: stack top is not a union value`
+      );
+    }
+    this.binaryBridge.emitControlFlow('MATCH_PATTERN', { patternTag });
+  }
+
+  /**
+    * Get embedding registry (for external access)
+    */
   getEmbeddingRegistry(): EmbeddingRegistry {
     return this.embeddingRegistry;
   }
 
   /**
-   * Get neural engine (for external access)
-   */
+    * Get neural engine (for external access)
+    */
   getNeuralEngine(): NeuralEngine {
     return this.neuralEngine;
   }
