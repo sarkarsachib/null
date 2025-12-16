@@ -2,7 +2,7 @@
  * Decoder for super-bit programs - translates to intermediate instruction set
  */
 
-import { Instruction, OpCode, isValidOpCode } from './instructions';
+import { Instruction, InstructionMetadata, OpCode, isValidOpCode } from './instructions';
 import { createError, ErrorType } from './errors';
 
 export interface SuperBitProgram {
@@ -46,48 +46,97 @@ export class Decoder {
       });
     }
 
-    const args = Array.isArray(obj.args) ? obj.args : [];
+    const rawArgs = Array.isArray(obj.args) ? obj.args : [];
+    const metadata = this.decodeMetadata(obj, lineno);
 
-    // Validate instruction based on opcode
-    this.validateInstruction(opcode, args, lineno);
+    const args = this.normalizeArgs(opcode, rawArgs, lineno);
 
     return {
       opcode,
       args,
       lineno,
+      metadata,
     } as Instruction;
   }
 
-  /**
-   * Validate instruction arguments
-   */
-  private validateInstruction(opcode: string, args: unknown[], lineno: number): void {
+  private decodeMetadata(obj: Record<string, unknown>, lineno: number): InstructionMetadata | undefined {
+    const raw = obj.metadata ?? obj.meta;
+    if (raw === undefined || raw === null) {
+      return undefined;
+    }
+
+    if (typeof raw !== 'object' || Array.isArray(raw)) {
+      throw createError(ErrorType.InvalidInstruction, 'metadata must be an object', {
+        lineno,
+        metadataType: typeof raw,
+      });
+    }
+
+    return raw as InstructionMetadata;
+  }
+
+  private parseNumber(value: unknown, lineno: number, label: string): number {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      return value;
+    }
+
+    if (typeof value === 'string' && value.trim() !== '') {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+
+    throw createError(ErrorType.InvalidInstruction, `${label} must be a number`, {
+      lineno,
+      received: value,
+    });
+  }
+
+  private normalizeArgs(opcode: OpCode, args: unknown[], lineno: number): unknown[] {
     switch (opcode) {
-      case OpCode.SET:
-        if (args.length < 2 || typeof args[0] !== 'string' || typeof args[1] !== 'number') {
+      case OpCode.SET: {
+        if (args.length < 2 || typeof args[0] !== 'string') {
           throw createError(
             ErrorType.InvalidInstruction,
             'SET requires two arguments: register (string) and value (number)',
             { lineno, args }
           );
         }
-        break;
+        const value = this.parseNumber(args[1], lineno, 'SET value');
+        return [args[0], value];
+      }
 
-      case OpCode.ADD:
-        if (
-          args.length < 2 ||
-          typeof args[0] !== 'string' ||
-          (typeof args[1] !== 'number' && typeof args[1] !== 'string')
-        ) {
+      case OpCode.ADD: {
+        if (args.length < 2 || typeof args[0] !== 'string') {
           throw createError(
             ErrorType.InvalidInstruction,
             'ADD requires two arguments: register (string) and value (number or string)',
             { lineno, args }
           );
         }
-        break;
 
-      case OpCode.SHOW:
+        const operand = args[1];
+        if (typeof operand === 'number') {
+          return [args[0], operand];
+        }
+
+        if (typeof operand === 'string') {
+          const parsed = Number(operand);
+          if (operand.trim() !== '' && Number.isFinite(parsed)) {
+            return [args[0], parsed];
+          }
+          return [args[0], operand];
+        }
+
+        throw createError(
+          ErrorType.InvalidInstruction,
+          'ADD requires two arguments: register (string) and value (number or string)',
+          { lineno, args }
+        );
+      }
+
+      case OpCode.SHOW: {
         if (args.length < 1 || typeof args[0] !== 'string') {
           throw createError(
             ErrorType.InvalidInstruction,
@@ -95,9 +144,10 @@ export class Decoder {
             { lineno, args }
           );
         }
-        break;
+        return [args[0]];
+      }
 
-      case OpCode.IF:
+      case OpCode.IF: {
         if (
           args.length < 3 ||
           typeof args[0] !== 'string' ||
@@ -110,9 +160,10 @@ export class Decoder {
             { lineno, args }
           );
         }
-        break;
+        return [args[0], args[1], args[2]];
+      }
 
-      case OpCode.REPEAT:
+      case OpCode.REPEAT: {
         if (args.length < 2 || typeof args[0] !== 'string' || !Array.isArray(args[1])) {
           throw createError(
             ErrorType.InvalidInstruction,
@@ -120,9 +171,10 @@ export class Decoder {
             { lineno, args }
           );
         }
-        break;
+        return [args[0], args[1]];
+      }
 
-      case OpCode.DEFINE:
+      case OpCode.DEFINE: {
         if (args.length < 2 || typeof args[0] !== 'string' || !Array.isArray(args[1])) {
           throw createError(
             ErrorType.InvalidInstruction,
@@ -130,9 +182,10 @@ export class Decoder {
             { lineno, args }
           );
         }
-        break;
+        return [args[0], args[1]];
+      }
 
-      case OpCode.CALL:
+      case OpCode.CALL: {
         if (args.length < 1 || typeof args[0] !== 'string') {
           throw createError(
             ErrorType.InvalidInstruction,
@@ -140,25 +193,27 @@ export class Decoder {
             { lineno, args }
           );
         }
-        break;
+        return [args[0]];
+      }
 
       case OpCode.RETURN:
       case OpCode.NOP:
-        // No arguments required
-        break;
+      case OpCode.UNWRAP_UNION:
+        return [];
 
-      case OpCode.JMP:
-        if (args.length < 1 || typeof args[0] !== 'number') {
-          throw createError(
-            ErrorType.InvalidInstruction,
-            'JMP requires one argument: target_address (number)',
-            { lineno, args }
-          );
+      case OpCode.JMP: {
+        if (args.length < 1) {
+          throw createError(ErrorType.InvalidInstruction, 'JMP requires one argument: target_address', {
+            lineno,
+            args,
+          });
         }
-        break;
+        const address = this.parseNumber(args[0], lineno, 'JMP target_address');
+        return [address];
+      }
 
       case OpCode.SECURE_ENC:
-      case OpCode.SECURE_DEC:
+      case OpCode.SECURE_DEC: {
         if (args.length < 2 || typeof args[0] !== 'string' || typeof args[1] !== 'string') {
           throw createError(
             ErrorType.InvalidInstruction,
@@ -166,9 +221,10 @@ export class Decoder {
             { lineno, args }
           );
         }
-        break;
+        return [args[0], args[1]];
+      }
 
-      case OpCode.SECURE_EVAL:
+      case OpCode.SECURE_EVAL: {
         if (
           args.length < 3 ||
           typeof args[0] !== 'string' ||
@@ -181,9 +237,10 @@ export class Decoder {
             { lineno, args }
           );
         }
-        break;
+        return [args[0], args[1], args[2]];
+      }
 
-      case OpCode.ZK_PROVE:
+      case OpCode.ZK_PROVE: {
         if (args.length < 1 || typeof args[0] !== 'string') {
           throw createError(
             ErrorType.InvalidInstruction,
@@ -191,29 +248,33 @@ export class Decoder {
             { lineno, args }
           );
         }
-        break;
+        return [args[0]];
+      }
 
-      case OpCode.ZK_VERIFY:
+      case OpCode.ZK_VERIFY: {
         if (args.length < 2 || typeof args[0] !== 'string' || typeof args[1] !== 'string') {
           throw createError(
             ErrorType.InvalidInstruction,
-            'ZK_VERIFY requires two arguments: proof_id (string) and digest_id (string)',
+            'ZK_VERIFY requires two arguments: proof_id (string) and expectedDigestId (string)',
             { lineno, args }
           );
         }
-        break;
+        return [args[0], args[1]];
+      }
 
-      case OpCode.SMPC_SHARE:
-        if (args.length < 2 || typeof args[0] !== 'string' || typeof args[1] !== 'number') {
+      case OpCode.SMPC_SHARE: {
+        if (args.length < 2 || typeof args[0] !== 'string') {
           throw createError(
             ErrorType.InvalidInstruction,
             'SMPC_SHARE requires two arguments: secret_id (string) and threshold (number)',
             { lineno, args }
           );
         }
-        break;
+        const threshold = this.parseNumber(args[1], lineno, 'SMPC_SHARE threshold');
+        return [args[0], threshold];
+      }
 
-      case OpCode.SMPC_COMBINE:
+      case OpCode.SMPC_COMBINE: {
         if (args.length < 2 || typeof args[0] !== 'string' || !Array.isArray(args[1])) {
           throw createError(
             ErrorType.InvalidInstruction,
@@ -221,24 +282,22 @@ export class Decoder {
             { lineno, args }
           );
         }
-        break;
+        return [args[0], args[1]];
+      }
 
-      case OpCode.AI_EMBED:
-        if (
-          args.length < 3 ||
-          typeof args[0] !== 'string' ||
-          typeof args[1] !== 'string' ||
-          typeof args[2] !== 'number'
-        ) {
+      case OpCode.AI_EMBED: {
+        if (args.length < 3 || typeof args[0] !== 'string' || typeof args[1] !== 'string') {
           throw createError(
             ErrorType.InvalidInstruction,
             'AI_EMBED requires three arguments: output_register (string), embedding_id (string), dimension (number)',
             { lineno, args }
           );
         }
-        break;
+        const dimension = this.parseNumber(args[2], lineno, 'AI_EMBED dimension');
+        return [args[0], args[1], dimension];
+      }
 
-      case OpCode.AI_LAYER:
+      case OpCode.AI_LAYER: {
         if (
           args.length < 4 ||
           typeof args[0] !== 'string' ||
@@ -252,9 +311,10 @@ export class Decoder {
             { lineno, args }
           );
         }
-        break;
+        return [args[0], args[1], args[2], args[3]];
+      }
 
-      case OpCode.AI_ATTEND:
+      case OpCode.AI_ATTEND: {
         if (
           args.length < 3 ||
           typeof args[0] !== 'string' ||
@@ -267,24 +327,43 @@ export class Decoder {
             { lineno, args }
           );
         }
-        break;
+        return [args[0], args[1], args[2]];
+      }
 
-      case OpCode.AI_FUZZY:
-        if (
-          args.length < 3 ||
-          typeof args[0] !== 'string' ||
-          typeof args[1] !== 'string' ||
-          typeof args[2] !== 'number'
-        ) {
+      case OpCode.AI_FUZZY: {
+        if (args.length < 3 || typeof args[0] !== 'string' || typeof args[1] !== 'string') {
           throw createError(
             ErrorType.InvalidInstruction,
             'AI_FUZZY requires three arguments: input_register (string), output_register (string), uncertainty_reduction (number)',
             { lineno, args }
           );
         }
-        break;
+        const uncertaintyReduction = this.parseNumber(args[2], lineno, 'AI_FUZZY uncertainty_reduction');
+        return [args[0], args[1], uncertaintyReduction];
+      }
 
-      case OpCode.SPAWN_VM:
+      case OpCode.MATCH_TAG: {
+        if (args.length < 1 || typeof args[0] !== 'string') {
+          throw createError(ErrorType.InvalidInstruction, 'MATCH_TAG requires one argument: tag (string)', {
+            lineno,
+            args,
+          });
+        }
+        return [args[0]];
+      }
+
+      case OpCode.MATCH_PATTERN: {
+        if (args.length < 1 || typeof args[0] !== 'string') {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'MATCH_PATTERN requires one argument: pattern_tag (string)',
+            { lineno, args }
+          );
+        }
+        return [args[0]];
+      }
+
+      case OpCode.SPAWN_VM: {
         if (args.length < 2 || typeof args[0] !== 'string') {
           throw createError(
             ErrorType.InvalidInstruction,
@@ -292,9 +371,10 @@ export class Decoder {
             { lineno, args }
           );
         }
-        break;
+        return args;
+      }
 
-      case OpCode.SEND_MSG:
+      case OpCode.SEND_MSG: {
         if (args.length < 3 || typeof args[0] !== 'string' || typeof args[1] !== 'string') {
           throw createError(
             ErrorType.InvalidInstruction,
@@ -302,27 +382,218 @@ export class Decoder {
             { lineno, args }
           );
         }
-        break;
+        return args;
+      }
 
-      case OpCode.RECV_MSG:
-        if (args.length < 2 || typeof args[0] !== 'string' || typeof args[1] !== 'number') {
+      case OpCode.RECV_MSG: {
+        if (args.length < 2 || typeof args[0] !== 'string') {
           throw createError(
             ErrorType.InvalidInstruction,
             'RECV_MSG requires two arguments: output_register (string), timeout_ms (number)',
             { lineno, args }
           );
         }
-        break;
+        const timeoutMs = this.parseNumber(args[1], lineno, 'RECV_MSG timeout_ms');
+        return [args[0], timeoutMs];
+      }
 
-      case OpCode.SYNC_BARRIER:
-        if (args.length < 2 || typeof args[0] !== 'string' || typeof args[1] !== 'number') {
+      case OpCode.SYNC_BARRIER: {
+        if (args.length < 2 || typeof args[0] !== 'string') {
           throw createError(
             ErrorType.InvalidInstruction,
             'SYNC_BARRIER requires two arguments: barrier_id (string), timeout_ms (number)',
             { lineno, args }
           );
         }
-        break;
+        const timeoutMs = this.parseNumber(args[1], lineno, 'SYNC_BARRIER timeout_ms');
+        return [args[0], timeoutMs];
+      }
+
+      case OpCode.Q_ALLOC: {
+        if (args.length < 1 || typeof args[0] !== 'string') {
+          throw createError(ErrorType.InvalidInstruction, 'Q_ALLOC requires one argument: target_reg (string)', {
+            lineno,
+            args,
+          });
+        }
+        return [args[0]];
+      }
+
+      case OpCode.Q_SUPERPOSE: {
+        if (args.length < 1 || typeof args[0] !== 'string') {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'Q_SUPERPOSE requires one argument: qubit_reg (string)',
+            { lineno, args }
+          );
+        }
+        return [args[0]];
+      }
+
+      case OpCode.Q_ENTANGLE: {
+        if (args.length < 2 || typeof args[0] !== 'string' || typeof args[1] !== 'string') {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'Q_ENTANGLE requires two arguments: control_reg (string), target_reg (string)',
+            { lineno, args }
+          );
+        }
+        return [args[0], args[1]];
+      }
+
+      case OpCode.Q_APPLY: {
+        if (args.length < 2 || typeof args[0] !== 'string' || !Array.isArray(args[1])) {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'Q_APPLY requires two arguments: gate_name (string), qubit_regs (string[])',
+            { lineno, args }
+          );
+        }
+        return [args[0], args[1]];
+      }
+
+      case OpCode.Q_MEASURE: {
+        if (args.length < 2 || typeof args[0] !== 'string' || typeof args[1] !== 'string') {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'Q_MEASURE requires two arguments: qubit_reg (string), dest_reg (string)',
+            { lineno, args }
+          );
+        }
+        return [args[0], args[1]];
+      }
+
+      case OpCode.DISTRIBUTED_ALLOC: {
+        if (args.length < 1 || typeof args[0] !== 'string') {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'DISTRIBUTED_ALLOC requires at least one argument: register (string)',
+            { lineno, args }
+          );
+        }
+        if (args.length >= 2 && args[1] !== undefined && typeof args[1] !== 'string') {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'DISTRIBUTED_ALLOC second argument must be kind (string) if provided',
+            { lineno, args }
+          );
+        }
+        if (args.length >= 3 && args[2] !== undefined && (typeof args[2] !== 'object' || Array.isArray(args[2]))) {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'DISTRIBUTED_ALLOC third argument must be options (object) if provided',
+            { lineno, args }
+          );
+        }
+        return args;
+      }
+
+      case OpCode.CONSENSUS_WAIT: {
+        if (args.length < 2 || typeof args[0] !== 'string') {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'CONSENSUS_WAIT requires at least two arguments: register (string) and quorum (number)',
+            { lineno, args }
+          );
+        }
+        const quorum = this.parseNumber(args[1], lineno, 'CONSENSUS_WAIT quorum');
+        const timeoutMs = args.length >= 3 ? this.parseNumber(args[2], lineno, 'CONSENSUS_WAIT timeout_ms') : 0;
+        return [args[0], quorum, timeoutMs];
+      }
+
+      case OpCode.PARTIAL_RESUME: {
+        if (args.length < 1 || typeof args[0] !== 'string') {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'PARTIAL_RESUME requires at least one argument: register (string)',
+            { lineno, args }
+          );
+        }
+        if (args.length >= 2 && args[1] !== undefined && typeof args[1] !== 'string') {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'PARTIAL_RESUME second argument must be mode (string) if provided',
+            { lineno, args }
+          );
+        }
+        return args;
+      }
+
+      case OpCode.OBSERVE_VALUE: {
+        if (args.length < 1 || typeof args[0] !== 'string') {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'OBSERVE_VALUE requires at least one argument: register (string)',
+            { lineno, args }
+          );
+        }
+        if (args.length >= 2 && args[1] !== undefined && typeof args[1] !== 'string') {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'OBSERVE_VALUE second argument must be label (string) if provided',
+            { lineno, args }
+          );
+        }
+        return args;
+      }
+
+      case OpCode.TRACE_REPLAY: {
+        if (args.length >= 1 && args[0] !== undefined && typeof args[0] !== 'string') {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'TRACE_REPLAY first argument must be trace_id (string) if provided',
+            { lineno, args }
+          );
+        }
+        return args;
+      }
+
+      case OpCode.SET_INTENT: {
+        if (args.length < 1 || typeof args[0] !== 'string') {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'SET_INTENT requires one argument: intent (string)',
+            { lineno, args }
+          );
+        }
+        return [args[0]];
+      }
+
+      case OpCode.APPLY_CONSTRAINT: {
+        if (args.length < 3 || typeof args[0] !== 'string' || typeof args[1] !== 'string') {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'APPLY_CONSTRAINT requires three arguments: register (string), operator (string), value (number)',
+            { lineno, args }
+          );
+        }
+        const value = this.parseNumber(args[2], lineno, 'APPLY_CONSTRAINT value');
+        return [args[0], args[1], value];
+      }
+
+      case OpCode.SET_DEADLINE: {
+        if (args.length < 1) {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'SET_DEADLINE requires one argument: deadline_ms (number)',
+            { lineno, args }
+          );
+        }
+        const deadlineMs = this.parseNumber(args[0], lineno, 'SET_DEADLINE deadline_ms');
+        return [deadlineMs];
+      }
+
+      case OpCode.TIME_HINT: {
+        if (args.length < 1) {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'TIME_HINT requires one argument: time_hint_ms (number)',
+            { lineno, args }
+          );
+        }
+        const timeHintMs = this.parseNumber(args[0], lineno, 'TIME_HINT time_hint_ms');
+        return [timeHintMs];
+      }
 
       default:
         throw createError(ErrorType.InvalidInstruction, `Unknown opcode: ${opcode}`, {

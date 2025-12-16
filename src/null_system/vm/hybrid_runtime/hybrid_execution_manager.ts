@@ -1,4 +1,4 @@
-import { TransportAdapter, VMCapabilities, HealthStatus } from './transport_adapter';
+import { TransportAdapter, VMCapabilities, HealthStatus, SuperBitMessage } from './transport_adapter';
 import { SuperBitMessageBus } from './superbit_message_bus';
 import { WorkScheduler, WorkItem, LoadBalancingStrategy } from './work_scheduler';
 
@@ -37,6 +37,10 @@ export class HybridExecutionManager {
   private enableAutoRestart: boolean;
   private healthCheckInterval?: NodeJS.Timeout;
   private logHooks: Array<(message: string, data?: unknown) => void> = [];
+  private vmMessageHandlers: Map<
+    string,
+    Array<(messageType: string, payload: unknown, sourceVmId: string) => void | Promise<void>>
+  > = new Map();
 
   constructor(transport: TransportAdapter, config: HybridExecutionConfig = {}) {
     this.transport = transport;
@@ -64,6 +68,8 @@ export class HybridExecutionManager {
     this.transport.registerFaultCallback((vmId, error) => {
       this.handleFault(vmId, error);
     });
+
+    this.transport.receiveMessage((message) => this.dispatchVMMessage(message));
   }
 
   async initialize(): Promise<void> {
@@ -145,6 +151,63 @@ export class HybridExecutionManager {
 
     await this.messageBus.sendMessage(sourceVmId, targetVmId, messageType, payload);
     this.log('Message sent', { sourceVmId, targetVmId, messageType });
+  }
+
+  setActiveIntent(intent: string | null): void {
+    this.scheduler.setActiveIntent(intent);
+    this.log('Intent updated', { intent });
+  }
+
+  getActiveIntent(): string | null {
+    return this.scheduler.getActiveIntent();
+  }
+
+  registerVMMessageHandler(
+    vmId: string,
+    handler: (messageType: string, payload: unknown, sourceVmId: string) => void | Promise<void>
+  ): void {
+    const handlers = this.vmMessageHandlers.get(vmId) ?? [];
+    handlers.push(handler);
+    this.vmMessageHandlers.set(vmId, handlers);
+  }
+
+  getRegisteredVMIds(): string[] {
+    return Array.from(this.registeredVMs.keys());
+  }
+
+  async broadcastMessage(
+    sourceVmId: string,
+    messageType: string,
+    payload: unknown,
+    options: { includeSelf?: boolean } = {}
+  ): Promise<void> {
+    const includeSelf = options.includeSelf ?? false;
+    const targets = Array.from(this.registeredVMs.keys()).filter(
+      (vmId) => includeSelf || vmId !== sourceVmId
+    );
+    await Promise.all(targets.map((vmId) => this.sendMessage(sourceVmId, vmId, messageType, payload)));
+  }
+
+  private async dispatchVMMessage(message: SuperBitMessage): Promise<void> {
+    const handlers = this.vmMessageHandlers.get(message.targetVmId);
+    if (!handlers || handlers.length === 0) {
+      return;
+    }
+
+    let payload: unknown;
+    try {
+      payload = this.messageBus.deserializePayload(message.payload);
+    } catch (err) {
+      this.log('Failed to deserialize message payload', {
+        messageType: message.messageType,
+        error: err instanceof Error ? err.message : String(err),
+      });
+      return;
+    }
+
+    for (const handler of handlers) {
+      await Promise.resolve(handler(message.messageType, payload, message.sourceVmId));
+    }
   }
 
   async createBarrier(

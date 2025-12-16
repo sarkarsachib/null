@@ -159,8 +159,34 @@ export class DenseLayer {
   }
 }
 
+export type OptimizationProfile = 'balanced' | 'low-latency' | 'high-throughput';
+
 export class NeuralEngine {
   private layers: DenseLayer[] = [];
+  private optimizationProfile: OptimizationProfile = 'balanced';
+
+  setOptimizationProfile(profile: OptimizationProfile): void {
+    this.optimizationProfile = profile;
+  }
+
+  setIntent(intent: string | null): void {
+    switch (intent) {
+      case 'minimize_latency':
+      case 'low_latency':
+        this.optimizationProfile = 'low-latency';
+        return;
+      case 'maximize_throughput':
+      case 'high_throughput':
+        this.optimizationProfile = 'high-throughput';
+        return;
+      default:
+        this.optimizationProfile = 'balanced';
+    }
+  }
+
+  getOptimizationProfile(): OptimizationProfile {
+    return this.optimizationProfile;
+  }
 
   /**
    * Add a layer to the network

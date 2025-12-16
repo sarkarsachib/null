@@ -17,6 +17,15 @@ export type TraceHook = (
   data: Record<string, unknown>
 ) => void;
 
+export interface ConstraintDirective {
+  id: string;
+  register: string;
+  operator: string;
+  value: number;
+  createdAt: number;
+  severity: 'error' | 'alert';
+}
+
 export class ExecutionContext {
   private callStack: StackFrame[] = [];
   program: Instruction[] = [];
@@ -25,6 +34,11 @@ export class ExecutionContext {
   private definitions: Map<string, Instruction[]> = new Map();
   private isRunning: boolean = false;
   private maxStackDepth: number = 256;
+
+  private activeIntent: string | null = null;
+  private constraints: ConstraintDirective[] = [];
+  private deadlineAt: number | null = null;
+  private timeHintMs: number | null = null;
 
   /**
    * Initialize execution context with a program
@@ -149,6 +163,55 @@ export class ExecutionContext {
   }
 
   /**
+   * Set active intent for downstream scheduling/optimization.
+   */
+  setIntent(intent: string | null): void {
+    this.activeIntent = intent;
+  }
+
+  getIntent(): string | null {
+    return this.activeIntent;
+  }
+
+  applyConstraint(
+    register: string,
+    operator: string,
+    value: number,
+    severity: 'error' | 'alert' = 'error'
+  ): string {
+    const id = `constraint-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    this.constraints.push({
+      id,
+      register,
+      operator,
+      value,
+      createdAt: Date.now(),
+      severity,
+    });
+    return id;
+  }
+
+  getConstraints(): ConstraintDirective[] {
+    return [...this.constraints];
+  }
+
+  setDeadlineAt(deadlineAt: number | null): void {
+    this.deadlineAt = deadlineAt;
+  }
+
+  getDeadlineAt(): number | null {
+    return this.deadlineAt;
+  }
+
+  setTimeHintMs(timeHintMs: number | null): void {
+    this.timeHintMs = timeHintMs;
+  }
+
+  getTimeHintMs(): number | null {
+    return this.timeHintMs;
+  }
+
+  /**
    * Add trace hook
    */
   addTraceHook(hook: TraceHook): void {
@@ -203,6 +266,10 @@ export class ExecutionContext {
     this.program = [];
     this.programCounter = 0;
     this.isRunning = false;
+    this.activeIntent = null;
+    this.constraints = [];
+    this.deadlineAt = null;
+    this.timeHintMs = null;
   }
 
   /**
@@ -215,6 +282,10 @@ export class ExecutionContext {
       isRunning: this.isRunning,
       definedFunctions: Array.from(this.definitions.keys()),
       programLength: this.program.length,
+      intent: this.activeIntent,
+      constraints: this.constraints.map((c) => ({ ...c })),
+      deadlineAt: this.deadlineAt,
+      timeHintMs: this.timeHintMs,
     };
   }
 }

@@ -70,3 +70,13 @@ export {
   AttentionModule,
   AttentionConfig,
 } from './ai';
+
+export {
+  ConsistencyLevel,
+  EvolvedValueKind,
+  EvolvedNumericValue,
+  DistributedValue,
+  ConsensusValue,
+  PartialValue,
+  isEvolvedNumericValue,
+} from './evolved_types';

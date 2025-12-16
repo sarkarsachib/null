@@ -73,6 +73,16 @@ export class BinaryBridge {
     this.emitFrame('CONTROL', buffer);
   }
 
+  emitObservability(event: string, data?: Record<string, unknown>): void {
+    const jsonData = JSON.stringify({ event, ...data, timestamp: Date.now() });
+    this.emitFrame('OBSERVABILITY', Buffer.from(jsonData, 'utf-8'));
+  }
+
+  emitCompliance(event: string, data?: Record<string, unknown>): void {
+    const jsonData = JSON.stringify({ event, ...data, timestamp: Date.now() });
+    this.emitFrame('COMPLIANCE', Buffer.from(jsonData, 'utf-8'));
+  }
+
   /**
    * Emit a proof transcript (for ZK proofs)
    */
