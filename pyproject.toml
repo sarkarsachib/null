@@ -92,6 +92,7 @@ markers = [
     "unit: Unit tests",
     "integration: Integration tests",
     "encoding: Super-Bit encoding tests",
+    "load: Load and stress tests (opt-in, not run by default)",
 ]
 
 [tool.ruff]

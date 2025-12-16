@@ -664,6 +664,25 @@ const channel = new SecureChannel({ algorithm: 'nacl-box', enableLogging: true }
 ## Development
 
 ### Run Tests
+
+**Python Tests:**
+```bash
+# Run all tests (excludes load tests by default)
+pytest tests/
+
+# Run specific test suites
+pytest tests/test_system_validation.py -v
+pytest tests/test_integration.py -v
+pytest tests/lang/ -v
+
+# Run load/stress tests (opt-in)
+pytest tests/perf/test_load.py -v -m load
+
+# Run without load tests explicitly
+pytest tests/ -v -m "not load"
+```
+
+**TypeScript Tests:**
 ```bash
 npm test
 ```
@@ -687,6 +706,23 @@ npm run format
 
 The project includes comprehensive test suites:
 
+- **System Validation Tests** (`tests/test_system_validation.py`):
+  - End-to-end compilation tests using example .null files
+  - Cross-module integration tests (ML/NLP library operations)
+  - Hybrid execution tests with mock accelerators (CPU, GPU, ML, NLP)
+  - Distributed consistency tests with multiple VM instances
+  - Fault injection tests for error handling and recovery
+  - Pipeline consistency validation (AST → SuperBit → Binary → VM)
+
+- **Load & Stress Tests** (`tests/perf/test_load.py`) - marked with `@pytest.mark.load`:
+  - Compile and execute 1,000+ programs
+  - Concurrent execution with 100+ worker threads
+  - VM state isolation under concurrent load
+  - Memory stability over 1,000 iterations
+  - Race condition detection
+  - Large program compilation (10,000+ statements)
+  - Burst compilation load testing
+
 - **NullVM Tests** (142 tests):
   - Basic operations (SET, ADD, SHOW)
   - Control flow (IF, REPEAT)
@@ -702,6 +738,13 @@ The project includes comprehensive test suites:
   - Decoder: Program parsing and validation
   - BinaryBridge: Frame emission and management
   - Sample Programs: End-to-end execution tests
+
+### Test Markers
+
+- `@pytest.mark.unit` - Unit tests
+- `@pytest.mark.integration` - Integration tests
+- `@pytest.mark.encoding` - Super-Bit encoding tests
+- `@pytest.mark.load` - Load and stress tests (opt-in, use `-m load` to run)
 
 ## Example Programs
 
