@@ -282,6 +282,141 @@ example.py                   # Usage examples
 - **lark-parser** (>=0.12.0): Parser generator
 - **pytest** (>=7.0.0): Testing framework
 
+## Evolved Runtime Types (VM Phase-2 Type System)
+
+### Implementation
+
+The VM supports evolved runtime types for rich semantic type representation with metadata:
+
+#### Type Classes (`src/null_system/vm/types/evolved_values.ts`)
+
+1. **EvolvedValue** - Abstract base class
+   - Generic value wrapper with metadata
+   - Common interface for all evolved types
+   - Methods: `toNumeric()`, `toString()`, `serialize()`, `clone()`
+
+2. **SuperBitValue** - SuperBit tensor wrapper
+   - Wraps `SuperBitTensor` with metadata
+   - Metadata: uncertainty, confidence, encoding
+   - Arithmetic: element-wise addition with uncertainty propagation
+   - Use case: AI/ML tensor operations with quantization
+
+3. **ProbValue** - Probabilistic value
+   - Stores value + probability
+   - Arithmetic: uncertainty propagation (quadrature sum)
+   - Methods: `add()`, `multiply()` with combined probabilities
+   - Use case: Stochastic computation, Monte Carlo simulations
+
+4. **QuantumValue** - Quantum state wrapper
+   - Wraps `QuantumState` with qubits
+   - Measurement: collapses state and returns result + probability
+   - Metadata updated after measurement (confidence, uncertainty)
+   - Use case: Quantum algorithm simulation
+
+5. **BinaryValue** - Binary integer value
+   - Integer value with metadata
+   - Bitwise operations: AND, OR, XOR
+   - Arithmetic: addition preserves metadata
+   - Use case: Low-level binary operations, bit manipulation
+
+6. **KnowledgeValue** - Ontology-aware value
+   - Stores value + entity ID + relationships
+   - Relationships: graph-like connections to other entities
+   - Metadata: ontologyId for schema references
+   - Use case: Knowledge graph integration, semantic web
+
+#### Memory Integration (`src/null_system/vm/memory.ts`)
+
+Extended Memory class with:
+- `evolvedRegisters`: Map for evolved values
+- `setEvolvedRegister()`, `getEvolvedRegister()`: Type-safe evolved value storage
+- `setRegisterTyped()`, `getRegisterTyped()`: Unified API supporting both numeric and evolved
+- `getRegisterAsNumeric()`: Automatic coercion to numeric
+- Snapshot includes evolved register serialization
+
+#### VM Instruction Support (`src/null_system/vm/null_vm.ts`)
+
+Updated instructions:
+- **SET**: Detects evolved values, routes to appropriate register type
+- **ADD**: Handles evolved arithmetic with proper type propagation
+  - SuperBit + SuperBit: Element-wise addition with uncertainty propagation
+  - Prob + Prob: Value addition with combined probability
+  - Binary + Binary: Integer addition with metadata preservation
+- **SHOW**: Emits evolved value metadata via `BinaryBridge`
+
+Helper methods:
+- `addEvolvedValues()`: Type-aware addition dispatcher
+
+#### Binary Bridge Observability (`src/null_system/vm/binary_bridge.ts`)
+
+New frame types:
+- `EVOLVED_VALUE_METADATA`: Emits metadata (confidence, encoding, ontology ID)
+- `EVOLVED_VALUE_STATE`: Emits full serialized value
+- `EVOLVED_REGISTER`: Emits register state with type and numeric value
+
+Methods:
+- `emitEvolvedValueMetadata()`: Emit metadata only
+- `emitEvolvedValueState()`: Emit full serialized state
+- `emitEvolvedRegisterState()`: Emit compact register state
+
+#### Test Coverage (`src/null_system/vm/__tests__/evolved_types.test.ts`)
+
+54 comprehensive tests organized into 9 test suites:
+- **SuperBitValue**: 6 tests (creation, arithmetic, uncertainty propagation)
+- **ProbValue**: 8 tests (probability, arithmetic, uncertainty)
+- **QuantumValue**: 7 tests (measurement, collapse, metadata)
+- **BinaryValue**: 8 tests (bitwise ops, arithmetic, serialization)
+- **KnowledgeValue**: 7 tests (relationships, ontology, serialization)
+- **Type Guards**: 3 tests (isEvolvedValue, coercion)
+- **Memory Integration**: 8 tests (storage, retrieval, typed API)
+- **Metadata Management**: 3 tests (metadata persistence)
+- **Error Handling**: 4 tests (type validation, quantum edge cases)
+
+All tests pass with 100% coverage of evolved value operations.
+
+### Usage Examples
+
+```typescript
+// SuperBit values with uncertainty
+const tensor = new SuperBitTensor({ dims: [3] }, new Float32Array([1, 0, 1]));
+const superbit = new SuperBitValue(tensor, { uncertainty: 0.1 });
+memory.setEvolvedRegister('x', superbit);
+
+// Probabilistic values
+const prob = new ProbValue(42, 0.9);  // value=42, p=0.9
+const sum = ProbValue.add(prob1, prob2);  // Propagates uncertainty
+
+// Quantum measurement
+const quantum = new QuantumValue(quantumState);
+const result = quantum.measure(0);  // Collapses to 0 or 1
+
+// Binary bitwise ops
+const bin = BinaryValue.bitwiseAnd(val1, val2);
+
+// Knowledge graph values
+const knowledge = new KnowledgeValue({ name: 'Alice' }, 'person-1');
+knowledge.addRelationship('knows', 'person-2');
+```
+
+### Files Added/Modified
+
+```
+src/null_system/vm/
+├── types/
+│   ├── evolved_values.ts        # NEW - 460+ lines - Evolved value classes
+│   └── index.ts                 # NEW - Type exports
+├── memory.ts                    # MODIFIED - Added evolved register support
+├── null_vm.ts                   # MODIFIED - Updated SET/ADD/SHOW instructions
+├── binary_bridge.ts             # MODIFIED - Added evolved value emission
+└── index.ts                     # MODIFIED - Export evolved types
+
+src/null_system/vm/__tests__/
+└── evolved_types.test.ts        # NEW - 550+ lines - 54 comprehensive tests
+
+README.md                        # MODIFIED - Added evolved types section
+IMPLEMENTATION.md                # MODIFIED - Added this section
+```
+
 ## Future Enhancements
 
 Potential areas for extension:
@@ -293,3 +428,6 @@ Potential areas for extension:
 6. REPL implementation
 7. Syntax highlighting support
 8. LSP (Language Server Protocol) implementation
+9. Additional evolved type operations (division, modulo for ProbValue)
+10. Quantum gate operations in QuantumValue
+11. Knowledge graph query language integration

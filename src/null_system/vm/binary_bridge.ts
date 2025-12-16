@@ -3,6 +3,7 @@
  */
 
 import { SuperBitTensor } from './ai/superbit_tensor';
+import { AnyEvolvedValue, EvolvedValueMetadata } from './types/evolved_values';
 
 export interface BinaryFrame {
   frameType: string;
@@ -193,5 +194,73 @@ export class BinaryBridge {
     tensorBuffer.copy(buffer, offset);
 
     this.emitFrame('TENSOR_OUTPUT', buffer);
+  }
+
+  /**
+   * Emit evolved value metadata
+   */
+  emitEvolvedValueMetadata(name: string, value: AnyEvolvedValue): void {
+    const metadata = value.getMetadata();
+    const jsonData = JSON.stringify({
+      register: name,
+      type: value.getType(),
+      metadata: {
+        confidence: metadata.confidence,
+        encoding: metadata.encoding,
+        ontologyId: metadata.ontologyId,
+        precision: metadata.precision,
+        uncertainty: metadata.uncertainty,
+        source: metadata.source,
+      },
+      timestamp: Date.now(),
+    });
+    const buffer = Buffer.from(jsonData, 'utf-8');
+    this.emitFrame('EVOLVED_VALUE_METADATA', buffer);
+  }
+
+  /**
+   * Emit evolved value state
+   */
+  emitEvolvedValueState(name: string, value: AnyEvolvedValue): void {
+    const serialized = value.serialize();
+    const jsonData = JSON.stringify({
+      register: name,
+      ...serialized,
+      timestamp: Date.now(),
+    });
+    const buffer = Buffer.from(jsonData, 'utf-8');
+    this.emitFrame('EVOLVED_VALUE_STATE', buffer);
+  }
+
+  /**
+   * Emit evolved register state (shorthand with just numeric value + type)
+   */
+  emitEvolvedRegisterState(name: string, value: AnyEvolvedValue): void {
+    const buffer = Buffer.alloc(128);
+    let offset = 0;
+
+    const nameBuf = Buffer.from(name, 'utf-8');
+    buffer.writeUInt32BE(nameBuf.length, offset);
+    offset += 4;
+    nameBuf.copy(buffer, offset);
+    offset += nameBuf.length;
+
+    const typeBuf = Buffer.from(value.getType(), 'utf-8');
+    buffer.writeUInt32BE(typeBuf.length, offset);
+    offset += 4;
+    typeBuf.copy(buffer, offset);
+    offset += typeBuf.length;
+
+    const numericValue = value.toNumeric();
+    buffer.writeFloatBE(numericValue, offset);
+    offset += 4;
+
+    const metadata = value.getMetadata();
+    buffer.writeFloatBE(metadata.confidence || 1.0, offset);
+    offset += 4;
+    buffer.writeFloatBE(metadata.uncertainty || 0, offset);
+    offset += 4;
+
+    this.emitFrame('EVOLVED_REGISTER', buffer.slice(0, offset));
   }
 }
