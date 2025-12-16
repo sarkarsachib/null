@@ -228,3 +228,41 @@ class PreferAnnotation(ASTNode):
 class Comment(ASTNode):
     """Represents a comment in the source code."""
     text: str
+
+
+# Super-Bit Specific Nodes
+
+@dataclass
+class SuperBitLiteral(ASTNode):
+    """Represents a super-bit literal: 0x@NAME or 0b@NAME."""
+    prefix: str
+    symbol: str
+
+
+@dataclass
+class MacroInvocation(ASTNode):
+    """Represents a super-bit macro invocation: @encode(...), @compress(...), etc."""
+    name: str
+    arguments: List[ASTNode]
+
+
+@dataclass
+class SuperBitPattern(ASTNode):
+    """Represents a super-bit pattern: @pattern(type) AS binding."""
+    pattern_type: str
+    binding: Optional[str] = None
+
+
+@dataclass
+class PatternArm(ASTNode):
+    """Represents a pattern arm in a match statement."""
+    pattern: ASTNode
+    body: List[ASTNode]
+
+
+@dataclass
+class MatchCommand(ASTNode):
+    """Represents a MATCH command for pattern matching."""
+    value: ASTNode
+    arms: List[PatternArm]
+    annotations: List['Union[LayerAnnotation, RequireAnnotation, PreferAnnotation]'] = field(default_factory=list)

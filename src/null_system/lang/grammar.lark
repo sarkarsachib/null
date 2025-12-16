@@ -16,6 +16,7 @@ annotated_statement: annotation* base_statement -> attach_annotations
                | show_statement
                | repeat_statement
                | define_statement
+               | match_statement
                | expression_statement
 
 // Annotations
@@ -47,6 +48,12 @@ show_statement: "SHOW" expression -> show_cmd
 repeat_statement: "REPEAT" atom "TIMES" block "END" "REPEAT" -> repeat_cmd
 
 define_statement: "DEFINE" identifier ("WITH" parameter_list)? block "END" "DEFINE" -> define_cmd
+
+match_statement: "MATCH" expression "{" match_arm+ "}" -> match_cmd
+
+match_arm: pattern "=>" "{" match_body "}"
+
+match_body: statement*
 
 expression_statement: expression
 
@@ -94,6 +101,7 @@ comparison_op: "IS" "NOT" -> is_not
      | identifier
      | member_access
      | function_call
+     | macro_invocation
      | legacy_null_lib_annotation
      | "(" expression ")"
 
@@ -104,6 +112,7 @@ literal: text_literal
        | bool_literal
        | array_literal
        | object_literal
+       | superbit_literal
 
 text_literal: ESCAPED_STRING
 
@@ -136,6 +145,28 @@ argument_list: expression ("," expression)*
 
 legacy_null_lib_annotation: "@" identifier "." identifier ("(" (argument_list)? ")")? -> null_lib_call
 
+// Super-Bit Literals
+
+superbit_literal: SUPERBIT_HEX_LITERAL -> superbit_hex_lit
+                | SUPERBIT_BIN_LITERAL -> superbit_bin_lit
+
+// Macro Invocations
+
+macro_invocation: "@" "encode" "(" (argument_list)? ")" -> encode_macro
+                | "@" "compress" "(" (argument_list)? ")" -> compress_macro
+                | "@" "encrypt" "(" (argument_list)? ")" -> encrypt_macro
+                | "@" "quantize" "(" (argument_list)? ")" -> quantize_macro
+
+// Patterns for Match Statement
+
+pattern: superbit_pattern
+       | identifier_pattern
+       | literal
+
+superbit_pattern: "@pattern" "(" identifier ")" ("AS" identifier)? -> sb_pattern
+
+identifier_pattern: identifier -> id_pattern
+
 // Identifiers
 
 identifier: NAME
@@ -150,6 +181,9 @@ NAME: /[a-zA-Z_][a-zA-Z0-9_]*/
 NUMBER: /[0-9]+(\.[0-9]+)?/
 ESCAPED_STRING: /"([^"\\]|\\.)*"/
                 | /'([^'\\]|\\.)*'/
+
+SUPERBIT_HEX_LITERAL: /0x@[a-zA-Z_][a-zA-Z0-9_]*/
+SUPERBIT_BIN_LITERAL: /0b@[a-zA-Z_][a-zA-Z0-9_]*/
 
 COMMENT: /#[^\n]*/
 

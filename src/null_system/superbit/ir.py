@@ -57,6 +57,12 @@ class SuperBitOpCode(IntEnum):
     UNWRAP_UNION = 51
     MATCH_PATTERN = 52
 
+    LOAD_SUPERBIT = 60
+    ENCODE_VALUE = 61
+    COMPRESS_VALUE = 62
+    ENCRYPT_VALUE = 63
+    QUANTIZE_VALUE = 64
+
     NOP = 255
 
 
