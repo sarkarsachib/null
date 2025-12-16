@@ -436,3 +436,117 @@ Binary frames with version 2+ include optional metadata:
 ```
 
 Where METADATA_JSON contains encryption/compression information that allows downstream tools to properly decode and execute the program.
+
+## Super-Bit Syntax Macros
+
+### Super-Bit Literals
+
+| AST Node | Super-Bit Sequence | Description |
+|----------|-------------------|-------------|
+| `SuperBitLiteral(prefix="0x", symbol=S)` | `LOAD_SUPERBIT(S, bits, width)` | Load pre-encoded symbol from registry |
+| `SuperBitLiteral(prefix="0b", symbol=S)` | `LOAD_SUPERBIT(S, bits, width)` | Load pre-encoded symbol from registry |
+
+**Metadata:**
+- `superbit_symbol`: Symbol name
+- `prefix`: '0x' or '0b'
+- `bits`: Bit pattern from registry
+- `bit_width`: Number of bits
+
+**Example:**
+```null
+SET cmd TO 0x@SET     # Emits: LOAD_SUPERBIT("SET", 0x01, 6)
+```
+
+### Macro Invocations
+
+| AST Node | Super-Bit Sequence | Description |
+|----------|-------------------|-------------|
+| `MacroInvocation(name="encode", args=[...])` | `[emit(args...), ENCODE_VALUE]` | Encode values using super-bit encoding |
+| `MacroInvocation(name="compress", args=[...])` | `[emit(args...), COMPRESS_VALUE]` | Compress using dictionary/RLE |
+| `MacroInvocation(name="encrypt", args=[...])` | `[emit(args...), ENCRYPT_VALUE]` | Encrypt using AES-GCM |
+| `MacroInvocation(name="quantize", args=[...])` | `[emit(args...), QUANTIZE_VALUE]` | Quantize to 4-8 bit super-bit |
+
+**Metadata:**
+- `macro`: Macro name
+- `arg_count`: Number of arguments
+
+**Example:**
+```null
+SET result TO @encode("data")     # Emits: LOAD_CONST("data"), ENCODE_VALUE
+SET compressed TO @compress(x)    # Emits: LOAD_VAR(x), COMPRESS_VALUE
+```
+
+### Pattern Matching
+
+| AST Node | Super-Bit Sequence | Description |
+|----------|-------------------|-------------|
+| `MatchCommand(value=V, arms=[A1, A2, ...])` | Complex control flow with pattern matching | See below |
+
+**Pattern Compilation:**
+
+1. Super-Bit Pattern:
+   ```
+   @pattern(type) AS binding
+   →
+   MATCH_PATTERN(type, metadata={pattern_type: type, binding: binding})
+   JUMP_IF_FALSE(next_arm)
+   [arm_body...]
+   JUMP(end)
+   ```
+
+2. Literal Pattern:
+   ```
+   42 => { body }
+   →
+   LOAD_CONST(42)
+   COMPARE_EQ
+   JUMP_IF_FALSE(next_arm)
+   [body...]
+   JUMP(end)
+   ```
+
+3. Identifier Pattern (catch-all):
+   ```
+   default => { body }
+   →
+   STORE_VAR(default)
+   [body...]
+   ```
+
+**Complete Match Example:**
+```null
+MATCH value {
+    @pattern(letters) => { SHOW "letters" }
+    42 => { SHOW "number" }
+}
+
+# Compiles to:
+LOAD_VAR(value)
+MATCH_PATTERN("letters")
+JUMP_IF_FALSE(arm2)
+LOAD_CONST("letters")
+PRINT
+JUMP(end)
+arm2:
+LOAD_CONST(42)
+COMPARE_EQ
+JUMP_IF_FALSE(end)
+LOAD_CONST("number")
+PRINT
+end:
+```
+
+## Opcode Reference
+
+### Super-Bit Specific Opcodes
+
+| Opcode | Value | Description |
+|--------|-------|-------------|
+| `LOAD_SUPERBIT` | 60 | Load pre-encoded super-bit literal |
+| `ENCODE_VALUE` | 61 | Encode value using super-bit encoding |
+| `COMPRESS_VALUE` | 62 | Compress using super-bit compression |
+| `ENCRYPT_VALUE` | 63 | Encrypt using super-bit security layer |
+| `QUANTIZE_VALUE` | 64 | Quantize tensor to super-bit representation |
+| `MATCH_PATTERN` | 52 | Match against super-bit pattern |
+
+For complete documentation, see [docs/superbit_syntax_macros.md](docs/superbit_syntax_macros.md).

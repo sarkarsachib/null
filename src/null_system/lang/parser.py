@@ -16,7 +16,8 @@ from .ast_nodes import (
     SetCommand, AddCommand, IfCommand, ShowCommand, RepeatCommand, DefineCommand,
     BinaryExpression, UnaryExpression, ComparisonExpression, BinaryOperator, UnaryOperator,
     FunctionCall, NullLibAnnotation, Comment,
-    LayerAnnotation, RequireAnnotation, PreferAnnotation
+    LayerAnnotation, RequireAnnotation, PreferAnnotation,
+    SuperBitLiteral, MacroInvocation, SuperBitPattern, PatternArm, MatchCommand
 )
 from .errors import SyntaxError, LexerError
 
@@ -331,6 +332,76 @@ class NullLangTransformer(Transformer):
         node = Comment(text=text)
         node.span = self._get_span(token)
         return node
+    
+    # Super-Bit Specific Constructs
+    
+    def superbit_hex_lit(self, items):
+        token = items[0]
+        literal_str = str(token)
+        symbol = literal_str[3:]
+        node = SuperBitLiteral(prefix='0x', symbol=symbol)
+        node.span = self._get_span(token)
+        return node
+    
+    def superbit_bin_lit(self, items):
+        token = items[0]
+        literal_str = str(token)
+        symbol = literal_str[3:]
+        node = SuperBitLiteral(prefix='0b', symbol=symbol)
+        node.span = self._get_span(token)
+        return node
+    
+    def encode_macro(self, items):
+        arguments = []
+        if len(items) > 0:
+            arguments = items[0] if isinstance(items[0], list) else items
+        return MacroInvocation(name='encode', arguments=arguments)
+    
+    def compress_macro(self, items):
+        arguments = []
+        if len(items) > 0:
+            arguments = items[0] if isinstance(items[0], list) else items
+        return MacroInvocation(name='compress', arguments=arguments)
+    
+    def encrypt_macro(self, items):
+        arguments = []
+        if len(items) > 0:
+            arguments = items[0] if isinstance(items[0], list) else items
+        return MacroInvocation(name='encrypt', arguments=arguments)
+    
+    def quantize_macro(self, items):
+        arguments = []
+        if len(items) > 0:
+            arguments = items[0] if isinstance(items[0], list) else items
+        return MacroInvocation(name='quantize', arguments=arguments)
+    
+    def match_cmd(self, items):
+        value = items[0]
+        arms = items[1:]
+        return MatchCommand(value=value, arms=arms)
+    
+    def match_arm(self, items):
+        pattern = items[0]
+        body = items[1] if isinstance(items[1], list) else [items[1]]
+        return PatternArm(pattern=pattern, body=body)
+    
+    def match_body(self, items):
+        return list(items)
+    
+    def pattern(self, items):
+        return items[0]
+    
+    def sb_pattern(self, items):
+        pattern_type_id = items[0]
+        pattern_type = pattern_type_id.name if isinstance(pattern_type_id, Identifier) else str(pattern_type_id)
+        binding = None
+        if len(items) > 1:
+            binding_id = items[1]
+            binding = binding_id.name if isinstance(binding_id, Identifier) else str(binding_id)
+        return SuperBitPattern(pattern_type=pattern_type, binding=binding)
+    
+    def id_pattern(self, items):
+        return items[0]
 
 
 class NullLangParser:

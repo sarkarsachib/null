@@ -20,6 +20,7 @@ A TypeScript implementation of a virtual machine that executes super-bit program
 - **NLP Module**: Multilingual tokenization, embeddings, translation, and code generation
 - **Knowledge Graphs**: Entity-relationship graphs, ontology management, rule-based inference, and RDF/JSON-LD support
 - **ML Runtime**: PyTorch-backed inference, super-bit quantization (<10MB), semantic embeddings, probabilistic attention, gradient-free optimization
+- **Super-Bit Syntax Macros**: Compile-time literals (`0x@SYMBOL`), macros (`@encode`, `@compress`, `@encrypt`, `@quantize`), and pattern matching for zero-overhead encoding. See [docs/superbit_syntax_macros.md](docs/superbit_syntax_macros.md)
 
 ## Project Structure
 

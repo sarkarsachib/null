@@ -14,7 +14,8 @@ from .ast_nodes import (
     BinaryExpression, UnaryExpression, ComparisonExpression,
     BinaryOperator, UnaryOperator,
     FunctionCall, NullLibAnnotation, Comment,
-    LayerAnnotation, RequireAnnotation, PreferAnnotation
+    LayerAnnotation, RequireAnnotation, PreferAnnotation,
+    SuperBitLiteral, MacroInvocation, SuperBitPattern, PatternArm, MatchCommand
 )
 from .compiler import NullLangCompiler, compile_program
 from .errors import NullLangError, SyntaxError, SemanticError, LexerError
@@ -32,6 +33,7 @@ __all__ = [
     'BinaryOperator', 'UnaryOperator',
     'FunctionCall', 'NullLibAnnotation', 'Comment',
     'LayerAnnotation', 'RequireAnnotation', 'PreferAnnotation',
+    'SuperBitLiteral', 'MacroInvocation', 'SuperBitPattern', 'PatternArm', 'MatchCommand',
     'NullLangError', 'SyntaxError', 'SemanticError', 'LexerError',
     'SyntaxMode', 'SyntaxAdvisor', 'ParserDispatcher', 'HybridParser', 'DiagnosticIssue',
     'to_english', 'to_modern',

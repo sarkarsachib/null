@@ -1,0 +1,72 @@
+# Super-Bit Syntax Macros Demo
+# Demonstrates new syntax for super-bit literals, macros, and pattern matching
+
+# Super-Bit Literals - Compile-time efficient encoding
+SET command_token TO 0x@SET
+SET add_token TO 0x@ADD
+SET binary_pattern TO 0b@TEXT
+
+SHOW "Using super-bit literals for zero-overhead encoding"
+
+# Macro Invocations - Compile-time transformations
+SET message TO "Hello, Super-Bit World!"
+SET encoded_message TO @encode(message)
+SET compressed_data TO @compress(encoded_message)
+SET encrypted_data TO @encrypt(compressed_data)
+
+SHOW "Data pipeline: encode -> compress -> encrypt"
+
+# Quantization for ML models
+SET weight TO 3.14159
+SET quantized_weight TO @quantize(weight)
+
+SHOW "Quantized for 4-8 bit super-bit representation"
+
+# Pattern Matching with Super-Bit Patterns
+SET input_value TO encoded_message
+
+MATCH input_value {
+    @pattern(letters) AS text => {
+        SHOW "Matched letters pattern"
+        SHOW text
+    }
+    @pattern(numbers) AS nums => {
+        SHOW "Matched numbers pattern"
+        SHOW nums
+    }
+    @pattern(mixed) AS data => {
+        SHOW "Matched mixed pattern"
+        SHOW data
+    }
+    fallback => {
+        SHOW "No pattern matched"
+    }
+}
+
+# Combining Features - Complex Pipeline
+SET raw_data TO 0x@SHOW
+SET pipeline_result TO @compress(@encode(raw_data))
+
+MATCH pipeline_result {
+    @pattern(compressed) AS c => {
+        SHOW "Successfully compressed"
+        SET final TO @encrypt(c)
+        SHOW final
+    }
+    default => {
+        SHOW "Compression failed"
+    }
+}
+
+# Layer Annotations with Super-Bit Features
+@layer(superbit)
+SET superbit_data TO @encode(0x@IF)
+
+@require(superbit, binary)
+MATCH superbit_data {
+    @pattern(encoded) => {
+        SHOW "Running on super-bit layer"
+    }
+}
+
+SHOW "Demo complete!"

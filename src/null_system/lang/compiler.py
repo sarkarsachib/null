@@ -33,6 +33,11 @@ from .ast_nodes import (
     LayerAnnotation,
     RequireAnnotation,
     PreferAnnotation,
+    SuperBitLiteral,
+    MacroInvocation,
+    SuperBitPattern,
+    PatternArm,
+    MatchCommand,
 )
 from ..superbit.ir import SuperBitIRToken, SuperBitOpCode, SuperBitStream
 
@@ -249,6 +254,103 @@ class NullLangCompiler:
             elif isinstance(target.member, Identifier):
                 return target.member.name
         return ""
+    
+    def _visit_SuperBitLiteral(self, node: SuperBitLiteral) -> None:
+        """Emit tokens for super-bit literal."""
+        from ..superbit.registry import get_default_registry
+        
+        registry = get_default_registry()
+        bits_info = registry.lookup_bits(node.symbol)
+        
+        if bits_info:
+            bits, bit_width = bits_info
+            metadata = {
+                'superbit_symbol': node.symbol,
+                'prefix': node.prefix,
+                'bits': bits,
+                'bit_width': bit_width
+            }
+            self._emit(SuperBitOpCode.LOAD_SUPERBIT, (node.symbol, bits, bit_width), metadata=metadata)
+        else:
+            self._emit(SuperBitOpCode.LOAD_CONST, node.symbol)
+    
+    def _visit_MacroInvocation(self, node: MacroInvocation) -> None:
+        """Emit tokens for macro invocation."""
+        for arg in node.arguments:
+            self._visit(arg)
+        
+        macro_map = {
+            'encode': SuperBitOpCode.ENCODE_VALUE,
+            'compress': SuperBitOpCode.COMPRESS_VALUE,
+            'encrypt': SuperBitOpCode.ENCRYPT_VALUE,
+            'quantize': SuperBitOpCode.QUANTIZE_VALUE,
+        }
+        
+        opcode = macro_map.get(node.name, SuperBitOpCode.NOP)
+        metadata = {
+            'macro': node.name,
+            'arg_count': len(node.arguments)
+        }
+        self._emit(opcode, node.name, metadata=metadata)
+    
+    def _visit_MatchCommand(self, node: MatchCommand) -> None:
+        """Emit tokens for match command."""
+        self._apply_annotations(node)
+        self._visit(node.value)
+        
+        end_jump_indices = []
+        
+        for arm in node.arms:
+            if isinstance(arm.pattern, SuperBitPattern):
+                metadata = {
+                    'pattern_type': arm.pattern.pattern_type,
+                    'binding': arm.pattern.binding
+                }
+                self._emit(SuperBitOpCode.MATCH_PATTERN, arm.pattern.pattern_type, metadata=metadata)
+            elif isinstance(arm.pattern, Identifier):
+                self._emit(SuperBitOpCode.STORE_VAR, arm.pattern.name)
+            else:
+                self._visit(arm.pattern)
+                self._emit(SuperBitOpCode.COMPARE_EQ)
+            
+            arm_skip_idx = len(self.tokens)
+            self._emit(SuperBitOpCode.JUMP_IF_FALSE, 0)
+            
+            for stmt in arm.body:
+                self._visit(stmt)
+            
+            end_jump_idx = len(self.tokens)
+            end_jump_indices.append(end_jump_idx)
+            self._emit(SuperBitOpCode.JUMP, 0)
+            
+            next_arm_start = len(self.tokens)
+            self.tokens[arm_skip_idx] = SuperBitIRToken(
+                opcode=SuperBitOpCode.JUMP_IF_FALSE,
+                operand=next_arm_start,
+                metadata=self.tokens[arm_skip_idx].metadata
+            )
+        
+        end_idx = len(self.tokens)
+        for jump_idx in end_jump_indices:
+            self.tokens[jump_idx] = SuperBitIRToken(
+                opcode=SuperBitOpCode.JUMP,
+                operand=end_idx,
+                metadata=self.tokens[jump_idx].metadata
+            )
+    
+    def _visit_SuperBitPattern(self, node: SuperBitPattern) -> None:
+        """Emit tokens for super-bit pattern."""
+        metadata = {
+            'pattern_type': node.pattern_type,
+            'binding': node.binding
+        }
+        self._emit(SuperBitOpCode.MATCH_PATTERN, node.pattern_type, metadata=metadata)
+    
+    def _visit_PatternArm(self, node: PatternArm) -> None:
+        """Emit tokens for pattern arm."""
+        self._visit(node.pattern)
+        for stmt in node.body:
+            self._visit(stmt)
 
 
 def compile_program(source: str) -> SuperBitStream:
