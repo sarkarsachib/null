@@ -228,3 +228,170 @@ class PreferAnnotation(ASTNode):
 class Comment(ASTNode):
     """Represents a comment in the source code."""
     text: str
+
+
+# Modern Syntax Nodes
+
+@dataclass
+class ForCommand(ASTNode):
+    """Represents a for loop: for var in expr { body }."""
+    variable: str
+    iterable: ASTNode
+    body: List[ASTNode]
+    annotations: List['Union[LayerAnnotation, RequireAnnotation, PreferAnnotation]'] = field(default_factory=list)
+
+
+@dataclass
+class WhileCommand(ASTNode):
+    """Represents a while loop: while expr { body }."""
+    condition: ASTNode
+    body: List[ASTNode]
+    annotations: List['Union[LayerAnnotation, RequireAnnotation, PreferAnnotation]'] = field(default_factory=list)
+
+
+@dataclass
+class ReturnCommand(ASTNode):
+    """Represents a return statement."""
+    value: Optional[ASTNode] = None
+    annotations: List['Union[LayerAnnotation, RequireAnnotation, PreferAnnotation]'] = field(default_factory=list)
+
+
+@dataclass
+class BreakCommand(ASTNode):
+    """Represents a break statement."""
+    annotations: List['Union[LayerAnnotation, RequireAnnotation, PreferAnnotation]'] = field(default_factory=list)
+
+
+@dataclass
+class ContinueCommand(ASTNode):
+    """Represents a continue statement."""
+    annotations: List['Union[LayerAnnotation, RequireAnnotation, PreferAnnotation]'] = field(default_factory=list)
+
+
+@dataclass
+class MatchExpression(ASTNode):
+    """Represents a match expression."""
+    expr: ASTNode
+    arms: List['MatchArm']
+    annotations: List['Union[LayerAnnotation, RequireAnnotation, PreferAnnotation]'] = field(default_factory=list)
+
+
+@dataclass
+class MatchArm(ASTNode):
+    """Represents a match arm: pattern => body."""
+    pattern: 'Pattern'
+    body: List[ASTNode]
+
+
+@dataclass
+class Pattern(ASTNode):
+    """Base class for match patterns."""
+    pass
+
+
+@dataclass
+class WildcardPattern(Pattern):
+    """Represents _ pattern."""
+    pass
+
+
+@dataclass
+class LiteralPattern(Pattern):
+    """Represents a literal pattern."""
+    value: ASTNode
+
+
+@dataclass
+class IdentifierPattern(Pattern):
+    """Represents an identifier pattern."""
+    name: str
+
+
+@dataclass
+class BorrowCommand(ASTNode):
+    """Represents a borrow/reference: &var or &mut var."""
+    is_mutable: bool
+    target: Identifier
+    annotations: List['Union[LayerAnnotation, RequireAnnotation, PreferAnnotation]'] = field(default_factory=list)
+
+
+@dataclass
+class AsyncFunction(ASTNode):
+    """Represents an async function."""
+    name: str
+    parameters: List[str]
+    body: List[ASTNode]
+    annotations: List['Union[LayerAnnotation, RequireAnnotation, PreferAnnotation]'] = field(default_factory=list)
+
+
+@dataclass
+class AwaitExpression(ASTNode):
+    """Represents an await expression."""
+    expr: ASTNode
+
+
+@dataclass
+class TraitDefinition(ASTNode):
+    """Represents a trait definition."""
+    name: str
+    methods: List['TraitMethod']
+    annotations: List['Union[LayerAnnotation, RequireAnnotation, PreferAnnotation]'] = field(default_factory=list)
+
+
+@dataclass
+class TraitMethod(ASTNode):
+    """Represents a trait method signature."""
+    name: str
+    parameters: List[str]
+    return_type: Optional[str] = None
+
+
+@dataclass
+class ImplBlock(ASTNode):
+    """Represents an impl block."""
+    trait_name: Optional[str]
+    type_name: str
+    methods: List['ImplMethod']
+    annotations: List['Union[LayerAnnotation, RequireAnnotation, PreferAnnotation]'] = field(default_factory=list)
+
+
+@dataclass
+class ImplMethod(ASTNode):
+    """Represents an impl method."""
+    name: str
+    parameters: List[str]
+    body: List[ASTNode]
+
+
+@dataclass
+class PrintCommand(ASTNode):
+    """Represents a print command."""
+    value: ASTNode
+    with_newline: bool = True
+    annotations: List['Union[LayerAnnotation, RequireAnnotation, PreferAnnotation]'] = field(default_factory=list)
+
+
+@dataclass
+class ClassDefinition(ASTNode):
+    """Represents a class definition (Python-like)."""
+    name: str
+    base_classes: List[str]
+    body: List[ASTNode]
+    annotations: List['Union[LayerAnnotation, RequireAnnotation, PreferAnnotation]'] = field(default_factory=list)
+
+
+@dataclass
+class TryStatement(ASTNode):
+    """Represents a try/except block."""
+    body: List[ASTNode]
+    handlers: List['ExceptionHandler']
+    finally_block: Optional[List[ASTNode]] = None
+    annotations: List['Union[LayerAnnotation, RequireAnnotation, PreferAnnotation]'] = field(default_factory=list)
+
+
+@dataclass
+class ExceptionHandler(ASTNode):
+    """Represents an except clause."""
+    exception_type: Optional[str]
+    var_name: Optional[str]
+    body: List[ASTNode]

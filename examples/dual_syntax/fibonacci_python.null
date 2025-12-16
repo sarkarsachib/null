@@ -1,0 +1,19 @@
+# Fibonacci in Python-like syntax
+# Demonstrates: function definitions, for loops, variables
+
+def fibonacci(n):
+    a = 0
+    b = 1
+    
+    for i in range(n):
+        temp = a + b
+        a = b
+        b = temp
+    
+    return a
+
+def main():
+    result = fibonacci(10)
+    print("Fibonacci(10) = ")
+
+main()

@@ -33,6 +33,21 @@ from .ast_nodes import (
     LayerAnnotation,
     RequireAnnotation,
     PreferAnnotation,
+    ForCommand,
+    WhileCommand,
+    ReturnCommand,
+    BreakCommand,
+    ContinueCommand,
+    MatchExpression,
+    MatchArm,
+    BorrowCommand,
+    AsyncFunction,
+    AwaitExpression,
+    TraitDefinition,
+    ImplBlock,
+    PrintCommand,
+    ClassDefinition,
+    TryStatement,
 )
 from ..superbit.ir import SuperBitIRToken, SuperBitOpCode, SuperBitStream
 
@@ -223,6 +238,105 @@ class NullLangCompiler:
         """Emit tokens for null-lib annotation."""
         for arg in node.arguments:
             self._visit(arg)
+
+    def _visit_ForCommand(self, node: ForCommand) -> None:
+        """Emit tokens for for loop."""
+        self._apply_annotations(node)
+        self._visit(node.iterable)
+        loop_start = len(self.tokens)
+
+        for stmt in node.body:
+            self._visit(stmt)
+
+        self._emit(SuperBitOpCode.JUMP, loop_start)
+
+    def _visit_WhileCommand(self, node: WhileCommand) -> None:
+        """Emit tokens for while loop."""
+        self._apply_annotations(node)
+        loop_start = len(self.tokens)
+        self._visit(node.condition)
+        jump_false_idx = len(self.tokens)
+        self._emit(SuperBitOpCode.JUMP_IF_FALSE, 0)
+
+        for stmt in node.body:
+            self._visit(stmt)
+
+        self._emit(SuperBitOpCode.JUMP, loop_start)
+        end_idx = len(self.tokens)
+        self.tokens[jump_false_idx] = SuperBitIRToken(
+            opcode=SuperBitOpCode.JUMP_IF_FALSE, operand=end_idx
+        )
+
+    def _visit_ReturnCommand(self, node: ReturnCommand) -> None:
+        """Emit tokens for return statement."""
+        self._apply_annotations(node)
+        if node.value:
+            self._visit(node.value)
+        self._emit(SuperBitOpCode.PRINT)
+
+    def _visit_BreakCommand(self, node: BreakCommand) -> None:
+        """Emit tokens for break statement."""
+        self._apply_annotations(node)
+        self._emit(SuperBitOpCode.JUMP, 0)
+
+    def _visit_ContinueCommand(self, node: ContinueCommand) -> None:
+        """Emit tokens for continue statement."""
+        self._apply_annotations(node)
+        self._emit(SuperBitOpCode.JUMP, 0)
+
+    def _visit_MatchExpression(self, node: MatchExpression) -> None:
+        """Emit tokens for match expression."""
+        self._apply_annotations(node)
+        self._visit(node.expr)
+
+        for arm in node.arms:
+            self._visit(arm)
+
+    def _visit_MatchArm(self, node: MatchArm) -> None:
+        """Emit tokens for match arm."""
+        for stmt in node.body:
+            self._visit(stmt)
+
+    def _visit_BorrowCommand(self, node: BorrowCommand) -> None:
+        """Emit tokens for borrow/reference."""
+        self._apply_annotations(node)
+        self._visit(node.target)
+
+    def _visit_AsyncFunction(self, node: AsyncFunction) -> None:
+        """Emit tokens for async function."""
+        self._apply_annotations(node)
+
+    def _visit_AwaitExpression(self, node: AwaitExpression) -> None:
+        """Emit tokens for await expression."""
+        self._visit(node.expr)
+
+    def _visit_TraitDefinition(self, node: TraitDefinition) -> None:
+        """Emit tokens for trait definition."""
+        self._apply_annotations(node)
+
+    def _visit_ImplBlock(self, node: ImplBlock) -> None:
+        """Emit tokens for impl block."""
+        self._apply_annotations(node)
+
+    def _visit_PrintCommand(self, node: PrintCommand) -> None:
+        """Emit tokens for print command."""
+        self._apply_annotations(node)
+        self._visit(node.value)
+        self._emit(SuperBitOpCode.PRINT)
+
+    def _visit_ClassDefinition(self, node: ClassDefinition) -> None:
+        """Emit tokens for class definition."""
+        self._apply_annotations(node)
+
+    def _visit_TryStatement(self, node: TryStatement) -> None:
+        """Emit tokens for try/except statement."""
+        self._apply_annotations(node)
+        for stmt in node.body:
+            self._visit(stmt)
+
+        if node.finally_block:
+            for stmt in node.finally_block:
+                self._visit(stmt)
 
     def _apply_annotations(self, node: ASTNode) -> None:
         """Apply annotations from a statement to the current metadata."""

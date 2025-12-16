@@ -1,0 +1,10 @@
+// Async example in Rust-like syntax
+// Demonstrates: async functions, await expressions
+
+async fn fetch_data() {
+    println("Fetching data...");
+}
+
+async fn main() {
+    fetch_data();
+}
