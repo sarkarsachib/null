@@ -122,6 +122,30 @@ nullc lsp --syntax hybrid --stdio
 
 See [`docs/ide/dual_syntax.md`](docs/ide/dual_syntax.md) for initialization options, dual-mode highlighting assets, and editor integration notes.
 
+## Hybrid syntax (English + Modern in one file)
+
+Null's Python compiler (`nullc compile` / `nullc run`) supports a hybrid workflow that mixes English-like statements with modern statements.
+
+Enable hybrid mode either:
+
+- explicitly in the source file with `@syntax hybrid`, or
+- via CLI flags: `--allow-hybrid-mode --syntax hybrid`
+
+Example:
+
+```null
+@syntax hybrid
+SET x TO 5
+let y = 10;
+SHOW y
+print(x);
+```
+
+When hybrid mode is enabled, the compiler prints guidance such as:
+
+- "Mixed English and modern syntax detected. Add '@syntax hybrid' to make this explicit."
+- "In modern syntax, prefer 'let' over 'SET' for variable declarations."
+
 ## Usage
 
 ### Running the Sample Program
