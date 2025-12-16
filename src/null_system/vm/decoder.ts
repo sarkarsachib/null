@@ -51,11 +51,38 @@ export class Decoder {
     // Validate instruction based on opcode
     this.validateInstruction(opcode, args, lineno);
 
-    return {
+    const instruction: Instruction = {
       opcode,
       args,
       lineno,
-    } as Instruction;
+    };
+
+    // Extract layer metadata fields from instruction object
+    if (typeof obj.layer === 'string') {
+      instruction.layer = obj.layer;
+    }
+
+    if (Array.isArray(obj.requiredLayers)) {
+      instruction.requiredLayers = obj.requiredLayers.filter((l) => typeof l === 'string');
+    }
+
+    if (Array.isArray(obj.preferredLayers)) {
+      instruction.preferredLayers = obj.preferredLayers.filter((l) => typeof l === 'string');
+    }
+
+    if (obj.performanceProfile && typeof obj.performanceProfile === 'object') {
+      instruction.performanceProfile = obj.performanceProfile as {
+        estimatedCycles?: number;
+        memoryFootprint?: number;
+        preferredLayer?: string;
+      };
+    }
+
+    if (obj.metadata && typeof obj.metadata === 'object') {
+      instruction.metadata = obj.metadata as Record<string, unknown>;
+    }
+
+    return instruction;
   }
 
   /**

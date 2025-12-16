@@ -12,6 +12,15 @@ import { createError, ErrorType, VMError } from './errors';
 import { HomomorphicEngine, SecureChannel, ZKProofSystem, SMPCOrchestrator } from '../security';
 import { EmbeddingRegistry, NeuralEngine, AttentionModule, DenseLayer } from './ai';
 import { HybridExecutionManager, HybridExecutionConfig, VMCapabilities } from './hybrid_runtime';
+import { LayerExecutionManager, LayerMetadata, LayerKind } from './layers';
+import { QuantumState } from './quantum/quantum_state';
+import { measureQubit } from './quantum/measurement';
+
+export type ExecutionHook = (
+  cycle: number,
+  instruction: Instruction,
+  state: { registers: Record<string, number>; pc: number }
+) => void | Promise<void>;
 
 export interface NullVMConfig {
   maxCycles?: number;
@@ -46,6 +55,9 @@ export class NullVM {
   private hybridRuntimeManager?: HybridExecutionManager;
   private childVMs: Map<string, NullVM> = new Map();
   private messageQueue: Array<{ messageType: string; payload: unknown; timestamp: number }> = [];
+  private layerExecutionManager: LayerExecutionManager;
+  private quantumState: any;
+  private executionHooks: ExecutionHook[] = [];
 
   constructor(config: NullVMConfig = {}) {
     this.maxCycles = config.maxCycles || 10000;
@@ -70,6 +82,8 @@ export class NullVM {
     this.embeddingRegistry = new EmbeddingRegistry();
     this.neuralEngine = new NeuralEngine();
     this.attentionModule = new AttentionModule();
+
+    this.layerExecutionManager = new LayerExecutionManager();
 
     if (this.enableTracing) {
       this.context.addTraceHook((event, data) => {
@@ -237,6 +251,8 @@ export class NullVM {
     if (!instruction) {
       return;
     }
+
+    this.handleLayerMetadata(instruction);
 
     this.context.emitTrace('instruction', {
       opcode: instruction.opcode,
@@ -1177,7 +1193,15 @@ export class NullVM {
 
     if (stackTop && typeof stackTop === 'object' && 'value' in stackTop) {
       const union = stackTop as Record<string, unknown>;
-      this.memory.pushStack(union.value);
+      const value = union.value;
+      if (typeof value === 'number') {
+        this.memory.pushStack(value);
+      } else {
+        throw createError(
+          ErrorType.ExecutionError,
+          `UNWRAP_UNION failed: union value is not a number`
+        );
+      }
     } else {
       throw createError(
         ErrorType.ExecutionError,
@@ -1226,5 +1250,101 @@ export class NullVM {
    */
   getAttentionModule(): AttentionModule {
     return this.attentionModule;
+  }
+
+  /**
+   * Handle layer metadata for instruction execution
+   */
+  private handleLayerMetadata(instruction: Instruction): void {
+    const metadata: LayerMetadata = {
+      layer: instruction.layer ? (instruction.layer as LayerKind) : undefined,
+      requiredLayers: instruction.requiredLayers ? (instruction.requiredLayers as LayerKind[]) : undefined,
+      preferredLayers: instruction.preferredLayers ? (instruction.preferredLayers as LayerKind[]) : undefined,
+    };
+
+    if (metadata.requiredLayers && metadata.requiredLayers.length > 0) {
+      const allAvailable = metadata.requiredLayers.every((layer) =>
+        this.layerExecutionManager.isLayerAvailable(layer)
+      );
+      if (!allAvailable) {
+        throw createError(
+          ErrorType.IllegalState,
+          `Required layers not available: ${metadata.requiredLayers.join(', ')}`,
+          {
+            required: metadata.requiredLayers,
+            available: this.layerExecutionManager.getAvailableLayers(),
+          }
+        );
+      }
+    }
+
+    if (metadata.layer) {
+      if (!this.layerExecutionManager.isLayerAvailable(metadata.layer)) {
+        throw createError(
+          ErrorType.IllegalState,
+          `Requested layer not available: ${metadata.layer}`,
+          {
+            requested: metadata.layer,
+            available: this.layerExecutionManager.getAvailableLayers(),
+          }
+        );
+      }
+      this.layerExecutionManager.setCurrentLayer(metadata.layer);
+    }
+
+    const currentLayer = this.layerExecutionManager.getCurrentLayer();
+    this.context.pushLayer(currentLayer);
+  }
+
+  /**
+   * Register a layer-specific breakpoint
+   */
+  registerLayerBreakpoint(
+    address: number,
+    layer?: LayerKind,
+    condition?: (context: ExecutionContext) => boolean
+  ): void {
+    this.context.registerLayerBreakpoint(address, layer, condition);
+    this.layerExecutionManager.registerBreakpoint(address, layer, (layerContext) => {
+      if (condition) {
+        return condition(this.context);
+      }
+      return true;
+    });
+  }
+
+  /**
+   * Get cross-layer execution traces
+   */
+  getCrossLayerTraces(): string[] {
+    return this.layerExecutionManager.getCrossLayerTraces();
+  }
+
+  /**
+   * Clear cross-layer traces
+   */
+  clearCrossLayerTraces(): void {
+    this.layerExecutionManager.clearCrossLayerTraces();
+  }
+
+  /**
+   * Get layer execution manager for advanced access
+   */
+  getLayerExecutionManager(): LayerExecutionManager {
+    return this.layerExecutionManager;
+  }
+
+  /**
+   * Get available layers
+   */
+  getAvailableLayers(): LayerKind[] {
+    return this.layerExecutionManager.getAvailableLayers();
+  }
+
+  /**
+   * Check if a layer is available
+   */
+  isLayerAvailable(layer: LayerKind): boolean {
+    return this.layerExecutionManager.isLayerAvailable(layer);
   }
 }
