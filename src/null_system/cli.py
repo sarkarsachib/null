@@ -7,7 +7,6 @@ import time
 import webbrowser
 from pathlib import Path
 from typing import Optional
-import time
 
 import typer
 from rich.console import Console
@@ -17,6 +16,7 @@ from rich.table import Table
 
 from .compiler import NullCompiler, CompilationError
 from .compiler.optimization import DeduplicationPass, CompressionPass
+from .lang.advisor import SyntaxConfig, SyntaxMode
 from .extensions import AdvancedCompressionPass, SuperBitSecurityLayer, KeyManager
 from .extensions.compression import CompressionLevel
 from .knowledge import GraphStore, InMemoryBackend, SuperBitEncoder
@@ -24,6 +24,7 @@ from .knowledge.query_language import QueryEngine
 from .knowledge.inference import InferenceEngine, Rule, RuleType
 from .knowledge.external.wikidata import ExternalKnowledgeBase
 from .lsp import run_lsp_server
+from .vm.vm import NullVM
 
 app = typer.Typer(
     name="nullc",
@@ -31,6 +32,18 @@ app = typer.Typer(
     add_completion=False
 )
 console = Console()
+
+
+def _print_syntax_advice(*, warnings: list[str], hints: list[str], show_hints: bool = True) -> None:
+    if warnings:
+        console.print("\n[bold yellow]Syntax warnings:[/bold yellow]")
+        for msg in warnings:
+            console.print(f"  [yellow]• {msg}[/yellow]")
+
+    if show_hints and hints:
+        console.print("\n[bold cyan]Syntax hints:[/bold cyan]")
+        for msg in hints:
+            console.print(f"  [cyan]• {msg}[/cyan]")
 
 
 @app.command()
@@ -69,6 +82,20 @@ def compile(
     compress: Optional[str] = typer.Option(None, "--compress", help="Compression level (low, medium, high)"),
     security_profile: Optional[str] = typer.Option(None, "--security-profile", help="Security profile (dev, prod)"),
     encryption_key_id: Optional[str] = typer.Option(None, "--key-id", help="Encryption key ID"),
+    syntax: str = typer.Option(
+        "auto", "--syntax", help="Syntax mode (english|modern|hybrid|auto)"
+    ),
+    allow_hybrid_mode: bool = typer.Option(
+        False,
+        "--allow-hybrid-mode/--no-allow-hybrid-mode",
+        help="Allow mixing English and modern syntax within one file",
+    ),
+    english_warnings: bool = typer.Option(
+        True,
+        "--english-warnings/--no-english-warnings",
+        help="Emit guidance when English syntax appears in modern/hybrid code",
+    ),
+    show_hints: bool = typer.Option(True, "--hints/--no-hints", help="Show syntax hints"),
 ):
     """Compile a Null-Lang source file."""
     try:
@@ -92,9 +119,26 @@ def compile(
                 console.print(f"[red]Invalid compression level: {compress}[/red]")
                 raise typer.Exit(1)
         
-        compiler = NullCompiler(optimization_passes=optimization_passes)
+        try:
+            syntax_mode = SyntaxMode(syntax.lower())
+        except ValueError:
+            syntax_mode = SyntaxMode.auto
+
+        syntax_config = SyntaxConfig(
+            mode=syntax_mode,
+            allow_hybrid_mode=allow_hybrid_mode,
+            english_warnings=english_warnings,
+        )
+
+        compiler = NullCompiler(optimization_passes=optimization_passes, syntax_config=syntax_config)
         artifact = compiler.compile(source)
-        
+
+        _print_syntax_advice(
+            warnings=artifact.syntax_warnings,
+            hints=artifact.syntax_hints,
+            show_hints=show_hints,
+        )
+
         if security_profile and security_profile.lower() in ["dev", "prod"]:
             try:
                 key_manager = KeyManager()
@@ -171,6 +215,20 @@ def run(
     compress: Optional[str] = typer.Option(None, "--compress", help="Compression level (low, medium, high)"),
     security_profile: Optional[str] = typer.Option(None, "--security-profile", help="Security profile (dev, prod)"),
     encryption_key_id: Optional[str] = typer.Option(None, "--key-id", help="Encryption key ID"),
+    syntax: str = typer.Option(
+        "auto", "--syntax", help="Syntax mode (english|modern|hybrid|auto)"
+    ),
+    allow_hybrid_mode: bool = typer.Option(
+        False,
+        "--allow-hybrid-mode/--no-allow-hybrid-mode",
+        help="Allow mixing English and modern syntax within one file",
+    ),
+    english_warnings: bool = typer.Option(
+        True,
+        "--english-warnings/--no-english-warnings",
+        help="Emit guidance when English syntax appears in modern/hybrid code",
+    ),
+    show_hints: bool = typer.Option(False, "--hints/--no-hints", help="Show syntax hints"),
 ):
     """Compile and run a Null-Lang source file."""
     try:
@@ -195,13 +253,50 @@ def run(
                 console.print(f"[red]Invalid compression level: {compress}[/red]")
                 raise typer.Exit(1)
         
-        compiler = NullCompiler(optimization_passes=optimization_passes)
-        result = compiler.compile_and_run(
-            source,
-            security_profile=security_profile,
-            encryption_key_id=encryption_key_id
+        try:
+            syntax_mode = SyntaxMode(syntax.lower())
+        except ValueError:
+            syntax_mode = SyntaxMode.auto
+
+        syntax_config = SyntaxConfig(
+            mode=syntax_mode,
+            allow_hybrid_mode=allow_hybrid_mode,
+            english_warnings=english_warnings,
         )
-        
+
+        compiler = NullCompiler(optimization_passes=optimization_passes, syntax_config=syntax_config)
+        artifact = compiler.compile(source)
+
+        _print_syntax_advice(
+            warnings=artifact.syntax_warnings,
+            hints=artifact.syntax_hints,
+            show_hints=(show_hints or verbose),
+        )
+
+        if not artifact.is_valid():
+            console.print("[red]Compilation failed with errors:[/red]")
+            for error in artifact.validation_errors:
+                console.print(f"  [red]• {error}[/red]")
+            raise typer.Exit(1)
+
+        if security_profile and security_profile.lower() == "prod":
+            try:
+                from .extensions import KeyManager, SuperBitSecurityLayer
+
+                key_manager = KeyManager()
+                _ = SuperBitSecurityLayer(key_manager=key_manager)
+
+                if encryption_key_id is None:
+                    try:
+                        encryption_key_id, _ = key_manager.get_active_key()
+                    except ValueError:
+                        encryption_key_id, _ = key_manager.create_key(comment="Default key")
+            except ImportError:
+                pass
+
+        vm = NullVM()
+        result = vm.execute(artifact.superbit_stream)
+
         if not result.success:
             console.print(f"[red]Execution failed: {result.error}[/red]")
             raise typer.Exit(1)

@@ -27,8 +27,18 @@ class DiagnosticIssue:
 class SyntaxAdvisor:
     _english_markers = re.compile(r"\b(SET|SHOW|ADD|IF|THEN|ELSE|REPEAT|DEFINE|CALL|RETURN|END)\b", re.IGNORECASE)
     _modern_markers = re.compile(r"\b(let|fn|match|return|print|true|false)\b|\{|\}|;|::|=>", re.IGNORECASE)
+    _syntax_directive = re.compile(r"^\s*@syntax\s+(english|modern|hybrid|auto)\s*$", re.IGNORECASE | re.MULTILINE)
 
     def detect_mode(self, source: str) -> SyntaxMode:
+        directive = self._syntax_directive.search(source)
+        if directive:
+            try:
+                declared = SyntaxMode(directive.group(1).lower())
+            except ValueError:
+                declared = None
+            if declared and declared != SyntaxMode.auto:
+                return declared
+
         has_english = bool(self._english_markers.search(source))
         has_modern = bool(self._modern_markers.search(source))
         if has_english and has_modern:
@@ -65,6 +75,7 @@ class HybridParser:
 
 def check_english(source: str, parser: Optional[NullLangParser] = None) -> Iterable[DiagnosticIssue]:
     parser = parser or NullLangParser()
+    source = SyntaxAdvisor._syntax_directive.sub("", source)
     try:
         parser.parse(source)
         return
@@ -100,7 +111,7 @@ def check_modern(source: str) -> Iterable[DiagnosticIssue]:
 
     for idx, line in enumerate(lines, start=1):
         stripped = line.strip()
-        if not stripped or stripped.startswith("//"):
+        if not stripped or stripped.startswith("//") or stripped.lower().startswith("@syntax"):
             continue
 
         brace_balance += line.count("{") - line.count("}")
@@ -160,7 +171,12 @@ def check_hybrid(source: str, english_parser: Optional[NullLangParser] = None) -
         line = lines[idx]
         stripped = line.strip()
 
-        if not stripped or stripped.startswith("#") or stripped.startswith("//"):
+        if (
+            not stripped
+            or stripped.startswith("#")
+            or stripped.startswith("//")
+            or stripped.lower().startswith("@syntax")
+        ):
             idx += 1
             continue
 
