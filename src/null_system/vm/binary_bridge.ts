@@ -3,6 +3,7 @@
  */
 
 import { SuperBitTensor } from './ai/superbit_tensor';
+import { AnyEvolvedValue, EvolvedValueMetadata } from './types/evolved_values';
 
 export interface BinaryFrame {
   frameType: string;
@@ -203,5 +204,52 @@ export class BinaryBridge {
     tensorBuffer.copy(buffer, offset);
 
     this.emitFrame('TENSOR_OUTPUT', buffer);
+  }
+
+  /**
+   * Emit a layer trace frame for cross-layer debugging
+   */
+  emitLayerTrace(layer: string, traceMessage: string, metadata?: Record<string, unknown>): void {
+    const jsonData = JSON.stringify({
+      layer,
+      message: traceMessage,
+      timestamp: Date.now(),
+      ...metadata,
+    });
+    const buffer = Buffer.from(jsonData, 'utf-8');
+    this.emitFrame('LAYER_TRACE', buffer);
+  }
+
+  /**
+   * Emit a layer state frame with cross-layer register snapshots
+   */
+  emitLayerState(
+    layer: string,
+    registers: Record<string, number>,
+    metadata?: Record<string, unknown>
+  ): void {
+    const jsonData = JSON.stringify({
+      layer,
+      registers,
+      timestamp: Date.now(),
+      ...metadata,
+    });
+    const buffer = Buffer.from(jsonData, 'utf-8');
+    this.emitFrame('LAYER_STATE', buffer);
+  }
+
+  /**
+   * Emit a breakpoint hit frame
+   */
+  emitBreakpointHit(layer: string, address: number, registers?: Record<string, number>): void {
+    const jsonData = JSON.stringify({
+      event: 'BREAKPOINT_HIT',
+      layer,
+      address,
+      registers: registers || {},
+      timestamp: Date.now(),
+    });
+    const buffer = Buffer.from(jsonData, 'utf-8');
+    this.emitFrame('BREAKPOINT', buffer);
   }
 }

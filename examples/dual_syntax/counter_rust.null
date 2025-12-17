@@ -1,0 +1,6 @@
+// Counter loop in Rust-like syntax
+// Demonstrates: for loops, variables, println
+
+for i in 0..10 {
+    println("Counter: ");
+}

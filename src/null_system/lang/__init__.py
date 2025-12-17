@@ -14,7 +14,12 @@ from .ast_nodes import (
     BinaryExpression, UnaryExpression, ComparisonExpression,
     BinaryOperator, UnaryOperator,
     FunctionCall, NullLibAnnotation, Comment,
-    LayerAnnotation, RequireAnnotation, PreferAnnotation
+    LayerAnnotation, RequireAnnotation, PreferAnnotation,
+    ForCommand, WhileCommand, ReturnCommand, BreakCommand, ContinueCommand,
+    MatchExpression, MatchArm, Pattern, WildcardPattern, LiteralPattern, IdentifierPattern,
+    BorrowCommand, AsyncFunction, AwaitExpression,
+    TraitDefinition, TraitMethod, ImplBlock, ImplMethod,
+    PrintCommand, ClassDefinition, TryStatement, ExceptionHandler
 )
 from .compiler import NullLangCompiler, compile_program
 from .errors import NullLangError, SyntaxError, SemanticError, LexerError
@@ -32,6 +37,11 @@ __all__ = [
     'BinaryOperator', 'UnaryOperator',
     'FunctionCall', 'NullLibAnnotation', 'Comment',
     'LayerAnnotation', 'RequireAnnotation', 'PreferAnnotation',
+    'ForCommand', 'WhileCommand', 'ReturnCommand', 'BreakCommand', 'ContinueCommand',
+    'MatchExpression', 'MatchArm', 'Pattern', 'WildcardPattern', 'LiteralPattern', 'IdentifierPattern',
+    'BorrowCommand', 'AsyncFunction', 'AwaitExpression',
+    'TraitDefinition', 'TraitMethod', 'ImplBlock', 'ImplMethod',
+    'PrintCommand', 'ClassDefinition', 'TryStatement', 'ExceptionHandler',
     'NullLangError', 'SyntaxError', 'SemanticError', 'LexerError',
     'SyntaxMode', 'SyntaxAdvisor', 'ParserDispatcher', 'HybridParser', 'DiagnosticIssue',
     'to_english', 'to_modern',

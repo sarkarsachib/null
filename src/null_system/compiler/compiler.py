@@ -2,14 +2,15 @@
 
 import resource
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import List, Optional
 
 from ..ast.nodes import Program
 from ..ast.validator import ASTValidator
+from ..lang.advisor import DiagnosticLevel, SyntaxConfig
+from ..lang.hybrid_parser import HybridParser
 from ..observability import get_observability
-from ..parser.lexer import Lexer
-from ..parser.parser import ParseError, Parser
+from ..parser.parser import ParseError
 from ..superbit.emitter import SuperBitEmitter
 from ..superbit.ir import SuperBitStream
 from ..binary.generator import BinaryFrame, BinaryGenerator
@@ -29,6 +30,8 @@ class CompilationArtifact:
     superbit_stream: SuperBitStream
     binary_frames: List[BinaryFrame]
     validation_errors: List[str]
+    syntax_warnings: List[str] = field(default_factory=list)
+    syntax_hints: List[str] = field(default_factory=list)
 
     def is_valid(self) -> bool:
         """Check if compilation was successful."""
@@ -42,9 +45,16 @@ def _max_rss_bytes() -> int:
 
 class NullCompiler:
     """Main compiler orchestrating the compilation pipeline."""
-    
-    def __init__(self, optimization_passes: Optional[List[OptimizationPass]] = None):
+
+    def __init__(
+        self,
+        optimization_passes: Optional[List[OptimizationPass]] = None,
+        *,
+        syntax_config: Optional[SyntaxConfig] = None,
+    ):
         self.optimization_passes = optimization_passes or []
+        self.syntax_config = syntax_config or SyntaxConfig()
+        self.hybrid_parser = HybridParser()
         self.validator = ASTValidator()
         self.emitter = SuperBitEmitter()
         self.binary_generator = BinaryGenerator()
@@ -79,17 +89,17 @@ class NullCompiler:
         ):
             try:
                 stage_started = time.perf_counter()
-                with obs.tracing.span("null.compiler.lex"):
-                    lexer = Lexer(source)
-                    tokens = lexer.tokenize()
-                obs.metrics.observe_compilation_stage(
-                    stage="lex", duration_s=time.perf_counter() - stage_started, status="ok"
-                )
-
-                stage_started = time.perf_counter()
                 with obs.tracing.span("null.compiler.parse"):
-                    parser = Parser(tokens)
-                    ast = parser.parse()
+                    parse_result = self.hybrid_parser.parse(source, config=self.syntax_config)
+                    ast = parse_result.ast
+                    syntax_warnings = [
+                        d.message
+                        for d in parse_result.diagnostics
+                        if d.level == DiagnosticLevel.warning
+                    ]
+                    syntax_hints = [
+                        d.message for d in parse_result.diagnostics if d.level == DiagnosticLevel.hint
+                    ]
                 obs.metrics.observe_compilation_stage(
                     stage="parse", duration_s=time.perf_counter() - stage_started, status="ok"
                 )
@@ -146,6 +156,8 @@ class NullCompiler:
                     superbit_stream=superbit_stream,
                     binary_frames=binary_frames,
                     validation_errors=validation_errors,
+                    syntax_warnings=syntax_warnings,
+                    syntax_hints=syntax_hints,
                 )
 
             except ParseError as e:

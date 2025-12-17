@@ -116,6 +116,17 @@ Null v2 represents a major evolution of the Null-Lang programming language, intr
 
 Null v2 introduces a modern, concise syntax **alongside** the existing English-like syntax. Both compile to the same AST and bytecode, allowing developers to choose their preferred style or mix both in the same project.
 
+#### Hybrid mode: mixing English + modern syntax
+
+A single `.null` file can mix both syntaxes when hybrid mode is enabled.
+
+Enable hybrid mode:
+
+- in-file: `@syntax hybrid`
+- or via CLI: `nullc compile your_file.null --syntax hybrid --allow-hybrid-mode`
+
+The compiler also emits guidance (warnings/hints) when it detects mixing or when one style appears inside another.
+
 ### Comparison Table
 
 | Feature | English Syntax (v1) | Modern Syntax (v2) |

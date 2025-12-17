@@ -1,0 +1,5 @@
+# Counter loop in Python-like syntax
+# Demonstrates: for loops, range, print
+
+for i in range(10):
+    print("Counter: ")

@@ -51,7 +51,7 @@ export class Decoder {
 
     const args = this.normalizeArgs(opcode, rawArgs, lineno);
 
-    return {
+    const instruction: Instruction = {
       opcode,
       args,
       lineno,

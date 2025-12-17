@@ -1,0 +1,142 @@
+// Python-like Modern Syntax for Null-Lang (Simplified)
+// Supports basic: assignment, def, for/while, if, print, class, try
+
+?start: program
+
+program: statement*
+
+?statement: base_statement
+          | comment
+
+?base_statement: assignment
+               | if_statement
+               | while_statement
+               | for_statement
+               | function_def
+               | return_statement
+               | break_statement
+               | continue_statement
+               | print_stmt
+               | class_def
+               | try_statement
+               | expression_statement
+
+// Assignment
+assignment: NAME "=" expression -> py_assign
+
+// Expression Statement
+expression_statement: expression
+
+// If Statement
+if_statement: "if" expression ":" "{" statement* "}" -> if_stmt
+
+// While Loop
+while_statement: "while" expression ":" "{" statement* "}" -> while_stmt
+
+// For Loop
+for_statement: "for" NAME "in" expression ":" "{" statement* "}" -> for_stmt
+
+// Function Definition
+function_def: "def" NAME "(" param_list? ")" ":" "{" statement* "}" -> fn_def
+
+param_list: NAME ("," NAME)*
+
+// Return Statement
+return_statement: "return" expression? -> return_stmt
+
+// Break Statement
+break_statement: "break" -> break_stmt
+
+// Continue Statement
+continue_statement: "continue" -> continue_stmt
+
+// Print
+print_stmt: "print" "(" expression? ")" -> print_stmt
+
+// Class Definition
+class_def: "class" NAME ":" "{" statement* "}" -> class_def_stmt
+
+// Try/Except
+try_statement: "try" ":" "{" statement* "}" ("except" ":" "{" statement* "}")* ("finally" ":" "{" statement* "}")? -> try_stmt
+
+// Expressions
+?expression: or_expression
+
+?or_expression: and_expression
+              | or_expression "or" and_expression -> or_expr
+
+?and_expression: not_expression
+               | and_expression "and" not_expression -> and_expr
+
+?not_expression: comparison_expression
+               | "not" not_expression -> not_expr
+
+?comparison_expression: additive_expression
+                      | comparison_expression "==" additive_expression -> eq_expr
+                      | comparison_expression "!=" additive_expression -> neq_expr
+                      | comparison_expression "<" additive_expression -> lt_expr
+                      | comparison_expression ">" additive_expression -> gt_expr
+                      | comparison_expression "<=" additive_expression -> le_expr
+                      | comparison_expression ">=" additive_expression -> ge_expr
+
+?additive_expression: multiplicative_expression
+                    | additive_expression "+" multiplicative_expression -> add_expr
+                    | additive_expression "-" multiplicative_expression -> sub_expr
+
+?multiplicative_expression: unary_expression
+                          | multiplicative_expression "*" unary_expression -> mul_expr
+                          | multiplicative_expression "/" unary_expression -> div_expr
+
+?unary_expression: postfix_expression
+                 | "-" unary_expression -> negate_expr
+
+?postfix_expression: atom
+                   | postfix_expression "." NAME -> property_access
+                   | postfix_expression "(" argument_list? ")" -> call_expr
+
+// Function Call
+argument_list: expression ("," expression)*
+
+// Literals and Atoms
+?atom: literal
+     | identifier
+     | "True" -> bool_literal_true
+     | "False" -> bool_literal_false
+     | "None" -> none_literal
+     | "(" expression ")"
+     | array_literal
+     | dict_literal
+     | function_call
+
+literal: string_literal
+       | number_literal
+
+string_literal: ESCAPED_STRING
+
+number_literal: NUMBER
+
+array_literal: "[" (expression ("," expression)*)? "]"
+
+dict_literal: "{" (dict_pair ("," dict_pair)*)? "}"
+
+dict_pair: (identifier | ESCAPED_STRING) ":" expression
+
+function_call: identifier "(" argument_list? ")"
+
+// Identifiers
+identifier: NAME
+
+// Comments
+comment: COMMENT
+
+// Terminals
+NAME: /[a-zA-Z_][a-zA-Z0-9_]*/
+NUMBER: /[0-9]+(\.[0-9]+)?/
+ESCAPED_STRING: /"([^"\\]|\\.)*"/
+              | /'([^'\\]|\\.)*'/
+
+COMMENT: /#[^\n]*/
+
+// Whitespace
+%import common.WS
+%ignore WS

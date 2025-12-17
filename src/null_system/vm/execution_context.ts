@@ -12,8 +12,20 @@ export interface StackFrame {
   locals: Map<string, number>;
 }
 
+export interface LayerBreakpoint {
+  address: number;
+  layer?: string;
+  condition?: (context: ExecutionContext) => boolean;
+}
+
+export interface LayerRegisterSnapshot {
+  layer: string;
+  registers: Map<string, number>;
+  timestamp: number;
+}
+
 export type TraceHook = (
-  event: 'instruction' | 'error' | 'function_call' | 'function_return',
+  event: 'instruction' | 'error' | 'function_call' | 'function_return' | 'layer_switch' | 'breakpoint_hit' | string,
   data: Record<string, unknown>
 ) => void;
 
@@ -34,6 +46,10 @@ export class ExecutionContext {
   private definitions: Map<string, Instruction[]> = new Map();
   private isRunning: boolean = false;
   private maxStackDepth: number = 256;
+  private layerStack: string[] = [];
+  private currentLayer: string = 'english';
+  private layerBreakpoints: LayerBreakpoint[] = [];
+  private layerRegisterSnapshots: Map<string, LayerRegisterSnapshot> = new Map();
 
   private activeIntent: string | null = null;
   private constraints: ConstraintDirective[] = [];
@@ -232,7 +248,7 @@ export class ExecutionContext {
    * Emit trace event
    */
   emitTrace(
-    event: 'instruction' | 'error' | 'function_call' | 'function_return',
+    event: 'instruction' | 'error' | 'function_call' | 'function_return' | 'layer_switch' | 'breakpoint_hit' | string,
     data: Record<string, unknown>
   ): void {
     this.traceHooks.forEach((hook) => {

@@ -4,9 +4,25 @@
 
 export { NullVM, NullVMConfig, ExecutionHook } from './null_vm';
 export { Memory } from './memory';
-export { ExecutionContext, StackFrame, TraceHook } from './execution_context';
+export { ExecutionContext, StackFrame, TraceHook, LayerBreakpoint, LayerRegisterSnapshot } from './execution_context';
 export { Decoder, SuperBitProgram } from './decoder';
 export { BinaryBridge, BinaryFrame } from './binary_bridge';
+export {
+  LayerKind,
+  LayerAdapter,
+  LayerSnapshot,
+  LayerExecutionResult,
+  LayerExecutionContext,
+  PerformanceProfile,
+} from './layers';
+export {
+  EnglishLayerAdapter,
+  SuperBitLayerAdapter,
+  BinaryLayerAdapter,
+  CPULayerAdapter,
+  DistributedLayerAdapter,
+} from './layers';
+export { LayerExecutionManager, LayerBreakpoint as LayerBreakpointConfig, LayerMetadata } from './layers';
 export { FuzzyBitEvaluator, FuzzyBitConfig } from './fuzzy_bits';
 export {
   Instruction,
@@ -58,7 +74,6 @@ export {
   WorkerThreadAdapter,
 } from './hybrid_runtime';
 export {
-  SuperBitTensor,
   TensorShape,
   TensorMetadata,
   EmbeddingRegistry,

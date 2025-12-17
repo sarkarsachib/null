@@ -63,6 +63,7 @@ class Lexer:
         "divide": TokenType.DIVIDE,
         "and": TokenType.AND,
         "print": TokenType.PRINT,
+        "show": TokenType.PRINT,
         "if": TokenType.IF,
         "then": TokenType.THEN,
         "else": TokenType.ELSE,

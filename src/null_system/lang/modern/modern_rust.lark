@@ -1,0 +1,141 @@
+// Rust-like Modern Syntax for Null-Lang (Simplified)
+// Supports basic: let, fn, for/while, if, match, print
+
+?start: program
+
+program: statement*
+
+?statement: base_statement
+          | comment
+
+?base_statement: variable_decl
+               | assignment
+               | if_statement
+               | while_statement
+               | for_statement
+               | function_def
+               | return_statement
+               | break_statement
+               | continue_statement
+               | print_stmt
+               | match_stmt
+               | expression_statement
+
+// Variable Declaration
+variable_decl: "let" NAME "=" expression ";" -> let_stmt
+
+// Assignment
+assignment: NAME "=" expression ";" -> assign_stmt
+
+// If Statement
+if_statement: "if" expression "{" statement* "}" else_clause? -> if_stmt
+
+else_clause: "else" "{" statement* "}" -> else_block
+
+// While Loop
+while_statement: "while" expression "{" statement* "}" -> while_stmt
+
+// For Loop
+for_statement: "for" NAME "in" expression "{" statement* "}" -> for_stmt
+
+// Function Definition
+function_def: "fn" NAME "(" param_list? ")" "{" statement* "}" -> fn_def
+
+param_list: NAME ("," NAME)*
+
+// Return Statement
+return_statement: "return" expression? ";" -> return_stmt
+
+// Break Statement
+break_statement: "break" ";" -> break_stmt
+
+// Continue Statement
+continue_statement: "continue" ";" -> continue_stmt
+
+// Print
+print_stmt: "println" "(" expression? ")" ";" -> println_stmt
+          | "print" "(" expression? ")" ";" -> print_stmt
+
+// Match Expression
+match_stmt: "match" expression "{" match_arm* "}" -> match_stmt
+
+match_arm: atom "=>" "{" statement* "}" -> match_arm_expr
+
+// Expression Statement
+expression_statement: expression ";"?
+
+// Expressions
+?expression: or_expression
+
+?or_expression: and_expression
+              | or_expression "||" and_expression -> or_expr
+
+?and_expression: equality_expression
+               | and_expression "&&" equality_expression -> and_expr
+
+?equality_expression: comparison_expression
+                    | equality_expression "==" comparison_expression -> eq_expr
+                    | equality_expression "!=" comparison_expression -> neq_expr
+
+?comparison_expression: additive_expression
+                      | comparison_expression "<" additive_expression -> lt_expr
+                      | comparison_expression ">" additive_expression -> gt_expr
+                      | comparison_expression "<=" additive_expression -> le_expr
+                      | comparison_expression ">=" additive_expression -> ge_expr
+
+?additive_expression: multiplicative_expression
+                    | additive_expression "+" multiplicative_expression -> add_expr
+                    | additive_expression "-" multiplicative_expression -> sub_expr
+
+?multiplicative_expression: unary_expression
+                          | multiplicative_expression "*" unary_expression -> mul_expr
+                          | multiplicative_expression "/" unary_expression -> div_expr
+
+?unary_expression: postfix_expression
+                 | "!" unary_expression -> not_expr
+                 | "-" unary_expression -> negate_expr
+
+?postfix_expression: atom
+                   | postfix_expression "." NAME -> property_access
+                   | postfix_expression "(" argument_list? ")" -> call_expr
+
+// Function Call
+argument_list: expression ("," expression)*
+
+// Literals and Atoms
+?atom: literal
+     | identifier
+     | "true" -> bool_literal_true
+     | "false" -> bool_literal_false
+     | "(" expression ")"
+     | array_literal
+     | function_call
+
+literal: string_literal
+       | number_literal
+
+string_literal: ESCAPED_STRING
+
+number_literal: NUMBER
+
+array_literal: "[" (expression ("," expression)*)? "]"
+
+function_call: identifier "(" argument_list? ")"
+
+// Identifiers
+identifier: NAME
+
+// Comments
+comment: COMMENT
+
+// Terminals
+NAME: /[a-zA-Z_][a-zA-Z0-9_]*/
+NUMBER: /[0-9]+(\.[0-9]+)?/
+ESCAPED_STRING: /"([^"\\]|\\.)*"/
+              | /'([^'\\]|\\.)*'/
+
+COMMENT: /(\/\/[^\n]*)|(\/\*[\s\S]*?\*\/)/
+
+// Whitespace
+%import common.WS
+%ignore WS
