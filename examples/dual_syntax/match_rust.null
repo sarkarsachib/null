@@ -1,0 +1,16 @@
+// Match expression in Rust-like syntax
+// Demonstrates: pattern matching
+
+fn classify_number(n: i32) -> &str {
+    match n {
+        0 => {
+            println("Zero");
+        },
+        1 => {
+            println("One");
+        },
+        _ => {
+            println("Other");
+        }
+    }
+}

@@ -1,0 +1,13 @@
+# Match expression in Python-like syntax
+# Demonstrates: pattern matching (Python 3.10+)
+
+def classify_number(n):
+    match n:
+        case 0:
+            print("Zero")
+        case 1:
+            print("One")
+        case _:
+            print("Other")
+
+classify_number(5)
