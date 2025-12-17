@@ -3,6 +3,7 @@
  */
 
 import { SuperBitTensor } from './ai/superbit_tensor';
+import { AnyEvolvedValue, EvolvedValueMetadata } from './types/evolved_values';
 
 export interface BinaryFrame {
   frameType: string;

@@ -808,6 +808,139 @@ const program = [
 ];
 ```
 
+### Evolved Runtime Types
+
+The VM supports evolved runtime types for phase-2 type system integration, enabling rich type semantics with metadata:
+
+#### SuperBit Values
+```typescript
+import { SuperBitValue, SuperBitTensor } from './vm';
+
+// Create a SuperBit value with uncertainty
+const tensor = new SuperBitTensor({ dims: [3] }, new Float32Array([1, 0, 1]));
+const value = new SuperBitValue(tensor, {
+  uncertainty: 0.1,
+  confidence: 0.95
+});
+
+// Use in VM
+memory.setEvolvedRegister('x', value);
+
+// Arithmetic propagates uncertainty
+const result = SuperBitValue.add(value1, value2);
+```
+
+#### Probabilistic Values
+```typescript
+import { ProbValue } from './vm';
+
+// Create value with probability
+const prob = new ProbValue(42, 0.9); // value=42, probability=0.9
+
+// Arithmetic propagates uncertainty
+const sum = ProbValue.add(prob1, prob2);
+const product = ProbValue.multiply(prob1, prob2);
+
+console.log(sum.toNumeric());        // Get numeric value
+console.log(sum.getProbability());   // Get combined probability
+```
+
+#### Quantum Values
+```typescript
+import { QuantumValue, QuantumState, FuzzyBitEvaluator } from './vm';
+
+// Create quantum state
+const fuzzy = new FuzzyBitEvaluator();
+const qstate = new QuantumState(fuzzy);
+qstate.allocateQubit();
+
+const quantum = new QuantumValue(qstate);
+
+// Measurement collapses state
+const result = quantum.measure(0);
+console.log(result.value);        // 0 or 1
+console.log(result.probability);  // Probability of outcome
+```
+
+#### Binary Values
+```typescript
+import { BinaryValue } from './vm';
+
+const bin1 = new BinaryValue(0b1100);
+const bin2 = new BinaryValue(0b1010);
+
+// Arithmetic operations
+const sum = BinaryValue.add(bin1, bin2);
+
+// Bitwise operations
+const andResult = BinaryValue.bitwiseAnd(bin1, bin2);  // 0b1000
+const orResult = BinaryValue.bitwiseOr(bin1, bin2);    // 0b1110
+const xorResult = BinaryValue.bitwiseXor(bin1, bin2);  // 0b0110
+```
+
+#### Knowledge Values
+```typescript
+import { KnowledgeValue } from './vm';
+
+// Create knowledge value with ontology reference
+const knowledge = new KnowledgeValue(
+  { name: 'Alice', age: 30 },
+  'person-1',
+  { ontologyId: 'schema:Person' }
+);
+
+// Add relationships
+knowledge.addRelationship('knows', 'person-2');
+knowledge.addRelationship('worksAt', 'company-1');
+
+// Query relationships
+const colleague = knowledge.getRelationship('knows');
+```
+
+#### Memory Integration
+```typescript
+import { Memory, BinaryValue, ProbValue } from './vm';
+
+const memory = new Memory();
+
+// Store evolved values
+memory.setEvolvedRegister('x', new BinaryValue(42));
+memory.setEvolvedRegister('y', new ProbValue(10, 0.8));
+
+// Unified API
+memory.setRegisterTyped('a', new BinaryValue(5));
+memory.setRegisterTyped('b', 100);  // Regular number
+
+// Retrieve with type checking
+const value = memory.getRegisterTyped('x');
+if (isEvolvedValue(value)) {
+  console.log(value.getType());
+  console.log(value.getMetadata());
+}
+
+// Coerce to numeric when needed
+const numeric = memory.getRegisterAsNumeric('x');
+```
+
+#### VM Instruction Support
+```typescript
+// SET instruction with evolved values
+vm.execute([
+  { opcode: OpCode.SET, args: ['x', new ProbValue(42, 0.9)] },
+  { opcode: OpCode.SET, args: ['y', new BinaryValue(10)] },
+]);
+
+// ADD propagates evolved type semantics
+vm.execute([
+  { opcode: OpCode.ADD, args: ['x', 'y'] },  // Combines with proper uncertainty
+]);
+
+// SHOW emits evolved value metadata
+vm.execute([
+  { opcode: OpCode.SHOW, args: ['x'] },  // Emits EVOLVED_VALUE_STATE frame
+]);
+```
+
 ## Error Handling
 
 The VM provides detailed error information with error types:
