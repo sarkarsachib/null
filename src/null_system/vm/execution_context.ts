@@ -12,8 +12,20 @@ export interface StackFrame {
   locals: Map<string, number>;
 }
 
+export interface LayerBreakpoint {
+  address: number;
+  layer?: string;
+  condition?: (context: ExecutionContext) => boolean;
+}
+
+export interface LayerRegisterSnapshot {
+  layer: string;
+  registers: Map<string, number>;
+  timestamp: number;
+}
+
 export type TraceHook = (
-  event: 'instruction' | 'error' | 'function_call' | 'function_return',
+  event: 'instruction' | 'error' | 'function_call' | 'function_return' | 'layer_switch' | 'breakpoint_hit' | string,
   data: Record<string, unknown>
 ) => void;
 
@@ -25,6 +37,10 @@ export class ExecutionContext {
   private definitions: Map<string, Instruction[]> = new Map();
   private isRunning: boolean = false;
   private maxStackDepth: number = 256;
+  private layerStack: string[] = [];
+  private currentLayer: string = 'english';
+  private layerBreakpoints: LayerBreakpoint[] = [];
+  private layerRegisterSnapshots: Map<string, LayerRegisterSnapshot> = new Map();
 
   /**
    * Initialize execution context with a program
@@ -169,7 +185,7 @@ export class ExecutionContext {
    * Emit trace event
    */
   emitTrace(
-    event: 'instruction' | 'error' | 'function_call' | 'function_return',
+    event: 'instruction' | 'error' | 'function_call' | 'function_return' | 'layer_switch' | 'breakpoint_hit' | string,
     data: Record<string, unknown>
   ): void {
     this.traceHooks.forEach((hook) => {
@@ -203,6 +219,105 @@ export class ExecutionContext {
     this.program = [];
     this.programCounter = 0;
     this.isRunning = false;
+    this.layerStack = [];
+    this.layerRegisterSnapshots.clear();
+  }
+
+  /**
+   * Push layer onto stack
+   */
+  pushLayer(layer: string): void {
+    this.layerStack.push(layer);
+    this.currentLayer = layer;
+    this.emitTrace('layer_switch', { layer, layerStackDepth: this.layerStack.length });
+  }
+
+  /**
+   * Pop layer from stack
+   */
+  popLayer(): string | null {
+    if (this.layerStack.length === 0) {
+      return null;
+    }
+    const popped = this.layerStack.pop();
+    if (this.layerStack.length > 0) {
+      this.currentLayer = this.layerStack[this.layerStack.length - 1];
+    } else {
+      this.currentLayer = 'english';
+    }
+    return popped || null;
+  }
+
+  /**
+   * Get current layer
+   */
+  getCurrentLayer(): string {
+    return this.currentLayer;
+  }
+
+  /**
+   * Get layer stack
+   */
+  getLayerStack(): string[] {
+    return [...this.layerStack];
+  }
+
+  /**
+   * Register a layer-specific breakpoint
+   */
+  registerLayerBreakpoint(
+    address: number,
+    layer?: string,
+    condition?: (context: ExecutionContext) => boolean
+  ): void {
+    this.layerBreakpoints.push({ address, layer, condition });
+  }
+
+  /**
+   * Check if a breakpoint is hit at current address and layer
+   */
+  checkLayerBreakpoint(address: number): boolean {
+    return this.layerBreakpoints.some((bp) => {
+      const addressMatches = bp.address === address;
+      const layerMatches = !bp.layer || bp.layer === this.currentLayer;
+      const conditionMatches = !bp.condition || bp.condition(this);
+      return addressMatches && layerMatches && conditionMatches;
+    });
+  }
+
+  /**
+   * Get pending breakpoints for a layer
+   */
+  getPendingBreakpoints(layer?: string): LayerBreakpoint[] {
+    if (!layer) {
+      return [...this.layerBreakpoints];
+    }
+    return this.layerBreakpoints.filter((bp) => !bp.layer || bp.layer === layer);
+  }
+
+  /**
+   * Save register snapshot for a layer
+   */
+  saveLayerRegisterSnapshot(layer: string, registers: Map<string, number>): void {
+    this.layerRegisterSnapshots.set(layer, {
+      layer,
+      registers: new Map(registers),
+      timestamp: Date.now(),
+    });
+  }
+
+  /**
+   * Get layer register snapshot
+   */
+  getLayerRegisterSnapshot(layer: string): LayerRegisterSnapshot | null {
+    return this.layerRegisterSnapshots.get(layer) || null;
+  }
+
+  /**
+   * Get all layer register snapshots
+   */
+  getAllLayerRegisterSnapshots(): Map<string, LayerRegisterSnapshot> {
+    return new Map(this.layerRegisterSnapshots);
   }
 
   /**
@@ -215,6 +330,9 @@ export class ExecutionContext {
       isRunning: this.isRunning,
       definedFunctions: Array.from(this.definitions.keys()),
       programLength: this.program.length,
+      currentLayer: this.currentLayer,
+      layerStackDepth: this.layerStack.length,
+      pendingBreakpoints: this.layerBreakpoints.length,
     };
   }
 }

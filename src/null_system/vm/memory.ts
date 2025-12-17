@@ -114,6 +114,16 @@ export class Memory {
   }
 
   /**
+   * Get top of stack as unknown value (for union types)
+   */
+  getStackTop(): unknown {
+    if (this.stackPointer <= 0) {
+      return null;
+    }
+    return this.stack[this.stackPointer - 1];
+  }
+
+  /**
    * Get current stack pointer
    */
   getStackPointer(): number {

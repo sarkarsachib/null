@@ -197,70 +197,49 @@ export class BinaryBridge {
   }
 
   /**
-   * Emit evolved value metadata
+   * Emit a layer trace frame for cross-layer debugging
    */
-  emitEvolvedValueMetadata(name: string, value: AnyEvolvedValue): void {
-    const metadata = value.getMetadata();
+  emitLayerTrace(layer: string, traceMessage: string, metadata?: Record<string, unknown>): void {
     const jsonData = JSON.stringify({
-      register: name,
-      type: value.getType(),
-      metadata: {
-        confidence: metadata.confidence,
-        encoding: metadata.encoding,
-        ontologyId: metadata.ontologyId,
-        precision: metadata.precision,
-        uncertainty: metadata.uncertainty,
-        source: metadata.source,
-      },
+      layer,
+      message: traceMessage,
       timestamp: Date.now(),
+      ...metadata,
     });
     const buffer = Buffer.from(jsonData, 'utf-8');
-    this.emitFrame('EVOLVED_VALUE_METADATA', buffer);
+    this.emitFrame('LAYER_TRACE', buffer);
   }
 
   /**
-   * Emit evolved value state
+   * Emit a layer state frame with cross-layer register snapshots
    */
-  emitEvolvedValueState(name: string, value: AnyEvolvedValue): void {
-    const serialized = value.serialize();
+  emitLayerState(
+    layer: string,
+    registers: Record<string, number>,
+    metadata?: Record<string, unknown>
+  ): void {
     const jsonData = JSON.stringify({
-      register: name,
-      ...serialized,
+      layer,
+      registers,
       timestamp: Date.now(),
+      ...metadata,
     });
     const buffer = Buffer.from(jsonData, 'utf-8');
-    this.emitFrame('EVOLVED_VALUE_STATE', buffer);
+    this.emitFrame('LAYER_STATE', buffer);
   }
 
   /**
-   * Emit evolved register state (shorthand with just numeric value + type)
+   * Emit a breakpoint hit frame
    */
-  emitEvolvedRegisterState(name: string, value: AnyEvolvedValue): void {
-    const buffer = Buffer.alloc(128);
-    let offset = 0;
-
-    const nameBuf = Buffer.from(name, 'utf-8');
-    buffer.writeUInt32BE(nameBuf.length, offset);
-    offset += 4;
-    nameBuf.copy(buffer, offset);
-    offset += nameBuf.length;
-
-    const typeBuf = Buffer.from(value.getType(), 'utf-8');
-    buffer.writeUInt32BE(typeBuf.length, offset);
-    offset += 4;
-    typeBuf.copy(buffer, offset);
-    offset += typeBuf.length;
-
-    const numericValue = value.toNumeric();
-    buffer.writeFloatBE(numericValue, offset);
-    offset += 4;
-
-    const metadata = value.getMetadata();
-    buffer.writeFloatBE(metadata.confidence || 1.0, offset);
-    offset += 4;
-    buffer.writeFloatBE(metadata.uncertainty || 0, offset);
-    offset += 4;
-
-    this.emitFrame('EVOLVED_REGISTER', buffer.slice(0, offset));
+  emitBreakpointHit(layer: string, address: number, registers?: Record<string, number>): void {
+    const jsonData = JSON.stringify({
+      event: 'BREAKPOINT_HIT',
+      layer,
+      address,
+      registers: registers || {},
+      timestamp: Date.now(),
+    });
+    const buffer = Buffer.from(jsonData, 'utf-8');
+    this.emitFrame('BREAKPOINT', buffer);
   }
 }

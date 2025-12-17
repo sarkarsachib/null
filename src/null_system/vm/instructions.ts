@@ -37,6 +37,15 @@ export interface Instruction {
   opcode: OpCode;
   args: unknown[];
   lineno?: number;
+  layer?: string;
+  requiredLayers?: string[];
+  preferredLayers?: string[];
+  performanceProfile?: {
+    estimatedCycles?: number;
+    memoryFootprint?: number;
+    preferredLayer?: string;
+  };
+  metadata?: Record<string, unknown>;
 }
 
 export interface SetInstruction extends Instruction {
