@@ -12,6 +12,14 @@ import { createError, ErrorType, VMError } from './errors';
 import { HomomorphicEngine, SecureChannel, ZKProofSystem, SMPCOrchestrator } from '../security';
 import { EmbeddingRegistry, NeuralEngine, AttentionModule, DenseLayer } from './ai';
 import { HybridExecutionManager, HybridExecutionConfig, VMCapabilities } from './hybrid_runtime';
+import {
+  AnyEvolvedValue,
+  isEvolvedValue,
+  coerceToNumeric,
+  SuperBitValue,
+  ProbValue,
+  BinaryValue,
+} from './types/evolved_values';
 
 export interface NullVMConfig {
   maxCycles?: number;
@@ -360,9 +368,14 @@ export class NullVM {
    * Execute SET instruction: SET <register> <value>
    */
   private executeSET(instruction: Instruction): void {
-    const [register, value] = instruction.args as [string, number];
-    this.memory.setRegister(register, value);
-    this.binaryBridge.emitRegisterState(register, value);
+    const [register, value] = instruction.args as [string, number | AnyEvolvedValue];
+    if (isEvolvedValue(value)) {
+      this.memory.setEvolvedRegister(register, value);
+      this.binaryBridge.emitEvolvedRegisterState(register, value);
+    } else {
+      this.memory.setRegister(register, value);
+      this.binaryBridge.emitRegisterState(register, value);
+    }
   }
 
   /**
@@ -370,12 +383,47 @@ export class NullVM {
    */
   private executeADD(instruction: Instruction): void {
     const [register, operand] = instruction.args as [string, number | string];
-    const currentValue = this.memory.getRegister(register);
+    const currentValue = this.memory.getRegisterTyped(register);
     const addValue =
-      typeof operand === 'number' ? operand : this.memory.getRegister(operand as string);
-    const newValue = currentValue + addValue;
-    this.memory.setRegister(register, newValue);
-    this.binaryBridge.emitRegisterState(register, newValue);
+      typeof operand === 'number' ? operand : this.memory.getRegisterTyped(operand as string);
+
+    if (isEvolvedValue(currentValue) && isEvolvedValue(addValue)) {
+      const result = this.addEvolvedValues(currentValue, addValue);
+      this.memory.setEvolvedRegister(register, result);
+      this.binaryBridge.emitEvolvedRegisterState(register, result);
+    } else if (isEvolvedValue(currentValue) || isEvolvedValue(addValue)) {
+      const numCurrent = coerceToNumeric(currentValue);
+      const numAdd = coerceToNumeric(addValue);
+      const result = numCurrent + numAdd;
+      this.memory.setRegister(register, result);
+      this.binaryBridge.emitRegisterState(register, result);
+    } else {
+      const newValue = (currentValue as number) + (addValue as number);
+      this.memory.setRegister(register, newValue);
+      this.binaryBridge.emitRegisterState(register, newValue);
+    }
+  }
+
+  /**
+   * Add two evolved values with proper type handling
+   */
+  private addEvolvedValues(a: AnyEvolvedValue, b: AnyEvolvedValue): AnyEvolvedValue {
+    if (a instanceof SuperBitValue && b instanceof SuperBitValue) {
+      return SuperBitValue.add(a, b);
+    } else if (a instanceof ProbValue && b instanceof ProbValue) {
+      return ProbValue.add(a, b);
+    } else if (a instanceof BinaryValue && b instanceof BinaryValue) {
+      return BinaryValue.add(a, b);
+    } else {
+      const numA = a.toNumeric();
+      const numB = b.toNumeric();
+      return new BinaryValue(numA + numB, {
+        confidence: Math.min(
+          a.getMetadata().confidence || 1.0,
+          b.getMetadata().confidence || 1.0
+        ),
+      });
+    }
   }
 
   /**
@@ -383,8 +431,12 @@ export class NullVM {
    */
   private executeSHOW(instruction: Instruction): void {
     const [register] = instruction.args as [string];
-    const value = this.memory.getRegister(register);
-    this.binaryBridge.emitOutput(register, value);
+    const value = this.memory.getRegisterTyped(register);
+    if (isEvolvedValue(value)) {
+      this.binaryBridge.emitEvolvedValueState(register, value);
+    } else {
+      this.binaryBridge.emitOutput(register, value);
+    }
   }
 
   /**
