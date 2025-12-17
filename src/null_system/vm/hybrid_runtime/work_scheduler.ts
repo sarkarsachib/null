@@ -18,6 +18,7 @@ export interface WorkSchedulerConfig {
 export class WorkScheduler {
   private strategy: LoadBalancingStrategy;
   private maxTasksPerWorker: number;
+  private activeIntent: string | null = null;
   private workQueue: WorkItem[] = [];
   private vmWorkloads: Map<string, number> = new Map();
   private currentRoundRobinIndex = 0;
@@ -26,6 +27,14 @@ export class WorkScheduler {
   constructor(config: WorkSchedulerConfig = {}) {
     this.strategy = config.strategy ?? 'round-robin';
     this.maxTasksPerWorker = config.maxTasksPerWorker ?? 10;
+  }
+
+  setActiveIntent(intent: string | null): void {
+    this.activeIntent = intent;
+  }
+
+  getActiveIntent(): string | null {
+    return this.activeIntent;
   }
 
   updateAvailableVMs(vms: VMCapabilities[]): void {
@@ -66,7 +75,9 @@ export class WorkScheduler {
       return null;
     }
 
-    switch (this.strategy) {
+    const effectiveStrategy = this.resolveStrategy();
+
+    switch (effectiveStrategy) {
       case 'round-robin':
         return this.selectRoundRobin();
       case 'work-stealing':
@@ -75,6 +86,19 @@ export class WorkScheduler {
         return this.selectLeastLoaded();
       default:
         return this.selectRoundRobin();
+    }
+  }
+
+  private resolveStrategy(): LoadBalancingStrategy {
+    switch (this.activeIntent) {
+      case 'minimize_latency':
+      case 'low_latency':
+        return 'least-loaded';
+      case 'maximize_throughput':
+      case 'high_throughput':
+        return 'work-stealing';
+      default:
+        return this.strategy;
     }
   }
 
@@ -158,6 +182,8 @@ export class WorkScheduler {
       totalWorkload: Array.from(this.vmWorkloads.values()).reduce((sum, load) => sum + load, 0),
       vmWorkloads: Object.fromEntries(this.vmWorkloads),
       backpressureActive: this.isBackpressureNeeded(),
+      intent: this.activeIntent,
+      effectiveStrategy: this.resolveStrategy(),
     };
   }
 }

@@ -4,7 +4,7 @@
 
 import { createError, ErrorType } from './errors';
 import { SuperBitTensor } from './ai/superbit_tensor';
-import { AnyEvolvedValue, isEvolvedValue, coerceToNumeric } from './types/evolved_values';
+import { EvolvedNumericValue, isEvolvedNumericValue } from './evolved_types';
 
 const STACK_SIZE = 1024;
 const HEAP_SIZE = 4096;
@@ -22,8 +22,7 @@ export interface StoredTensor {
 }
 
 export class Memory {
-  private registers: Map<string, number> = new Map();
-  private evolvedRegisters: Map<string, AnyEvolvedValue> = new Map();
+  private registers: Map<string, number | EvolvedNumericValue> = new Map();
   private tensorRegisters: Map<string, SuperBitTensor> = new Map();
   private stack: number[] = [];
   private heap: Buffer;
@@ -41,8 +40,12 @@ export class Memory {
   /**
    * Set a register value
    */
-  setRegister(name: string, value: number): void {
-    if (typeof value !== 'number') {
+  setRegister(name: string, value: number | EvolvedNumericValue): void {
+    this.setRegisterValue(name, value);
+  }
+
+  setRegisterValue(name: string, value: number | EvolvedNumericValue): void {
+    if (typeof value !== 'number' && !isEvolvedNumericValue(value)) {
       throw createError(
         ErrorType.InvalidRegister,
         `Register value must be a number, got ${typeof value}`,
@@ -56,10 +59,21 @@ export class Memory {
    * Get a register value
    */
   getRegister(name: string): number {
+    const raw = this.getRegisterValue(name);
+    return typeof raw === 'number' ? raw : raw.toNumber();
+  }
+
+  getRegisterValue(name: string): number | EvolvedNumericValue {
     if (!this.registers.has(name)) {
       this.registers.set(name, 0);
     }
-    return this.registers.get(name)!;
+
+    const value = this.registers.get(name)!;
+    if (typeof value === 'number') {
+      return value;
+    }
+
+    return value;
   }
 
   /**
@@ -73,7 +87,11 @@ export class Memory {
    * Get all registers
    */
   getAllRegisters(): Record<string, number> {
-    return Object.fromEntries(this.registers);
+    const result: Record<string, number> = {};
+    for (const [name, value] of this.registers.entries()) {
+      result[name] = typeof value === 'number' ? value : value.toNumber();
+    }
+    return result;
   }
 
   /**

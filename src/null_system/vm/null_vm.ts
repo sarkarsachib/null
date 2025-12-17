@@ -12,15 +12,14 @@ import { createError, ErrorType, VMError } from './errors';
 import { HomomorphicEngine, SecureChannel, ZKProofSystem, SMPCOrchestrator } from '../security';
 import { EmbeddingRegistry, NeuralEngine, AttentionModule, DenseLayer } from './ai';
 import { HybridExecutionManager, HybridExecutionConfig, VMCapabilities } from './hybrid_runtime';
-import { LayerExecutionManager, LayerMetadata, LayerKind } from './layers';
-import { QuantumState } from './quantum/quantum_state';
-import { measureQubit } from './quantum/measurement';
-
-export type ExecutionHook = (
-  cycle: number,
-  instruction: Instruction,
-  state: { registers: Record<string, number>; pc: number }
-) => void | Promise<void>;
+import {
+  ConsensusValue,
+  ConsistencyLevel,
+  DistributedValue,
+  EvolvedNumericValue,
+  PartialValue,
+  isEvolvedNumericValue,
+} from './evolved_types';
 
 export interface NullVMConfig {
   maxCycles?: number;
@@ -55,9 +54,7 @@ export class NullVM {
   private hybridRuntimeManager?: HybridExecutionManager;
   private childVMs: Map<string, NullVM> = new Map();
   private messageQueue: Array<{ messageType: string; payload: unknown; timestamp: number }> = [];
-  private layerExecutionManager: LayerExecutionManager;
-  private quantumState: any;
-  private executionHooks: ExecutionHook[] = [];
+  private observedRegisters: Map<string, { label?: string }> = new Map();
 
   constructor(config: NullVMConfig = {}) {
     this.maxCycles = config.maxCycles || 10000;
@@ -108,6 +105,13 @@ export class NullVM {
       this.hybridRuntimeManager.registerVM(this.vmId, vmCapabilities).catch((err: unknown) => {
         console.error(`Failed to register VM ${this.vmId}:`, err);
       });
+
+      this.hybridRuntimeManager.registerVMMessageHandler(
+        this.vmId,
+        async (messageType, payload, sourceVmId) => {
+          await this.handleHybridMessage(messageType, payload, sourceVmId);
+        }
+      );
 
       this.hybridRuntimeManager.registerLogHook((message: string, data: unknown) => {
         this.binaryBridge.emitControlFlow(
@@ -193,7 +197,7 @@ export class NullVM {
           }
         }
 
-        this.executeInstruction();
+        await this.executeInstructionAsync();
         this.executionCycle++;
       }
 
@@ -243,6 +247,47 @@ export class NullVM {
     this.executionHooks = [];
   }
 
+  private async executeInstructionAsync(): Promise<void> {
+    const instruction = this.context.getCurrentInstruction();
+    if (!instruction) {
+      return;
+    }
+
+    this.context.emitTrace('instruction', {
+      opcode: instruction.opcode,
+      args: instruction.args,
+      pc: this.context.getProgramCounter(),
+    });
+
+    this.applyInstructionMetadata(instruction);
+
+    switch (instruction.opcode) {
+      case OpCode.SEND_MSG:
+        await this.executeSEND_MSGAsync(instruction);
+        break;
+      case OpCode.SYNC_BARRIER:
+        await this.executeSYNC_BARRIERAsync(instruction);
+        break;
+      case OpCode.CONSENSUS_WAIT:
+        await this.executeCONSENSUS_WAITAsync(instruction);
+        break;
+      case OpCode.RECV_MSG:
+        await this.executeRECV_MSGAsync(instruction);
+        break;
+      case OpCode.SET:
+        await this.executeSETAsync(instruction);
+        break;
+      case OpCode.ADD:
+        await this.executeADDAsync(instruction);
+        break;
+      default:
+        this.executeInstruction();
+        return;
+    }
+
+    this.context.advanceProgramCounter();
+  }
+
   /**
    * Execute a single instruction
    */
@@ -259,6 +304,8 @@ export class NullVM {
       args: instruction.args,
       pc: this.context.getProgramCounter(),
     });
+
+    this.applyInstructionMetadata(instruction);
 
     switch (instruction.opcode) {
       case OpCode.SET:
@@ -357,13 +404,76 @@ export class NullVM {
         break;
 
       case OpCode.SPAWN_VM:
+        this.executeSPAWN_VM(instruction);
+        break;
+
       case OpCode.SEND_MSG:
+        this.executeSEND_MSG(instruction);
+        break;
+
       case OpCode.RECV_MSG:
+        this.executeRECV_MSG(instruction);
+        break;
+
       case OpCode.SYNC_BARRIER:
-        throw createError(
-          ErrorType.ExecutionError,
-          `${instruction.opcode} requires hybrid runtime - not implemented in standalone VM`
-        );
+        this.executeSYNC_BARRIER(instruction);
+        break;
+
+      case OpCode.Q_ALLOC:
+        this.executeQ_ALLOC(instruction);
+        break;
+
+      case OpCode.Q_SUPERPOSE:
+        this.executeQ_SUPERPOSE(instruction);
+        break;
+
+      case OpCode.Q_ENTANGLE:
+        this.executeQ_ENTANGLE(instruction);
+        break;
+
+      case OpCode.Q_APPLY:
+        this.executeQ_APPLY(instruction);
+        break;
+
+      case OpCode.Q_MEASURE:
+        this.executeQ_MEASURE(instruction);
+        break;
+
+      case OpCode.DISTRIBUTED_ALLOC:
+        this.executeDISTRIBUTED_ALLOC(instruction);
+        break;
+
+      case OpCode.CONSENSUS_WAIT:
+        this.executeCONSENSUS_WAIT(instruction);
+        break;
+
+      case OpCode.PARTIAL_RESUME:
+        this.executePARTIAL_RESUME(instruction);
+        break;
+
+      case OpCode.OBSERVE_VALUE:
+        this.executeOBSERVE_VALUE(instruction);
+        break;
+
+      case OpCode.TRACE_REPLAY:
+        this.executeTRACE_REPLAY(instruction);
+        break;
+
+      case OpCode.SET_INTENT:
+        this.executeSET_INTENT(instruction);
+        break;
+
+      case OpCode.APPLY_CONSTRAINT:
+        this.executeAPPLY_CONSTRAINT(instruction);
+        break;
+
+      case OpCode.SET_DEADLINE:
+        this.executeSET_DEADLINE(instruction);
+        break;
+
+      case OpCode.TIME_HINT:
+        this.executeTIME_HINT(instruction);
+        break;
 
       default:
         throw createError(ErrorType.InvalidInstruction, `Unknown opcode: ${instruction.opcode}`);
@@ -372,17 +482,225 @@ export class NullVM {
     this.context.advanceProgramCounter();
   }
 
+  private applyInstructionMetadata(instruction: Instruction): void {
+    const meta = instruction.metadata;
+    if (!meta) {
+      return;
+    }
+
+    if (typeof meta.intent === 'string') {
+      this.setIntent(meta.intent);
+    }
+
+    if (typeof meta.timeHintMs === 'number' && Number.isFinite(meta.timeHintMs)) {
+      this.context.setTimeHintMs(meta.timeHintMs);
+    }
+
+    if (typeof meta.deadlineAt === 'number' && Number.isFinite(meta.deadlineAt)) {
+      this.context.setDeadlineAt(meta.deadlineAt);
+    } else if (typeof meta.deadlineMs === 'number' && Number.isFinite(meta.deadlineMs)) {
+      this.context.setDeadlineAt(Date.now() + meta.deadlineMs);
+    }
+  }
+
+  private setIntent(intent: string | null): void {
+    this.context.setIntent(intent);
+    this.neuralEngine.setIntent(intent);
+    if (this.hybridRuntimeManager) {
+      this.hybridRuntimeManager.setActiveIntent(intent);
+    }
+  }
+
+  private getEvolvedRegisterValue(register: string): EvolvedNumericValue | null {
+    const raw = this.memory.getRegisterValue(register);
+    return isEvolvedNumericValue(raw) ? raw : null;
+  }
+
+  private emitObservedRegisterChange(register: string): void {
+    const observed = this.observedRegisters.get(register);
+    if (!observed) {
+      return;
+    }
+
+    const raw = this.memory.getRegisterValue(register);
+    const value = this.memory.getRegister(register);
+    const evolved = isEvolvedNumericValue(raw) ? raw.getMetadata() : null;
+
+    this.binaryBridge.emitObservability('VALUE_CHANGE', {
+      register,
+      label: observed.label,
+      value,
+      evolved,
+    });
+  }
+
+  private validateConstraintsForRegister(register: string, value: number): void {
+    const constraints = this.context.getConstraints().filter((c) => c.register === register);
+    if (constraints.length === 0) {
+      return;
+    }
+
+    for (const constraint of constraints) {
+      const ok = this.evaluateConstraint(constraint.operator, value, constraint.value);
+      if (!ok) {
+        this.binaryBridge.emitCompliance('CONSTRAINT_VIOLATION', {
+          constraintId: constraint.id,
+          register,
+          operator: constraint.operator,
+          expected: constraint.value,
+          actual: value,
+          intent: this.context.getIntent(),
+        });
+
+        throw createError(
+          ErrorType.ExecutionError,
+          `Constraint violated on ${register}: expected ${constraint.operator} ${constraint.value}, got ${value}`,
+          {
+            register,
+            operator: constraint.operator,
+            expected: constraint.value,
+            actual: value,
+          }
+        );
+      }
+    }
+  }
+
+  private evaluateConstraint(operator: string, actual: number, expected: number): boolean {
+    switch (operator) {
+      case '<':
+        return actual < expected;
+      case '<=':
+        return actual <= expected;
+      case '>':
+        return actual > expected;
+      case '>=':
+        return actual >= expected;
+      case '==':
+        return actual === expected;
+      case '!=':
+        return actual !== expected;
+      default:
+        return false;
+    }
+  }
+
+  private async replicateEvolvedValueIfNeeded(register: string, evolved: EvolvedNumericValue): Promise<void> {
+    if (!this.hybridRuntimeManager) {
+      return;
+    }
+
+    const consistency = evolved.getConsistency();
+    if (consistency === 'local') {
+      return;
+    }
+
+    if (evolved.kind === 'consensus') {
+      const consensus = evolved as ConsensusValue;
+      consensus.clearAcknowledgements();
+      consensus.noteAcknowledgement(this.vmId);
+
+      await this.hybridRuntimeManager.broadcastMessage(this.vmId, 'CONSENSUS_PROPOSE', {
+        register,
+        id: evolved.id,
+        version: evolved.getVersion(),
+        value: evolved.toNumber(),
+      });
+      return;
+    }
+
+    await this.hybridRuntimeManager.broadcastMessage(this.vmId, 'DISTRIBUTED_REPL', {
+      register,
+      id: evolved.id,
+      version: evolved.getVersion(),
+      value: evolved.toNumber(),
+      kind: evolved.kind,
+    });
+
+    const deadlineAt = this.context.getDeadlineAt();
+    if (consistency === 'eventual' && deadlineAt !== null) {
+      const remainingMs = deadlineAt - Date.now();
+      if (remainingMs > 0) {
+        const timer = setTimeout(() => {
+          this.binaryBridge.emitCompliance('DEADLINE_REACHED', {
+            register,
+            id: evolved.id,
+            deadlineAt,
+            intent: this.context.getIntent(),
+          });
+        }, remainingMs);
+        timer.unref();
+      }
+    }
+  }
+
+  private setScalarRegister(register: string, value: number): EvolvedNumericValue | null {
+    const raw = this.memory.getRegisterValue(register);
+
+    if (isEvolvedNumericValue(raw)) {
+      raw.setNumber(value);
+      this.memory.setRegisterValue(register, raw);
+      this.binaryBridge.emitRegisterState(register, raw.toNumber());
+      this.validateConstraintsForRegister(register, raw.toNumber());
+      this.emitObservedRegisterChange(register);
+      return raw;
+    }
+
+    this.memory.setRegister(register, value);
+    this.binaryBridge.emitRegisterState(register, value);
+    this.validateConstraintsForRegister(register, value);
+    this.emitObservedRegisterChange(register);
+    return null;
+  }
+
+  private addScalarRegister(register: string, delta: number): EvolvedNumericValue | null {
+    const raw = this.memory.getRegisterValue(register);
+
+    if (isEvolvedNumericValue(raw)) {
+      raw.addNumber(delta);
+      this.memory.setRegisterValue(register, raw);
+      const next = raw.toNumber();
+      this.binaryBridge.emitRegisterState(register, next);
+      this.validateConstraintsForRegister(register, next);
+      this.emitObservedRegisterChange(register);
+      return raw;
+    }
+
+    const current = this.memory.getRegister(register);
+    const next = current + delta;
+    this.memory.setRegister(register, next);
+    this.binaryBridge.emitRegisterState(register, next);
+    this.validateConstraintsForRegister(register, next);
+    this.emitObservedRegisterChange(register);
+    return null;
+  }
+
+  private async executeSETAsync(instruction: Instruction): Promise<void> {
+    const [register, value] = instruction.args as [string, number];
+    const evolved = this.setScalarRegister(register, value);
+    if (evolved) {
+      await this.replicateEvolvedValueIfNeeded(register, evolved);
+    }
+  }
+
+  private async executeADDAsync(instruction: Instruction): Promise<void> {
+    const [register, operand] = instruction.args as [string, number | string];
+
+    const addValue = typeof operand === 'number' ? operand : this.memory.getRegister(operand);
+    const evolved = this.addScalarRegister(register, addValue);
+    if (evolved) {
+      await this.replicateEvolvedValueIfNeeded(register, evolved);
+    }
+  }
+
   /**
    * Execute SET instruction: SET <register> <value>
    */
   private executeSET(instruction: Instruction): void {
-    const [register, value] = instruction.args as [string, number | AnyEvolvedValue];
-    if (isEvolvedValue(value)) {
-      this.memory.setEvolvedRegister(register, value);
-      this.binaryBridge.emitEvolvedRegisterState(register, value);
-    } else {
-      this.memory.setRegister(register, value);
-      this.binaryBridge.emitRegisterState(register, value);
+    const [register, value] = instruction.args as [string, number];
+    const evolved = this.setScalarRegister(register, value);
+    if (evolved) {
+      void this.replicateEvolvedValueIfNeeded(register, evolved).catch(() => undefined);
     }
   }
 
@@ -391,46 +709,10 @@ export class NullVM {
    */
   private executeADD(instruction: Instruction): void {
     const [register, operand] = instruction.args as [string, number | string];
-    const currentValue = this.memory.getRegisterTyped(register);
-    const addValue =
-      typeof operand === 'number' ? operand : this.memory.getRegisterTyped(operand as string);
-
-    if (isEvolvedValue(currentValue) && isEvolvedValue(addValue)) {
-      const result = this.addEvolvedValues(currentValue, addValue);
-      this.memory.setEvolvedRegister(register, result);
-      this.binaryBridge.emitEvolvedRegisterState(register, result);
-    } else if (isEvolvedValue(currentValue) || isEvolvedValue(addValue)) {
-      const numCurrent = coerceToNumeric(currentValue);
-      const numAdd = coerceToNumeric(addValue);
-      const result = numCurrent + numAdd;
-      this.memory.setRegister(register, result);
-      this.binaryBridge.emitRegisterState(register, result);
-    } else {
-      const newValue = (currentValue as number) + (addValue as number);
-      this.memory.setRegister(register, newValue);
-      this.binaryBridge.emitRegisterState(register, newValue);
-    }
-  }
-
-  /**
-   * Add two evolved values with proper type handling
-   */
-  private addEvolvedValues(a: AnyEvolvedValue, b: AnyEvolvedValue): AnyEvolvedValue {
-    if (a instanceof SuperBitValue && b instanceof SuperBitValue) {
-      return SuperBitValue.add(a, b);
-    } else if (a instanceof ProbValue && b instanceof ProbValue) {
-      return ProbValue.add(a, b);
-    } else if (a instanceof BinaryValue && b instanceof BinaryValue) {
-      return BinaryValue.add(a, b);
-    } else {
-      const numA = a.toNumeric();
-      const numB = b.toNumeric();
-      return new BinaryValue(numA + numB, {
-        confidence: Math.min(
-          a.getMetadata().confidence || 1.0,
-          b.getMetadata().confidence || 1.0
-        ),
-      });
+    const addValue = typeof operand === 'number' ? operand : this.memory.getRegister(operand);
+    const evolved = this.addScalarRegister(register, addValue);
+    if (evolved) {
+      void this.replicateEvolvedValueIfNeeded(register, evolved).catch(() => undefined);
     }
   }
 

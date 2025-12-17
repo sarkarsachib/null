@@ -87,16 +87,11 @@ export {
 } from './ai';
 
 export {
-  EvolvedValue,
-  EvolvedValueType,
-  EvolvedValueMetadata,
-  SuperBitValue,
-  ProbValue,
-  QuantumValue,
-  BinaryValue,
-  KnowledgeValue,
-  AnyEvolvedValue,
-  isEvolvedValue,
-  coerceToNumeric,
-  coerceToString,
-} from './types';
+  ConsistencyLevel,
+  EvolvedValueKind,
+  EvolvedNumericValue,
+  DistributedValue,
+  ConsensusValue,
+  PartialValue,
+  isEvolvedNumericValue,
+} from './evolved_types';
