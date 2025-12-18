@@ -55,6 +55,7 @@ export class NullVM {
   private childVMs: Map<string, NullVM> = new Map();
   private messageQueue: Array<{ messageType: string; payload: unknown; timestamp: number }> = [];
   private observedRegisters: Map<string, { label?: string }> = new Map();
+  private v10Runtime?: any; // V10 runtime capability
 
   constructor(config: NullVMConfig = {}) {
     this.maxCycles = config.maxCycles || 10000;
@@ -473,6 +474,31 @@ export class NullVM {
 
       case OpCode.TIME_HINT:
         this.executeTIME_HINT(instruction);
+        break;
+
+      // V10 Runtime - Coroutines, channels, and structured concurrency
+      case OpCode.SPAWN_TASK:
+        this.executeSPAWN_TASK(instruction);
+        break;
+
+      case OpCode.AWAIT:
+        this.executeAWAIT(instruction);
+        break;
+
+      case OpCode.CHANNEL_NEW:
+        this.executeCHANNEL_NEW(instruction);
+        break;
+
+      case OpCode.CHANNEL_SEND:
+        this.executeCHANNEL_SEND(instruction);
+        break;
+
+      case OpCode.CHANNEL_RECV:
+        this.executeCHANNEL_RECV(instruction);
+        break;
+
+      case OpCode.SELECT:
+        this.executeSELECT(instruction);
         break;
 
       default:
@@ -1672,5 +1698,221 @@ export class NullVM {
    */
   isLayerAvailable(layer: LayerKind): boolean {
     return this.layerExecutionManager.isLayerAvailable(layer);
+  }
+
+  // V10 Runtime instruction handlers
+
+  /**
+   * Execute SPAWN_TASK instruction: SPAWN_TASK <task_name> <function_name>
+   */
+  private executeSPAWN_TASK(instruction: Instruction): void {
+    const [taskName, functionName] = instruction.args as [string, string];
+    
+    // This would integrate with V10 runtime
+    // For now, create a basic task structure
+    const taskInstructions = this.getFunctionInstructions(functionName);
+    if (!taskInstructions) {
+      throw createError(ErrorType.ExecutionError, `Function ${functionName} not found`);
+    }
+
+    // Store task info in memory for V10 runtime to pick up
+    this.memory.setRegister(`__v10_task_${taskName}_function`, functionName as any);
+    this.memory.setRegister(`__v10_task_${taskName}_instructions`, JSON.stringify(taskInstructions) as any);
+
+    console.log(`[NullVM] SPAWN_TASK: ${taskName} -> ${functionName}`);
+  }
+
+  /**
+   * Execute AWAIT instruction: AWAIT <task_id>
+   */
+  private executeAWAIT(instruction: Instruction): void {
+    const [taskId] = instruction.args as [string];
+    
+    // This would integrate with V10 runtime task management
+    // For now, just log the await operation
+    console.log(`[NullVM] AWAIT: ${taskId}`);
+
+    // In a real implementation, this would suspend execution until task completes
+    // and integrate with the coroutine scheduler
+  }
+
+  /**
+   * Execute CHANNEL_NEW instruction: CHANNEL_NEW <channel_id> <capacity>
+   */
+  private executeCHANNEL_NEW(instruction: Instruction): void {
+    const [channelId, capacity] = instruction.args as [string, number];
+    
+    // Store channel info in memory for V10 runtime
+    this.memory.setRegister(`__v10_channel_${channelId}_capacity`, capacity as any);
+    this.memory.setRegister(`__v10_channel_${channelId}_id`, channelId as any);
+
+    console.log(`[NullVM] CHANNEL_NEW: ${channelId} (capacity: ${capacity})`);
+  }
+
+  /**
+   * Execute CHANNEL_SEND instruction: CHANNEL_SEND <channel_id> <value>
+   */
+  private executeCHANNEL_SEND(instruction: Instruction): void {
+    const [channelId, value] = instruction.args as [string, string];
+    
+    // Get the actual value from register
+    const actualValue = this.memory.getRegister(value);
+    
+    // Store send operation info for V10 runtime
+    this.memory.setRegister(`__v10_channel_${channelId}_last_send_value`, actualValue as any);
+    this.memory.setRegister(`__v10_channel_${channelId}_last_sender`, value as any);
+
+    console.log(`[NullVM] CHANNEL_SEND: ${channelId} <- ${actualValue}`);
+  }
+
+  /**
+   * Execute CHANNEL_RECV instruction: CHANNEL_RECV <channel_id> <result_var>
+   */
+  private executeCHANNEL_RECV(instruction: Instruction): void {
+    const [channelId, resultVar] = instruction.args as [string, string];
+    
+    // Store receive operation info for V10 runtime
+    // In a real implementation, this would integrate with the actual channel system
+    this.memory.setRegister(`__v10_channel_${channelId}_last_receiver`, resultVar as any);
+
+    console.log(`[NullVM] CHANNEL_RECV: ${channelId} -> ${resultVar}`);
+  }
+
+  /**
+   * Execute SELECT instruction: SELECT <operation_ids> <result_var> <timeout_ms>?
+   */
+  private executeSELECT(instruction: Instruction): void {
+    const [operationIds, resultVar, timeoutMs] = instruction.args as [string[], string, number?];
+    
+    // Store select operation info for V10 runtime
+    this.memory.setRegister(`__v10_select_operations`, JSON.stringify(operationIds) as any);
+    this.memory.setRegister(`__v10_select_result_var`, resultVar as any);
+    if (timeoutMs !== undefined) {
+      this.memory.setRegister(`__v10_select_timeout`, timeoutMs as any);
+    }
+
+    console.log(`[NullVM] SELECT: ${operationIds.join(', ')} -> ${resultVar}${timeoutMs ? ` (timeout: ${timeoutMs}ms)` : ''}`);
+  }
+
+  /**
+   * Get function instructions for task spawning
+   */
+  private getFunctionInstructions(functionName: string): unknown[] | null {
+    // Look for function definitions in the current program
+    for (const instruction of this.context.program) {
+      if (instruction && typeof instruction === 'object' && 'opcode' in instruction) {
+        const instr = instruction as { opcode: string; args: unknown[] };
+        if (instr.opcode === 'DEFINE' && Array.isArray(instr.args)) {
+          const [name, funcInstructions] = instr.args;
+          if (name === functionName && Array.isArray(funcInstructions)) {
+            return funcInstructions;
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Check if V10 runtime is available
+   */
+  hasV10Runtime(): boolean {
+    // Check if V10 runtime capability is available
+    return this.v10Runtime !== undefined;
+  }
+
+  /**
+   * Get V10 runtime capability (if available)
+   */
+  getV10Runtime(): any {
+    return this.v10Runtime;
+  }
+
+  /**
+   * Initialize V10 runtime
+   */
+  async initializeV10Runtime(config?: any): Promise<void> {
+    try {
+      // Dynamic import to avoid circular dependencies
+      const { createV10Runtime } = await import('./v10/runtime');
+      this.v10Runtime = createV10Runtime(this.vmId + '-v10', config);
+      console.log(`[NullVM] V10 runtime initialized for VM ${this.vmId}`);
+    } catch (error) {
+      console.warn(`[NullVM] Failed to initialize V10 runtime:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Enable V10 runtime with configuration
+   */
+  async enableV10Runtime(config?: any): Promise<void> {
+    if (this.v10Runtime) {
+      console.log('[NullVM] V10 runtime already enabled');
+      return;
+    }
+
+    await this.initializeV10Runtime(config);
+  }
+
+  /**
+   * Create a new channel using V10 runtime
+   */
+  async createV10Channel<T>(capacity?: number): Promise<T> {
+    if (!this.v10Runtime) {
+      throw createError(ErrorType.ExecutionError, 'V10 runtime not initialized');
+    }
+    return (this.v10Runtime.createChannel as any)(capacity);
+  }
+
+  /**
+   * Create a new supervisor using V10 runtime
+   */
+  async createV10Supervisor(parentId?: string): Promise<any> {
+    if (!this.v10Runtime) {
+      throw createError(ErrorType.ExecutionError, 'V10 runtime not initialized');
+    }
+    return this.v10Runtime.createSupervisor(parentId);
+  }
+
+  /**
+   * Spawn a task using V10 runtime
+   */
+  async spawnV10Task(task: any): Promise<void> {
+    if (!this.v10Runtime) {
+      throw createError(ErrorType.ExecutionError, 'V10 runtime not initialized');
+    }
+    return this.v10Runtime.spawnTask(task);
+  }
+
+  /**
+   * Create a scheduler using V10 runtime
+   */
+  async createV10Scheduler(): Promise<any> {
+    if (!this.v10Runtime) {
+      throw createError(ErrorType.ExecutionError, 'V10 runtime not initialized');
+    }
+    return this.v10Runtime.createScheduler();
+  }
+
+  /**
+   * Get execution pipeline from V10 runtime
+   */
+  getV10ExecutionPipeline(): any {
+    if (!this.v10Runtime) {
+      throw createError(ErrorType.ExecutionError, 'V10 runtime not initialized');
+    }
+    return this.v10Runtime.getExecutionPipeline();
+  }
+
+  /**
+   * Shutdown V10 runtime
+   */
+  async shutdownV10Runtime(): Promise<void> {
+    if (this.v10Runtime) {
+      await this.v10Runtime.shutdown();
+      this.v10Runtime = undefined;
+      console.log(`[NullVM] V10 runtime shutdown for VM ${this.vmId}`);
+    }
   }
 }
