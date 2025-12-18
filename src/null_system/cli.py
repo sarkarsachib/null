@@ -25,6 +25,7 @@ from .knowledge.inference import InferenceEngine, Rule, RuleType
 from .knowledge.external.wikidata import ExternalKnowledgeBase
 from .lsp import run_lsp_server
 from .vm.vm import NullVM
+from .config import get_default_config, Subsystem
 
 app = typer.Typer(
     name="nullc",
@@ -44,6 +45,36 @@ def _print_syntax_advice(*, warnings: list[str], hints: list[str], show_hints: b
         console.print("\n[bold cyan]Syntax hints:[/bold cyan]")
         for msg in hints:
             console.print(f"  [cyan]• {msg}[/cyan]")
+
+
+@app.command()
+def show_subsystems():
+    """Show all available optional subsystems and their status."""
+    config = get_default_config()
+    
+    console.print("\n[bold cyan]Null Optional Subsystems[/bold cyan]\n")
+    
+    table = Table(title="Subsystem Status and Dependencies")
+    table.add_column("Subsystem", style="cyan")
+    table.add_column("Status", style="yellow")
+    table.add_column("Dependencies", style="blue")
+    table.add_column("Description", style="green")
+    
+    for subsystem in Subsystem:
+        status = "[green]✓ Enabled[/green]" if config.is_enabled(subsystem) else "[gray]○ Disabled[/gray]"
+        deps = config.get_dependencies(subsystem)
+        deps_str = ", ".join(d.value for d in deps) if deps else "None"
+        desc = config.SUBSYSTEM_DESCRIPTIONS.get(subsystem, "")
+        
+        table.add_row(subsystem.value, status, deps_str, desc)
+    
+    console.print(table)
+    
+    console.print("\n[bold]Enable subsystems via environment variables:[/bold]")
+    console.print("  [cyan]NULL_SUBSYSTEM_ALL=true[/cyan]  # Enable all")
+    console.print("  [cyan]NULL_SUBSYSTEM_<NAME>=true[/cyan]  # Enable specific")
+    console.print("\nExample:")
+    console.print("  [cyan]NULL_SUBSYSTEM_DEBUGGER=true nullc compile file.null[/cyan]\n")
 
 
 @app.command()

@@ -3,10 +3,13 @@
 import resource
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 
 from ..observability import get_observability
 from ..superbit.ir import SuperBitIRToken as SuperBitToken, SuperBitOpCode, SuperBitStream
+
+if TYPE_CHECKING:
+    from ..config import FeatureConfig
 
 
 @dataclass
@@ -21,13 +24,14 @@ class ExecutionResult:
 class NullVM:
     """Virtual machine for executing super-bit code."""
     
-    def __init__(self):
+    def __init__(self, feature_config: Optional["FeatureConfig"] = None):
         self.stack: List[Any] = []
         self.variables: Dict[str, Any] = {}
         self.module_namespaces: Dict[str, Dict[str, Any]] = {"__main__": {}}
         self.current_module: str = "__main__"
         self.output: List[str] = []
         self.pc = 0
+        self.feature_config = feature_config
     
     def execute(self, superbit_stream: SuperBitStream) -> ExecutionResult:
         """Execute a super-bit stream."""
