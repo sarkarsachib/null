@@ -24,6 +24,8 @@ class NullVM:
     def __init__(self):
         self.stack: List[Any] = []
         self.variables: Dict[str, Any] = {}
+        self.module_namespaces: Dict[str, Dict[str, Any]] = {"__main__": {}}
+        self.current_module: str = "__main__"
         self.output: List[str] = []
         self.pc = 0
     
@@ -33,6 +35,8 @@ class NullVM:
 
         self.stack = []
         self.variables = {}
+        self.module_namespaces = {"__main__": {}}
+        self.current_module = "__main__"
         self.output = []
         self.pc = 0
 
@@ -97,20 +101,51 @@ class NullVM:
                     final_state=self.variables.copy(),
                 )
     
+    def _resolve_variable_name(self, name: str, token: SuperBitToken) -> tuple[str, str]:
+        """Resolve variable name to (module, local_name).
+        
+        Handles qualified names like 'math::add' and module metadata.
+        """
+        if "::" in name:
+            parts = name.split("::")
+            module = "::".join(parts[:-1])
+            local_name = parts[-1]
+            return (module, local_name)
+        
+        module = token.metadata.get("module", self.current_module) if hasattr(token, 'metadata') else self.current_module
+        return (module, name)
+    
     def _execute_token(self, token: SuperBitToken):
         """Execute a single super-bit token."""
+        if hasattr(token, 'metadata') and token.metadata.get("module"):
+            exec_module = token.metadata["module"]
+            if exec_module not in self.module_namespaces:
+                self.module_namespaces[exec_module] = {}
+        
         if token.opcode == SuperBitOpCode.LOAD_CONST:
             self.stack.append(token.operand)
         
         elif token.opcode == SuperBitOpCode.LOAD_VAR:
-            if token.operand not in self.variables:
+            module, local_name = self._resolve_variable_name(token.operand, token)
+            
+            if module in self.module_namespaces and local_name in self.module_namespaces[module]:
+                self.stack.append(self.module_namespaces[module][local_name])
+            elif token.operand in self.variables:
+                self.stack.append(self.variables[token.operand])
+            else:
                 raise RuntimeError(f"Undefined variable: {token.operand}")
-            self.stack.append(self.variables[token.operand])
         
         elif token.opcode == SuperBitOpCode.STORE_VAR:
             if not self.stack:
                 raise RuntimeError("Stack underflow")
             value = self.stack.pop()
+            
+            module, local_name = self._resolve_variable_name(token.operand, token)
+            
+            if module not in self.module_namespaces:
+                self.module_namespaces[module] = {}
+            self.module_namespaces[module][local_name] = value
+            
             self.variables[token.operand] = value
         
         elif token.opcode == SuperBitOpCode.BINARY_ADD:

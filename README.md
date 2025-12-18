@@ -6,6 +6,7 @@ A TypeScript implementation of a virtual machine that executes super-bit program
 
 ## Features
 
+- **Module System**: Full module support with namespace management, imports, and qualified identifiers (e.g., `math::sqrt`)
 - **Instruction Set Support**: SET, ADD, SHOW, IF, REPEAT, DEFINE, CALL, RETURN, JMP, NOP, security opcodes, and AI opcodes
 - **Memory Model**: Scalar registers, tensor registers (super-bit tensors), stack, and heap abstractions with encrypted value storage
 - **Control Flow**: Conditional execution (IF) and loops (REPEAT)
@@ -145,6 +146,81 @@ When hybrid mode is enabled, the compiler prints guidance such as:
 
 - "Mixed English and modern syntax detected. Add '@syntax hybrid' to make this explicit."
 - "In modern syntax, prefer 'let' over 'SET' for variable declarations."
+
+## Module System
+
+Null-Lang now supports a true module system for organizing code across multiple files with namespaces and imports.
+
+### Module Declarations
+
+Declare a module at the top of your file:
+
+```null
+module math
+
+SET pi TO 3.14159
+SET e TO 2.71828
+```
+
+For nested modules, use the `::` separator:
+
+```null
+module std::math::algebra
+
+SET identity_matrix TO [[1, 0], [0, 1]]
+```
+
+### Import Statements
+
+Import other modules to use their symbols:
+
+```null
+module myapp
+import math
+import std::io as io
+
+SET radius TO 10
+SET area TO math::pi TIMES radius TIMES radius
+SHOW area
+```
+
+Import with alias:
+
+```null
+import std::collections::vector as vec
+```
+
+### Qualified Identifiers
+
+Reference symbols from other modules using the `::` separator:
+
+```null
+SET result TO math::sqrt(42)
+CALL io::println WITH "Hello, World!"
+```
+
+### Backward Compatibility
+
+Programs without a `module` declaration are automatically wrapped in an implicit `__main__` module, ensuring all existing single-file programs continue to work unchanged:
+
+```null
+# No module declaration needed - works as before
+SET x TO 42
+SHOW x
+```
+
+### Module Metadata in IR
+
+The compiler preserves module information in the SuperBit IR tokens via metadata:
+
+```python
+{
+  "module": "mymodule",
+  "source_line": 5
+}
+```
+
+This enables module-aware debugging, profiling, and layer routing in the VM.
 
 ## Usage
 

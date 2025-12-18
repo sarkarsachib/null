@@ -48,6 +48,9 @@ from .ast_nodes import (
     PrintCommand,
     ClassDefinition,
     TryStatement,
+    ModuleDeclaration,
+    ImportStatement,
+    QualifiedIdentifier,
 )
 from ..superbit.ir import SuperBitIRToken, SuperBitOpCode, SuperBitStream
 
@@ -58,6 +61,8 @@ class NullLangCompiler:
     def __init__(self):
         self.tokens: List[SuperBitIRToken] = []
         self.current_metadata: Dict[str, Any] = {}
+        self.current_module: str = "__main__"
+        self.imported_modules: Dict[str, str] = {}
 
     def compile(self, ast: ASTNode) -> SuperBitStream:
         """Compile an AST node to a Super-Bit IR stream.
@@ -70,6 +75,8 @@ class NullLangCompiler:
         """
         self.tokens = []
         self.current_metadata = {}
+        self.current_module = "__main__"
+        self.imported_modules = {}
         self._visit(ast)
         return SuperBitStream(tokens=self.tokens)
 
@@ -81,6 +88,8 @@ class NullLangCompiler:
     ) -> None:
         """Emit an IR token with optional metadata."""
         token_metadata = self.current_metadata.copy()
+        if self.current_module != "__main__":
+            token_metadata["module"] = self.current_module
         if metadata:
             token_metadata.update(metadata)
 
@@ -99,6 +108,15 @@ class NullLangCompiler:
 
     def _visit_Program(self, node: Program) -> None:
         """Emit tokens for a program."""
+        if hasattr(node, 'module_declaration') and node.module_declaration:
+            self.current_module = node.module_declaration.name.full_name
+        
+        if hasattr(node, 'imports'):
+            for import_stmt in node.imports:
+                module_name = import_stmt.module_name.full_name
+                alias = import_stmt.alias or module_name
+                self.imported_modules[alias] = module_name
+        
         for stmt in node.statements:
             self._visit(stmt)
 
@@ -106,7 +124,7 @@ class NullLangCompiler:
         """Emit tokens for SET command."""
         self._apply_annotations(node)
         self._visit(node.value)
-        self._emit(SuperBitOpCode.LOAD_VAR, self._get_target_name(node.target))
+        self._emit(SuperBitOpCode.STORE_VAR, self._get_target_name(node.target))
 
     def _visit_AddCommand(self, node: AddCommand) -> None:
         """Emit tokens for ADD command."""

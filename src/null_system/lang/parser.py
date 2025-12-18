@@ -16,7 +16,8 @@ from .ast_nodes import (
     SetCommand, AddCommand, IfCommand, ShowCommand, RepeatCommand, DefineCommand,
     BinaryExpression, UnaryExpression, ComparisonExpression, BinaryOperator, UnaryOperator,
     FunctionCall, NullLibAnnotation, Comment,
-    LayerAnnotation, RequireAnnotation, PreferAnnotation
+    LayerAnnotation, RequireAnnotation, PreferAnnotation,
+    ModuleDeclaration, ImportStatement, QualifiedIdentifier
 )
 from .errors import SyntaxError, LexerError
 
@@ -53,8 +54,72 @@ class NullLangTransformer(Transformer):
     # Program
     
     def program(self, items):
-        statements = [item for item in items if item is not None]
-        return Program(statements=statements)
+        module_declaration = None
+        imports = []
+        statements = []
+        
+        for item in items:
+            if item is None:
+                continue
+            elif isinstance(item, ModuleDeclaration):
+                module_declaration = item
+            elif isinstance(item, list) and len(item) > 0 and isinstance(item[0], ImportStatement):
+                imports.extend(item)
+            elif isinstance(item, ImportStatement):
+                imports.append(item)
+            else:
+                statements.append(item)
+        
+        return Program(
+            module_declaration=module_declaration,
+            imports=imports,
+            statements=statements
+        )
+    
+    # Module System
+    
+    def module_header(self, items):
+        module_name = items[0]
+        return ModuleDeclaration(name=module_name)
+    
+    def import_section(self, items):
+        return list(items)
+    
+    def import_statement(self, items):
+        annotations = []
+        module_name = None
+        alias = None
+        
+        for item in items:
+            if isinstance(item, (LayerAnnotation, RequireAnnotation, PreferAnnotation)):
+                annotations.append(item)
+            elif isinstance(item, QualifiedIdentifier):
+                module_name = item
+            elif isinstance(item, Identifier):
+                if module_name is None:
+                    module_name = QualifiedIdentifier(parts=[item.name])
+                else:
+                    alias = item.name
+        
+        return ImportStatement(
+            module_name=module_name,
+            alias=alias,
+            annotations=annotations
+        )
+    
+    def module_name(self, items):
+        parts = [str(token) for token in items]
+        node = QualifiedIdentifier(parts=parts)
+        if items:
+            node.span = self._get_span(items[0])
+        return node
+    
+    def qualified_name(self, items):
+        parts = [str(token) for token in items]
+        node = QualifiedIdentifier(parts=parts)
+        if items:
+            node.span = self._get_span(items[0])
+        return node
     
     # Literals
     
@@ -245,14 +310,24 @@ class NullLangTransformer(Transformer):
     # Function Calls
     
     def call_func(self, items):
-        name = items[0].name if isinstance(items[0], Identifier) else str(items[0])
+        if isinstance(items[0], Identifier):
+            name = items[0].name
+        elif isinstance(items[0], QualifiedIdentifier):
+            name = items[0].full_name
+        else:
+            name = str(items[0])
         arguments = []
         if len(items) > 1:
             arguments = items[1] if isinstance(items[1], list) else [items[1]]
         return FunctionCall(name=name, arguments=arguments)
     
     def call_func_parens(self, items):
-        name = items[0].name if isinstance(items[0], Identifier) else str(items[0])
+        if isinstance(items[0], Identifier):
+            name = items[0].name
+        elif isinstance(items[0], QualifiedIdentifier):
+            name = items[0].full_name
+        else:
+            name = str(items[0])
         arguments = []
         if len(items) > 1:
             arguments = items[1] if isinstance(items[1], list) else [items[1]]
