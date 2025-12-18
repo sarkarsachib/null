@@ -26,6 +26,14 @@ class TokenType(Enum):
     MATCH = auto()
     CASE = auto()
     WHEN = auto()
+    
+    # Rust-like ownership tokens
+    LET = auto()
+    MUT = auto()
+    DROP = auto()
+    BORROW = auto()
+    LIFETIME = auto()  # 'a, 'b, etc.
+    
     LPAREN = auto()
     RPAREN = auto()
     LBRACE = auto()
@@ -75,6 +83,10 @@ class Lexer:
         "match": TokenType.MATCH,
         "case": TokenType.CASE,
         "when": TokenType.WHEN,
+        # Rust-like ownership keywords
+        "let": TokenType.LET,
+        "mut": TokenType.MUT,
+        "drop": TokenType.DROP,
     }
     
     def __init__(self, source: str):
@@ -161,6 +173,15 @@ class Lexer:
                 self._add_token(TokenType.ARROW, '=>')
                 continue
             
+            if self._current_char() == '&':
+                self._add_token(TokenType.BORROW, '&')
+                self._advance()
+                continue
+            
+            if self._current_char() == "'":
+                self._read_lifetime()
+                continue
+            
             self._advance()
         
         self._add_token(TokenType.EOF, "")
@@ -233,6 +254,23 @@ class Lexer:
         
         token_type = self.KEYWORDS.get(value.lower(), TokenType.IDENTIFIER)
         self.tokens.append(Token(token_type, value, start_line, start_column))
+    
+    def _read_lifetime(self):
+        """Read a lifetime annotation like 'a, 'b, etc."""
+        start_line = self.line
+        start_column = self.column
+        self._advance()  # consume the apostrophe
+        
+        # Read identifier after apostrophe
+        if self._current_char().isalpha():
+            lifetime_name = self._advance()
+            while self._current_char().isalnum() or self._current_char() == '_':
+                lifetime_name += self._advance()
+            
+            self.tokens.append(Token(TokenType.LIFETIME, lifetime_name, start_line, start_column))
+        else:
+            # Just a bare apostrophe, treat as identifier
+            self.tokens.append(Token(TokenType.LIFETIME, "", start_line, start_column))
     
     def _add_token(self, token_type: TokenType, value: str):
         """Add a token to the list."""

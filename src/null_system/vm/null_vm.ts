@@ -55,7 +55,12 @@ export class NullVM {
   private childVMs: Map<string, NullVM> = new Map();
   private messageQueue: Array<{ messageType: string; payload: unknown; timestamp: number }> = [];
   private observedRegisters: Map<string, { label?: string }> = new Map();
-
+  
+  // Ownership tracking for memory safety
+  private referenceCounts: Map<string, { value: any; refCount: number }> = new Map();
+  private activeBorrows: Map<string, number> = new Map();
+  private scopes: Array<Map<string, string[]>> = [];
+  
   constructor(config: NullVMConfig = {}) {
     this.maxCycles = config.maxCycles || 10000;
     this.enableTracing = config.enableTracing || false;
@@ -81,6 +86,9 @@ export class NullVM {
     this.attentionModule = new AttentionModule();
 
     this.layerExecutionManager = new LayerExecutionManager();
+
+    // Initialize global scope for ownership tracking
+    this.enterScope();
 
     if (this.enableTracing) {
       this.context.addTraceHook((event, data) => {
@@ -401,6 +409,31 @@ export class NullVM {
 
       case OpCode.MATCH_PATTERN:
         this.executeMATCH_PATTERN(instruction);
+        break;
+
+      // Ownership and memory safety opcodes
+      case OpCode.BORROW_IMM:
+        this.executeBORROW_IMM(instruction);
+        break;
+
+      case OpCode.BORROW_MUT:
+        this.executeBORROW_MUT(instruction);
+        break;
+
+      case OpCode.DROP:
+        this.executeDROP(instruction);
+        break;
+
+      case OpCode.INC_REF:
+        this.executeINC_REF(instruction);
+        break;
+
+      case OpCode.DEC_REF:
+        this.executeDEC_REF(instruction);
+        break;
+
+      case OpCode.CHECK_BORROW:
+        this.executeCHECK_BORROW(instruction);
         break;
 
       case OpCode.SPAWN_VM:
@@ -1555,6 +1588,138 @@ export class NullVM {
       );
     }
     this.binaryBridge.emitControlFlow('MATCH_PATTERN', { patternTag });
+  }
+
+  /**
+   * Execute BORROW_IMM instruction: Create immutable borrow
+   */
+  private executeBORROW_IMM(instruction: Instruction): void {
+    const stackTop = this.memory.popStack();
+    if (stackTop === undefined) {
+      throw createError(ErrorType.ExecutionError, 'BORROW_IMM failed: stack underflow');
+    }
+    
+    // For immutable borrow, create a borrow reference
+    const borrowRef = { type: 'borrow', value: stackTop, mutable: false };
+    this.memory.pushStack(borrowRef);
+    
+    this.binaryBridge.emitControlFlow('BORROW_IMM', { });
+  }
+
+  /**
+   * Execute BORROW_MUT instruction: Create mutable borrow
+   */
+  private executeBORROW_MUT(instruction: Instruction): void {
+    const stackTop = this.memory.popStack();
+    if (stackTop === undefined) {
+      throw createError(ErrorType.ExecutionError, 'BORROW_MUT failed: stack underflow');
+    }
+    
+    // For mutable borrow, create a mutable borrow reference
+    const borrowRef = { type: 'borrow', value: stackTop, mutable: true };
+    this.memory.pushStack(borrowRef);
+    
+    this.binaryBridge.emitControlFlow('BORROW_MUT', { });
+  }
+
+  /**
+   * Execute DROP instruction: Explicitly drop a variable
+   */
+  private executeDROP(instruction: Instruction): void {
+    const stackTop = this.memory.popStack();
+    if (stackTop === undefined) {
+      throw createError(ErrorType.ExecutionError, 'DROP failed: stack underflow');
+    }
+    
+    // For explicit drop, we would decrement reference counts
+    // This is a simplified implementation for stack-allocated scalars
+    if (typeof stackTop === 'string') {
+      // If it's a variable name, we could clean up the variable
+      // Implementation depends on the specific memory management strategy
+    }
+    
+    this.binaryBridge.emitControlFlow('DROP', { });
+  }
+
+  /**
+   * Execute INC_REF instruction: Increment reference count
+   */
+  private executeINC_REF(instruction: Instruction): void {
+    // Increment reference count for a value
+    // This is a placeholder for more sophisticated reference counting
+    this.binaryBridge.emitControlFlow('INC_REF', { });
+  }
+
+  /**
+   * Execute DEC_REF instruction: Decrement reference count
+   */
+  private executeDEC_REF(instruction: Instruction): void {
+    // Decrement reference count for a value
+    // If count reaches zero, free the memory
+    this.binaryBridge.emitControlFlow('DEC_REF', { });
+  }
+
+  /**
+   * Execute CHECK_BORROW instruction: Check if borrow is still valid
+   */
+  private executeCHECK_BORROW(instruction: Instruction): void {
+    const stackTop = this.memory.popStack();
+    if (stackTop === undefined) {
+      throw createError(ErrorType.ExecutionError, 'CHECK_BORROW failed: stack underflow');
+    }
+    
+    // Check if the borrow reference is still valid
+    if (typeof stackTop === 'object' && stackTop !== null && 'type' in stackTop) {
+      const borrowRef = stackTop as { type: string; value: any; mutable: boolean };
+      if (borrowRef.type === 'borrow') {
+        // Validate that the borrowed value still exists
+        // This is a simplified check - real implementation would be more sophisticated
+        const isValid = borrowRef.value !== undefined;
+        this.memory.pushStack(isValid ? 1 : 0);
+      }
+    }
+    
+    this.binaryBridge.emitControlFlow('CHECK_BORROW', { });
+  }
+
+  /**
+   * Enter a new scope for RAII-based variable management
+   */
+  private enterScope(): void {
+    this.scopes.push(new Map());
+  }
+
+  /**
+   * Exit current scope and clean up variables
+   */
+  private exitScope(): void {
+    if (this.scopes.length > 1) { // Don't remove global scope
+      const scope = this.scopes.pop();
+      if (scope) {
+        for (const [varName] of scope) {
+          if (this.referenceCounts.has(varName)) {
+            const refInfo = this.referenceCounts.get(varName)!;
+            if (refInfo.refCount <= 1) {
+              this.referenceCounts.delete(varName);
+            } else {
+              refInfo.refCount--;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * Add variable to current scope
+   */
+  private addToScope(varName: string): void {
+    if (this.scopes.length > 0) {
+      const currentScope = this.scopes[this.scopes.length - 1];
+      if (!currentScope.has(varName)) {
+        currentScope.set(varName, []);
+      }
+    }
   }
 
   /**

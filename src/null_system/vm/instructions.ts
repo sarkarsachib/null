@@ -61,6 +61,14 @@ export enum OpCode {
   APPLY_CONSTRAINT = 'APPLY_CONSTRAINT',
   SET_DEADLINE = 'SET_DEADLINE',
   TIME_HINT = 'TIME_HINT',
+
+  // Ownership and memory safety
+  BORROW_IMM = 'BORROW_IMM',
+  BORROW_MUT = 'BORROW_MUT',
+  DROP = 'DROP',
+  INC_REF = 'INC_REF',
+  DEC_REF = 'DEC_REF',
+  CHECK_BORROW = 'CHECK_BORROW',
 }
 
 export interface InstructionMetadata {
