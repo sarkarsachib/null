@@ -18,7 +18,11 @@ module_name: NAME ("::" NAME)*
 
 annotated_statement: annotation* base_statement -> attach_annotations
 
-?base_statement: set_statement
+?base_statement: type_alias_statement
+               | data_class_statement
+               | sealed_trait_statement
+               | let_binding_statement
+               | set_statement
                | add_statement
                | if_statement
                | show_statement
@@ -39,6 +43,28 @@ require_annotation: "@" "require" "(" identifier_list ")" -> make_require_annota
 prefer_annotation: "@" "prefer" "(" identifier_list ")" -> make_prefer_annotation
 
 identifier_list: identifier ("," identifier)*
+
+// Type System
+
+type_alias_statement: "type" identifier "=" type_annotation -> make_type_alias
+
+data_class_statement: "class" "data" identifier "{" field_list "}" -> make_data_class
+
+sealed_trait_statement: "sealed" "trait" identifier generic_params? "{" variant_list "}" -> make_sealed_trait
+
+let_binding_statement: "let" identifier (":" type_annotation)? ("=" expression)? -> make_let_binding
+
+type_annotation: identifier generic_params? ("?")? -> parse_type_annotation
+
+generic_params: "<" identifier ("," identifier)* ">"
+
+field_list: field_decl ("," field_decl)*
+
+field_decl: identifier ":" type_annotation
+
+variant_list: variant_decl ("," variant_decl)*
+
+variant_decl: identifier ("(" type_annotation ")")?
 
 // Commands
 
@@ -99,12 +125,23 @@ comparison_op: "IS" "NOT" -> is_not
        | "MINUS" factor -> negate_expr
 
 ?atom: literal
+     | safe_call_expr
+     | elvis_expr
+     | not_null_expr
      | member_access
      | function_call
      | legacy_null_lib_annotation
      | qualified_name
      | identifier
      | "(" expression ")"
+
+safe_call_expr: atom "?" "." identifier -> safe_call_property
+              | atom "?" "[" expression "]" -> safe_call_index
+              | atom "?" "(" (argument_list)? ")" -> safe_call_method
+
+elvis_expr: atom "?" ":" atom -> make_elvis
+
+not_null_expr: atom "!" "!" -> make_not_null
 
 // Literals
 

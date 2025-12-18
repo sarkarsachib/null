@@ -17,7 +17,9 @@ from .ast_nodes import (
     BinaryExpression, UnaryExpression, ComparisonExpression, BinaryOperator, UnaryOperator,
     FunctionCall, NullLibAnnotation, Comment,
     LayerAnnotation, RequireAnnotation, PreferAnnotation,
-    ModuleDeclaration, ImportStatement, QualifiedIdentifier
+    ModuleDeclaration, ImportStatement, QualifiedIdentifier,
+    TypeAnnotation, TypeAliasDeclaration, DataClassDeclaration, SealedTraitDeclaration,
+    SafeCallExpression, ElvisExpression, NotNullExpression, LetBindingExpression,
 )
 from .errors import SyntaxError, LexerError
 
@@ -406,6 +408,123 @@ class NullLangTransformer(Transformer):
         node = Comment(text=text)
         node.span = self._get_span(token)
         return node
+    
+    # Type System
+    
+    def parse_type_annotation(self, items):
+        type_name = items[0].name if isinstance(items[0], Identifier) else str(items[0])
+        is_nullable = False
+        type_parameters = []
+        
+        for item in items[1:]:
+            if isinstance(item, list):
+                type_parameters = item
+            elif item == "?":
+                is_nullable = True
+        
+        return TypeAnnotation(
+            type_name=type_name,
+            is_nullable=is_nullable,
+            type_parameters=type_parameters
+        )
+    
+    def make_type_alias(self, items):
+        name = items[0].name if isinstance(items[0], Identifier) else str(items[0])
+        target_type = items[1]
+        return TypeAliasDeclaration(name=name, target_type=target_type)
+    
+    def make_data_class(self, items):
+        name = items[0].name if isinstance(items[0], Identifier) else str(items[0])
+        fields = items[1] if isinstance(items[1], list) else [items[1]]
+        return DataClassDeclaration(name=name, fields=fields)
+    
+    def make_sealed_trait(self, items):
+        name = items[0].name if isinstance(items[0], Identifier) else str(items[0])
+        type_params = []
+        variants = []
+        
+        for item in items[1:]:
+            if isinstance(item, list):
+                if item and isinstance(item[0], str):
+                    type_params = item
+                else:
+                    variants = item
+        
+        return SealedTraitDeclaration(
+            name=name,
+            type_parameters=type_params,
+            variants=variants
+        )
+    
+    def make_let_binding(self, items):
+        name = items[0].name if isinstance(items[0], Identifier) else str(items[0])
+        type_annotation = None
+        value = None
+        
+        for item in items[1:]:
+            if isinstance(item, TypeAnnotation):
+                type_annotation = item
+            else:
+                value = item
+        
+        return LetBindingExpression(
+            name=name,
+            type_annotation=type_annotation,
+            value=value
+        )
+    
+    def field_list(self, items):
+        return list(items)
+    
+    def field_decl(self, items):
+        name = items[0].name if isinstance(items[0], Identifier) else str(items[0])
+        type_annotation = items[1]
+        return (name, type_annotation)
+    
+    def generic_params(self, items):
+        return [str(item.name) if isinstance(item, Identifier) else str(item) for item in items]
+    
+    def variant_list(self, items):
+        return list(items)
+    
+    def variant_decl(self, items):
+        name = items[0].name if isinstance(items[0], Identifier) else str(items[0])
+        type_annotation = items[1] if len(items) > 1 else None
+        return (name, type_annotation)
+    
+    # Null-Safety Operators
+    
+    def safe_call_property(self, items):
+        obj = items[0]
+        member = items[1].name if isinstance(items[1], Identifier) else str(items[1])
+        return SafeCallExpression(object=obj, member=member, is_call=False)
+    
+    def safe_call_index(self, items):
+        obj = items[0]
+        index = items[1]
+        return SafeCallExpression(object=obj, member=index, is_call=False)
+    
+    def safe_call_method(self, items):
+        obj = items[0]
+        arguments = []
+        if len(items) > 1:
+            arguments = items[1] if isinstance(items[1], list) else [items[1]]
+        method_name = getattr(obj, 'name', str(obj))
+        return SafeCallExpression(
+            object=obj,
+            member=method_name,
+            is_call=True,
+            arguments=arguments
+        )
+    
+    def make_elvis(self, items):
+        left = items[0]
+        right = items[1]
+        return ElvisExpression(left=left, right=right)
+    
+    def make_not_null(self, items):
+        value = items[0]
+        return NotNullExpression(value=value)
 
 
 class NullLangParser:
