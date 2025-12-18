@@ -17,6 +17,7 @@ from rich.table import Table
 from .compiler import NullCompiler, CompilationError
 from .compiler.optimization import DeduplicationPass, CompressionPass
 from .lang.advisor import SyntaxConfig, SyntaxMode
+from .transpiler import transpile, TranspileOptions, LearningLevel
 from .extensions import AdvancedCompressionPass, SuperBitSecurityLayer, KeyManager
 from .extensions.compression import CompressionLevel
 from .knowledge import GraphStore, InMemoryBackend, SuperBitEncoder
@@ -433,6 +434,105 @@ def info():
         "  print x",
         border_style="green"
     ))
+
+
+@app.command()
+def transpile(
+    input_file: Path = typer.Argument(..., help="Input file to transpile"),
+    from_syntax: str = typer.Option("english", "--from", "-f", help="Source syntax (english|rust|python)"),
+    to_syntax: str = typer.Option("rust", "--to", "-t", help="Target syntax (english|rust|python)"),
+    output_file: Optional[Path] = typer.Option(None, "--output", "-o", help="Output file (defaults to stdout)"),
+    learning_level: str = typer.Option("novice", "--learning-level", help="Learning level (beginner|novice|moderate|advanced)"),
+    add_comments: bool = typer.Option(True, "--comments/--no-comments", help="Add learning comments"),
+    preview: bool = typer.Option(False, "--preview", help="Preview transpilation without writing file"),
+):
+    """Transpile code between different syntax modes with learning annotations."""
+    
+    # Validate syntax modes
+    if from_syntax.lower() == to_syntax.lower():
+        console.print(f"[red]Error: Source and target syntax cannot be the same[/red]")
+        raise typer.Exit(1)
+    
+    # Map syntax strings to SyntaxMode
+    syntax_map = {
+        "english": SyntaxMode.english,
+        "rust": SyntaxMode.rust,
+        "python": SyntaxMode.python,
+        "modern": SyntaxMode.modern
+    }
+    
+    if from_syntax.lower() not in syntax_map:
+        console.print(f"[red]Error: Unknown source syntax '{from_syntax}'. Supported: {', '.join(syntax_map.keys())}[/red]")
+        raise typer.Exit(1)
+    
+    if to_syntax.lower() not in syntax_map:
+        console.print(f"[red]Error: Unknown target syntax '{to_syntax}'. Supported: {', '.join(syntax_map.keys())}[/red]")
+        raise typer.Exit(1)
+    
+    # Map learning level string to enum
+    level_map = {
+        "beginner": LearningLevel.BEGINNER,
+        "novice": LearningLevel.NOVICE,
+        "moderate": LearningLevel.MODERATE,
+        "advanced": LearningLevel.ADVANCED
+    }
+    
+    if learning_level.lower() not in level_map:
+        console.print(f"[red]Error: Unknown learning level '{learning_level}'. Supported: {', '.join(level_map.keys())}[/red]")
+        raise typer.Exit(1)
+    
+    try:
+        # Read input file
+        if not input_file.exists():
+            console.print(f"[red]Error: Input file not found: {input_file}[/red]")
+            raise typer.Exit(1)
+        
+        source_code = input_file.read_text(encoding='utf-8')
+        
+        console.print(f"[cyan]Transpiling {input_file}[/cyan]")
+        console.print(f"[cyan]From: {from_syntax} → {to_syntax}[/cyan]")
+        console.print(f"[cyan]Learning level: {learning_level}[/cyan]")
+        
+        # Transpile the code
+        transpiled_code = transpile(
+            source=source_code,
+            from_mode=syntax_map[from_syntax.lower()],
+            to_mode=syntax_map[to_syntax.lower()],
+            learning_level=level_map[learning_level.lower()],
+            add_comments=add_comments
+        )
+        
+        if preview:
+            console.print("\n[bold]Preview of transpiled code:[/bold]")
+            console.print(Panel(
+                transpiled_code,
+                title=f"Preview: {from_syntax} → {to_syntax}",
+                border_style="green",
+                expand=False
+            ))
+        else:
+            if output_file:
+                output_file.write_text(transpiled_code, encoding='utf-8')
+                console.print(f"[green]✓ Transpiled code written to {output_file}[/green]")
+            else:
+                console.print("\n[bold]Transpiled code:[/bold]")
+                console.print(Panel(
+                    transpiled_code,
+                    title=f"{from_syntax} → {to_syntax}",
+                    border_style="green"
+                ))
+        
+        console.print(f"[green]✓ Transpilation successful![/green]")
+        
+    except SyntaxError as e:
+        console.print(f"[red]Syntax error: {e}[/red]")
+        raise typer.Exit(1)
+    except RuntimeError as e:
+        console.print(f"[red]Runtime error: {e}[/red]")
+        raise typer.Exit(1)
+    except Exception as e:
+        console.print(f"[red]Unexpected error: {e}[/red]")
+        raise typer.Exit(1)
 
 
 nlp_app = typer.Typer(help="Natural Language Processing tools")
