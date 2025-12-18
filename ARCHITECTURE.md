@@ -236,9 +236,20 @@ pytest tests/ --cov=src/null_system --cov-report=html
 
 ### Binary Format
 
-- **Compact:** Minimal header overhead (16 bytes)
-- **Streaming:** Instructions can be executed as they're decoded
-- **Extensible:** Reserved header space for future features
+- **Compact**: Minimal header overhead (16 bytes)
+- **Streaming**: Instructions can be executed as they're decoded
+- **Extensible**: Reserved header space for future features
+
+## Deployment & Operations
+
+The Null-Lang platform is designed for cloud-native deployment. The [Operator Suite](docs/operator/) provides authoritative guidance on:
+
+- **Deployment**: Standardized Docker containers and Kubernetes manifests.
+- **Observability**: Prometheus metrics and distributed tracing.
+- **Security**: Hardening guidelines and threat modeling.
+- **Maintenance**: Troubleshooting and API reference generation.
+
+See [docs/operator/production_deploy.md](docs/operator/production_deploy.md) for details.
 
 ## Future Enhancements
 

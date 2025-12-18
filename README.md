@@ -254,6 +254,16 @@ node dist/bin/cli.js benchmark --workers 100 --taskCount 10000
 node dist/bin/cli.js server --port 50051 --workers 100 --nodeId node-1
 ```
 
+## Operator Resources
+
+For production deployments and operational guidance, consult the Operator Suite:
+
+- **[Production Deployment](docs/operator/production_deploy.md)**: Docker, K8s, and Cloud guides.
+- **[Troubleshooting](docs/operator/troubleshooting.md)**: Diagnostic decision trees.
+- **[Security Hardening](docs/operator/security_hardening.md)**: Threat models and audit guidance.
+- **[API Reference](docs/operator/api_reference.md)**: Module documentation and generation.
+- **[Examples](docs/operator/examples.md)**: Common workload patterns.
+
 ## Hybrid Executor Guide
 
 See [docs/hybrid_execution.md](docs/hybrid_execution.md) for comprehensive hybrid executor documentation including:
