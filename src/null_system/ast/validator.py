@@ -6,12 +6,16 @@ from .nodes import (
     ASTNode,
     Program,
     SetStatement,
+    LetBinding,
+    BorrowExpr,
+    DropStatement,
     BinaryOp,
     PrintStatement,
     IfStatement,
     Identifier,
     Literal,
 )
+from ..analysis.ownership import OwnershipAnalyzer
 
 
 class ValidationError(Exception):
@@ -25,6 +29,7 @@ class ASTValidator:
     def __init__(self):
         self.defined_variables: Set[str] = set()
         self.errors: List[str] = []
+        self.ownership_analyzer = OwnershipAnalyzer()
     
     def validate(self, node: ASTNode) -> bool:
         """Validate an AST node and its children."""
@@ -32,7 +37,13 @@ class ASTValidator:
         self.defined_variables = set()
         
         try:
+            # Basic semantic validation
             self._visit(node)
+            
+            # Ownership validation
+            if not self.ownership_analyzer.analyze(node):
+                self.errors.extend(self.ownership_analyzer.get_errors())
+            
             return len(self.errors) == 0
         except ValidationError as e:
             self.errors.append(str(e))
@@ -57,6 +68,20 @@ class ASTValidator:
         """Validate a set statement."""
         self._visit(node.value)
         self.defined_variables.add(node.identifier)
+    
+    def _visit_LetBinding(self, node: LetBinding):
+        """Validate a let binding statement."""
+        self._visit(node.value)
+        if node.pattern and isinstance(node.pattern, Identifier):
+            self.defined_variables.add(node.pattern.name)
+    
+    def _visit_BorrowExpr(self, node: BorrowExpr):
+        """Validate a borrow expression."""
+        self._visit(node.expr)
+    
+    def _visit_DropStatement(self, node: DropStatement):
+        """Validate a drop statement."""
+        self._visit(node.target)
     
     def _visit_BinaryOp(self, node: BinaryOp):
         """Validate a binary operation."""

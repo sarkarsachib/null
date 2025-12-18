@@ -88,3 +88,31 @@ class MatchExpression(ASTNode):
     """Pattern matching expression."""
     expr: Optional[ASTNode] = None
     cases: List[MatchCase] = field(default_factory=list)
+
+
+@dataclass
+class LetBinding(ASTNode):
+    """Rust-like let binding statement."""
+    pattern: Optional[ASTNode] = None
+    mutable: bool = False
+    value: Optional[ASTNode] = None
+
+
+@dataclass
+class BorrowExpr(ASTNode):
+    """Rust-like borrow expression (&var or &mut var)."""
+    expr: Optional[ASTNode] = None
+    mutable: bool = False
+    lifetime: Optional[str] = None
+
+
+@dataclass
+class LifetimeAnnotation(ASTNode):
+    """Lifetime annotation ('a, 'b, etc.)."""
+    lifetime: str = ""
+
+
+@dataclass
+class DropStatement(ASTNode):
+    """Explicit drop statement."""
+    target: Optional[ASTNode] = None

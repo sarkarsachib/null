@@ -18,6 +18,22 @@ class ExecutionResult:
     final_state: Dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass
+class ReferenceCountedValue:
+    """A value with reference counting for ownership tracking."""
+    value: Any
+    ref_count: int = 1
+    
+    def increment_ref(self):
+        """Increment reference count."""
+        self.ref_count += 1
+    
+    def decrement_ref(self):
+        """Decrement reference count."""
+        self.ref_count -= 1
+        return self.ref_count == 0
+
+
 class NullVM:
     """Virtual machine for executing super-bit code."""
     
@@ -26,6 +42,34 @@ class NullVM:
         self.variables: Dict[str, Any] = {}
         self.output: List[str] = []
         self.pc = 0
+        # Ownership tracking
+        self.reference_counts: Dict[str, ReferenceCountedValue] = {}
+        self.borrows: Dict[str, int] = {}  # Track active borrows per variable
+        self.scopes: List[Dict[str, List[str]]] = []  # Variable scopes
+        self._enter_scope()  # Start with global scope
+    
+    def _enter_scope(self):
+        """Enter a new scope (for RAII)."""
+        self.scopes.append({})
+    
+    def _exit_scope(self):
+        """Exit current scope and clean up variables."""
+        if len(self.scopes) > 1:  # Don't remove global scope
+            scope = self.scopes.pop()
+            for var_name in scope:
+                if var_name in self.reference_counts:
+                    ref_value = self.reference_counts[var_name]
+                    if ref_value.decrement_ref():
+                        del self.reference_counts[var_name]
+                if var_name in self.variables:
+                    del self.variables[var_name]
+    
+    def _add_to_scope(self, var_name: str):
+        """Add variable to current scope."""
+        if self.scopes:
+            current_scope = self.scopes[-1]
+            if var_name not in current_scope:
+                current_scope[var_name] = []
     
     def execute(self, superbit_stream: SuperBitStream) -> ExecutionResult:
         """Execute a super-bit stream."""
@@ -193,3 +237,53 @@ class NullVM:
 
         elif token.opcode == SuperBitOpCode.NOP:
             pass
+        
+        # Ownership and memory safety opcodes
+        elif token.opcode == SuperBitOpCode.BORROW_IMM:
+            if not self.stack:
+                raise RuntimeError("Stack underflow for BORROW_IMM")
+            value = self.stack.pop()
+            # For immutable borrow, just push a reference
+            self.stack.append(("borrow", value, False))  # False = immutable
+        
+        elif token.opcode == SuperBitOpCode.BORROW_MUT:
+            if not self.stack:
+                raise RuntimeError("Stack underflow for BORROW_MUT")
+            value = self.stack.pop()
+            # For mutable borrow, push a mutable reference
+            self.stack.append(("borrow", value, True))  # True = mutable
+        
+        elif token.opcode == SuperBitOpCode.DROP:
+            if not self.stack:
+                raise RuntimeError("Stack underflow for DROP")
+            value = self.stack.pop()
+            # For explicit drop, decrement reference count
+            if isinstance(value, str) and value in self.reference_counts:
+                ref_value = self.reference_counts[value]
+                if ref_value.decrement_ref():
+                    # Reference count reached zero, actually drop the value
+                    del self.reference_counts[value]
+                    if value in self.variables:
+                        del self.variables[value]
+        
+        elif token.opcode == SuperBitOpCode.INC_REF:
+            # Increment reference count for a value
+            pass  # Implementation depends on specific memory management strategy
+        
+        elif token.opcode == SuperBitOpCode.DEC_REF:
+            # Decrement reference count for a value
+            pass  # Implementation depends on specific memory management strategy
+        
+        elif token.opcode == SuperBitOpCode.CHECK_BORROW:
+            # Check if a borrow is still valid
+            if not self.stack:
+                raise RuntimeError("Stack underflow for CHECK_BORROW")
+            borrow_info = self.stack.pop()
+            if isinstance(borrow_info, tuple) and borrow_info[0] == "borrow":
+                # Validate that the borrowed value still exists
+                original_value = borrow_info[1]
+                if isinstance(original_value, str) and original_value not in self.variables:
+                    raise RuntimeError("Dangling reference detected")
+        
+        else:
+            raise RuntimeError(f"Unknown opcode: {token.opcode}")

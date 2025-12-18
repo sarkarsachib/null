@@ -6,6 +6,9 @@ from ..ast.nodes import (
     ASTNode,
     Program,
     SetStatement,
+    LetBinding,
+    BorrowExpr,
+    DropStatement,
     BinaryOp,
     PrintStatement,
     IfStatement,
@@ -63,6 +66,27 @@ class SuperBitEmitter:
         """Emit tokens for variable assignment."""
         self._visit(node.value)
         self._emit(SuperBitOpCode.STORE_VAR, node.identifier, line=node.line)
+    
+    def _visit_LetBinding(self, node: LetBinding):
+        """Emit tokens for let binding."""
+        self._visit(node.value)
+        if node.pattern and isinstance(node.pattern, Identifier):
+            self._emit(SuperBitOpCode.STORE_VAR, node.pattern.name, line=node.line)
+    
+    def _visit_BorrowExpr(self, node: BorrowExpr):
+        """Emit tokens for borrow expression."""
+        self._visit(node.expr)
+        
+        # Choose appropriate borrow opcode
+        if node.mutable:
+            self._emit(SuperBitOpCode.BORROW_MUT, line=node.line)
+        else:
+            self._emit(SuperBitOpCode.BORROW_IMM, line=node.line)
+    
+    def _visit_DropStatement(self, node: DropStatement):
+        """Emit tokens for drop statement."""
+        self._visit(node.target)
+        self._emit(SuperBitOpCode.DROP, line=node.line)
 
     def _visit_BinaryOp(self, node: BinaryOp):
         """Emit tokens for binary operation."""

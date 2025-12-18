@@ -6,6 +6,10 @@ from ..ast.nodes import (
     ASTNode,
     Program,
     SetStatement,
+    LetBinding,
+    BorrowExpr,
+    LifetimeAnnotation,
+    DropStatement,
     BinaryOp,
     PrintStatement,
     IfStatement,
@@ -50,10 +54,44 @@ class Parser:
             return self._parse_print_statement()
         elif token.type == TokenType.IF:
             return self._parse_if_statement()
+        elif token.type == TokenType.LET:
+            return self._parse_let_binding()
+        elif token.type == TokenType.DROP:
+            return self._parse_drop_statement()
         elif token.type in [TokenType.ADD, TokenType.SUBTRACT, TokenType.MULTIPLY, TokenType.DIVIDE]:
             return self._parse_expression_statement()
         else:
             raise ParseError(f"Unexpected token: {token.value} at line {token.line}")
+    
+    def _parse_let_binding(self) -> LetBinding:
+        """Parse Rust-like let binding: let x = 5 or let mut x = 5"""
+        line = self._current().line
+        self._consume(TokenType.LET, "Expected 'let'")
+        
+        # Check for mutability
+        mutable = False
+        if self._current().type == TokenType.MUT:
+            self._advance()
+            mutable = True
+        
+        # Parse pattern (for now, just identifier)
+        pattern_token = self._consume(TokenType.IDENTIFIER, "Expected identifier in let binding")
+        pattern = Identifier(name=pattern_token.value, line=pattern_token.line)
+        
+        self._consume(TokenType.EQUALS, "Expected '=' in let binding")
+        
+        value = self._parse_expression()
+        
+        return LetBinding(pattern=pattern, mutable=mutable, value=value, line=line)
+    
+    def _parse_drop_statement(self) -> DropStatement:
+        """Parse explicit drop statement: drop variable"""
+        line = self._current().line
+        self._consume(TokenType.DROP, "Expected 'drop'")
+        
+        target = self._parse_expression()
+        
+        return DropStatement(target=target, line=line)
     
     def _parse_set_statement(self) -> SetStatement:
         """Parse: set x to 5"""
@@ -164,7 +202,7 @@ class Parser:
         return self._parse_primary()
     
     def _parse_primary(self) -> ASTNode:
-        """Parse primary expression (literal or identifier)."""
+        """Parse primary expression (literal, identifier, or borrow)."""
         token = self._current()
         
         if token.type == TokenType.NUMBER:
@@ -180,8 +218,27 @@ class Parser:
             self._advance()
             return Identifier(name=token.value, line=token.line)
         
+        elif token.type == TokenType.BORROW:
+            return self._parse_borrow_expression()
+        
         else:
             raise ParseError(f"Unexpected token: {token.value} at line {token.line}")
+    
+    def _parse_borrow_expression(self) -> BorrowExpr:
+        """Parse borrow expression: &var or &mut var"""
+        line = self._current().line
+        self._consume(TokenType.BORROW, "Expected '&'")
+        
+        # Check for mutability
+        mutable = False
+        if self._current().type == TokenType.MUT:
+            self._advance()
+            mutable = True
+        
+        # Parse the expression being borrowed
+        expr = self._parse_primary()
+        
+        return BorrowExpr(expr=expr, mutable=mutable, line=line)
     
     def _current(self) -> Token:
         """Get the current token."""

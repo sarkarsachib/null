@@ -94,6 +94,49 @@ Result type (Ok/Err):
 - Predicates: `result.IS_OK`, `result.IS_ERR`
 - Unwrap: `result.UNWRAP`, `result.UNWRAP_ERR`
 
+## Ownership and Memory Safety
+
+### Variable Binding and Ownership
+
+| AST Node | Super-Bit Token | Operand | Description |
+|----------|----------------|---------|-------------|
+| `LetBinding(identifier=x, mutable=true)` | `STORE_VAR` | x | Store variable with ownership metadata |
+| `LetBinding(identifier=x, mutable=false)` | `STORE_VAR` | x | Store immutable variable |
+
+**Pattern:** `[emit(value), STORE_VAR(var_name)]`
+
+### Borrowing
+
+| AST Node | Super-Bit Sequence | Description |
+|----------|-------------------|-------------|
+| `BorrowExpr(expr=x, mutable=false)` | `[LOAD_VAR(x), BORROW_IMM]` | Create immutable borrow |
+| `BorrowExpr(expr=x, mutable=true)` | `[LOAD_VAR(x), BORROW_MUT]` | Create mutable borrow |
+
+**Pattern:** `[emit(expr), BORROW_OP]`
+
+### Explicit Drop
+
+| AST Node | Super-Bit Sequence | Description |
+|----------|-------------------|-------------|
+| `DropStatement(target=x)` | `[LOAD_VAR(x), DROP]` | Explicitly drop variable |
+
+**Pattern:** `[emit(target), DROP]`
+
+### Reference Counting
+
+| AST Node | Super-Bit Sequence | Description |
+|----------|-------------------|-------------|
+| Variable creation | `[emit(value), STORE_VAR(x), INC_REF]` | Store and increment reference count |
+| Variable destruction | `[DEC_REF, DROP_VAR]` | Decrement reference count and drop |
+
+### Ownership Violation Detection
+
+Ownership analysis produces compile-time errors for:
+- **Double Mutable Borrow**: `let mut x = 1; let y = &mut x; let z = &mut x;`
+- **Borrow of Immutable Variable**: `let x = 1; let y = &mut x;`
+- **Use After Drop**: `let x = 1; drop x; print x;`
+- **Dangling Reference**: Borrowing from dropped variable
+
 ## Example Translations
 
 ### Example 1: Simple Assignment

@@ -57,6 +57,14 @@ class SuperBitOpCode(IntEnum):
     UNWRAP_UNION = 51
     MATCH_PATTERN = 52
 
+    # Ownership and memory safety opcodes
+    BORROW_IMM = 60    # Create immutable borrow
+    BORROW_MUT = 61    # Create mutable borrow
+    DROP = 62          # Explicitly drop a variable
+    INC_REF = 63       # Increment reference count
+    DEC_REF = 64       # Decrement reference count
+    CHECK_BORROW = 65  # Check borrow validity
+
     NOP = 255
 
 
