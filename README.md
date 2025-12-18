@@ -2,7 +2,7 @@
 
 A TypeScript implementation of a virtual machine that executes super-bit programs with support for instruction decoding, execution contexts, memory management, and binary frame emission.
 
-> **🚀 Null v2 in Development**: We're building the next generation of Null with modern language features including ownership system, pattern matching, async/await, SIMD, and more. See the [**Null v2 Language Specification**](docs/null_v2_language_spec.md) for the complete roadmap and blueprint.
+> **🚀 V10 Runtime in Development**: Advanced concurrent runtime with coroutines, channels, structured concurrency, and JIT/GC scaffolding. See the [**V10 Runtime Documentation**](docs/v10_runtime.md) for complete implementation details and Phase 5-10 roadmap.
 
 ## Features
 

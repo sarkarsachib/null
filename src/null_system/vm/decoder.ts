@@ -595,6 +595,77 @@ export class Decoder {
         return [timeHintMs];
       }
 
+      // V10 Runtime - Coroutines, channels, and structured concurrency
+      case OpCode.SPAWN_TASK: {
+        if (args.length < 2 || typeof args[0] !== 'string' || typeof args[1] !== 'string') {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'SPAWN_TASK requires two arguments: task_name (string) and function_name (string)',
+            { lineno, args }
+          );
+        }
+        return [args[0], args[1]];
+      }
+
+      case OpCode.AWAIT: {
+        if (args.length < 1 || typeof args[0] !== 'string') {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'AWAIT requires one argument: task_id (string)',
+            { lineno, args }
+          );
+        }
+        return [args[0]];
+      }
+
+      case OpCode.CHANNEL_NEW: {
+        if (args.length < 2 || typeof args[0] !== 'string' || typeof args[1] !== 'number') {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'CHANNEL_NEW requires two arguments: channel_id (string) and capacity (number)',
+            { lineno, args }
+          );
+        }
+        const capacity = this.parseNumber(args[1], lineno, 'CHANNEL_NEW capacity');
+        return [args[0], capacity];
+      }
+
+      case OpCode.CHANNEL_SEND: {
+        if (args.length < 2 || typeof args[0] !== 'string' || typeof args[1] !== 'string') {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'CHANNEL_SEND requires two arguments: channel_id (string) and value (string)',
+            { lineno, args }
+          );
+        }
+        return [args[0], args[1]];
+      }
+
+      case OpCode.CHANNEL_RECV: {
+        if (args.length < 2 || typeof args[0] !== 'string' || typeof args[1] !== 'string') {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'CHANNEL_RECV requires two arguments: channel_id (string) and result_var (string)',
+            { lineno, args }
+          );
+        }
+        return [args[0], args[1]];
+      }
+
+      case OpCode.SELECT: {
+        if (args.length < 2 || !Array.isArray(args[0]) || typeof args[1] !== 'string') {
+          throw createError(
+            ErrorType.InvalidInstruction,
+            'SELECT requires at least two arguments: operation_ids (array) and result_var (string)',
+            { lineno, args }
+          );
+        }
+        const operationIds = args[0];
+        const resultVar = args[1];
+        const timeoutMs = args[2] !== undefined ? this.parseNumber(args[2], lineno, 'SELECT timeout_ms') : undefined;
+        return [operationIds, resultVar, timeoutMs].filter(x => x !== undefined) as unknown[];
+      }
+
       default:
         throw createError(ErrorType.InvalidInstruction, `Unknown opcode: ${opcode}`, {
           lineno,

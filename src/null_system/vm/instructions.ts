@@ -61,6 +61,14 @@ export enum OpCode {
   APPLY_CONSTRAINT = 'APPLY_CONSTRAINT',
   SET_DEADLINE = 'SET_DEADLINE',
   TIME_HINT = 'TIME_HINT',
+
+  // V10 Runtime - Coroutines, channels, and structured concurrency
+  SPAWN_TASK = 'SPAWN_TASK',
+  AWAIT = 'AWAIT',
+  CHANNEL_NEW = 'CHANNEL_NEW',
+  CHANNEL_SEND = 'CHANNEL_SEND',
+  CHANNEL_RECV = 'CHANNEL_RECV',
+  SELECT = 'SELECT',
 }
 
 export interface InstructionMetadata {
@@ -193,6 +201,37 @@ export interface UnwrapUnionInstruction extends Instruction {
 export interface MatchPatternInstruction extends Instruction {
   opcode: OpCode.MATCH_PATTERN;
   args: [string];
+}
+
+// V10 Runtime instruction interfaces
+export interface SpawnTaskInstruction extends Instruction {
+  opcode: OpCode.SPAWN_TASK;
+  args: [string, string]; // taskName, functionName
+}
+
+export interface AwaitInstruction extends Instruction {
+  opcode: OpCode.AWAIT;
+  args: [string]; // taskId
+}
+
+export interface ChannelNewInstruction extends Instruction {
+  opcode: OpCode.CHANNEL_NEW;
+  args: [string, number]; // channelId, capacity
+}
+
+export interface ChannelSendInstruction extends Instruction {
+  opcode: OpCode.CHANNEL_SEND;
+  args: [string, string]; // channelId, value
+}
+
+export interface ChannelRecvInstruction extends Instruction {
+  opcode: OpCode.CHANNEL_RECV;
+  args: [string, string]; // channelId, resultVar
+}
+
+export interface SelectInstruction extends Instruction {
+  opcode: OpCode.SELECT;
+  args: [string[], string, number?]; // operationIds, resultVar, timeoutMs?
 }
 
 export function isValidOpCode(code: string): code is OpCode {
