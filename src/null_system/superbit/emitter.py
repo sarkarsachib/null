@@ -34,15 +34,22 @@ class SuperBitEmitter:
 
     def __init__(self):
         self.tokens: List[SuperBitIRToken] = []
+        self.current_module: str = "__main__"
+        self.imported_modules: dict = {}
 
     def emit(self, ast: ASTNode) -> SuperBitStream:
         """Emit Super-bit IR tokens from an AST."""
         self.tokens = []
+        self.current_module = "__main__"
+        self.imported_modules = {}
         self._visit(ast)
         return SuperBitStream(tokens=self.tokens)
 
-    def _emit(self, opcode: SuperBitOpCode, operand: object | None = None, *, line: int | None = None):
-        self.tokens.append(SuperBitIRToken(opcode=opcode, operand=operand, source_line=line))
+    def _emit(self, opcode: SuperBitOpCode, operand: object | None = None, *, line: int | None = None, metadata: dict | None = None):
+        final_metadata = metadata or {}
+        if self.current_module != "__main__":
+            final_metadata["module"] = self.current_module
+        self.tokens.append(SuperBitIRToken(opcode=opcode, operand=operand, source_line=line, metadata=final_metadata))
     
     def _visit(self, node: ASTNode):
         """Visit a node and emit appropriate tokens."""
@@ -56,6 +63,15 @@ class SuperBitEmitter:
     
     def _visit_Program(self, node: Program):
         """Emit tokens for a program."""
+        if hasattr(node, 'module_declaration') and node.module_declaration:
+            self.current_module = node.module_declaration.name.full_name
+        
+        if hasattr(node, 'imports'):
+            for import_stmt in node.imports:
+                module_name = import_stmt.module_name.full_name
+                alias = import_stmt.alias or module_name
+                self.imported_modules[alias] = module_name
+        
         for stmt in node.statements:
             self._visit(stmt)
     

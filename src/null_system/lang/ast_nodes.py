@@ -199,7 +199,9 @@ class NullLibAnnotation(ASTNode):
 @dataclass
 class Program(ASTNode):
     """Represents a complete program (top-level AST node)."""
-    statements: List[ASTNode]
+    module_declaration: Optional['ModuleDeclaration'] = None
+    imports: List['ImportStatement'] = field(default_factory=list)
+    statements: List[ASTNode] = field(default_factory=list)
 
 
 # Annotation Nodes
@@ -395,3 +397,40 @@ class ExceptionHandler(ASTNode):
     exception_type: Optional[str]
     var_name: Optional[str]
     body: List[ASTNode]
+
+
+# Module System Nodes
+
+@dataclass
+class QualifiedIdentifier(ASTNode):
+    """Represents a qualified identifier like math::add or std::io::println."""
+    parts: List[str]
+    
+    @property
+    def full_name(self) -> str:
+        """Return the full qualified name as a string."""
+        return "::".join(self.parts)
+    
+    @property
+    def module_path(self) -> List[str]:
+        """Return the module path (all parts except the last)."""
+        return self.parts[:-1] if len(self.parts) > 1 else []
+    
+    @property
+    def name(self) -> str:
+        """Return the final name component."""
+        return self.parts[-1] if self.parts else ""
+
+
+@dataclass
+class ModuleDeclaration(ASTNode):
+    """Represents a module declaration: module foo::bar."""
+    name: QualifiedIdentifier
+
+
+@dataclass
+class ImportStatement(ASTNode):
+    """Represents an import statement: import foo or import foo as bar."""
+    module_name: QualifiedIdentifier
+    alias: Optional[str] = None
+    annotations: List['Union[LayerAnnotation, RequireAnnotation, PreferAnnotation]'] = field(default_factory=list)

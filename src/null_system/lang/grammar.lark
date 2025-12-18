@@ -3,7 +3,15 @@
 
 ?start: program
 
-program: statement*
+program: module_header? import_section? statement*
+
+module_header: "module" module_name
+
+import_section: import_statement+
+
+import_statement: annotation* "import" module_name ("as" identifier)?
+
+module_name: NAME ("::" NAME)*
 
 ?statement: annotated_statement
           | comment
@@ -91,10 +99,11 @@ comparison_op: "IS" "NOT" -> is_not
        | "MINUS" factor -> negate_expr
 
 ?atom: literal
-     | identifier
      | member_access
      | function_call
      | legacy_null_lib_annotation
+     | qualified_name
+     | identifier
      | "(" expression ")"
 
 // Literals
@@ -127,7 +136,9 @@ member_access: atom "." identifier -> property_access
 
 // Function Calls
 
-function_call: "CALL" identifier ("WITH" argument_list)? -> call_func
+function_call: "CALL" qualified_name ("WITH" argument_list)? -> call_func
+             | "CALL" identifier ("WITH" argument_list)? -> call_func
+             | qualified_name "(" (argument_list)? ")" -> call_func_parens
              | identifier "(" (argument_list)? ")" -> call_func_parens
 
 argument_list: expression ("," expression)*
@@ -138,7 +149,9 @@ legacy_null_lib_annotation: "@" identifier "." identifier ("(" (argument_list)? 
 
 // Identifiers
 
-identifier: NAME
+qualified_name.2: NAME ("::" NAME)+
+
+identifier.1: NAME
 
 // Comments
 
