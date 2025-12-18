@@ -3,7 +3,7 @@
 import resource
 import time
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import List, Optional, TYPE_CHECKING
 
 from ..ast.nodes import Program
 from ..ast.validator import ASTValidator
@@ -16,6 +16,9 @@ from ..superbit.ir import SuperBitStream
 from ..binary.generator import BinaryFrame, BinaryGenerator
 from ..vm.vm import ExecutionResult, NullVM
 from .optimization import OptimizationPass
+
+if TYPE_CHECKING:
+    from ..config import FeatureConfig
 
 
 class CompilationError(Exception):
@@ -51,9 +54,11 @@ class NullCompiler:
         optimization_passes: Optional[List[OptimizationPass]] = None,
         *,
         syntax_config: Optional[SyntaxConfig] = None,
+        feature_config: Optional["FeatureConfig"] = None,
     ):
         self.optimization_passes = optimization_passes or []
         self.syntax_config = syntax_config or SyntaxConfig()
+        self.feature_config = feature_config
         self.hybrid_parser = HybridParser()
         self.validator = ASTValidator()
         self.emitter = SuperBitEmitter()
