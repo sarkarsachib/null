@@ -56,6 +56,11 @@ class SuperBitOpCode(IntEnum):
     MATCH_TAG = 50
     UNWRAP_UNION = 51
     MATCH_PATTERN = 52
+    
+    SAFE_CALL = 60
+    ELVIS_CHECK = 61
+    NOT_NULL_CHECK = 62
+    SMART_CAST = 63
 
     NOP = 255
 

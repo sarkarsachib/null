@@ -434,3 +434,78 @@ class ImportStatement(ASTNode):
     module_name: QualifiedIdentifier
     alias: Optional[str] = None
     annotations: List['Union[LayerAnnotation, RequireAnnotation, PreferAnnotation]'] = field(default_factory=list)
+
+
+# Type System Nodes - Phase 3-4
+
+@dataclass
+class TypeAnnotation(ASTNode):
+    """Represents an explicit type annotation: var: Type or var: Type?."""
+    type_name: str
+    is_nullable: bool = False
+    type_parameters: List['TypeAnnotation'] = field(default_factory=list)
+
+
+@dataclass
+class TypeAliasDeclaration(ASTNode):
+    """Represents a type alias: type UserId = number."""
+    name: str
+    target_type: TypeAnnotation
+
+
+@dataclass
+class DataClassDeclaration(ASTNode):
+    """Represents a data class: class data Point { x: number, y: number }."""
+    name: str
+    fields: List[tuple[str, TypeAnnotation]]
+    annotations: List['Union[LayerAnnotation, RequireAnnotation, PreferAnnotation]'] = field(default_factory=list)
+
+
+@dataclass
+class SealedTraitDeclaration(ASTNode):
+    """Represents a sealed trait: sealed trait Result<T, E> { Ok(T), Err(E) }."""
+    name: str
+    type_parameters: List[str]
+    variants: List[tuple[str, Optional[TypeAnnotation]]]
+    annotations: List['Union[LayerAnnotation, RequireAnnotation, PreferAnnotation]'] = field(default_factory=list)
+
+
+# Null-Safety Operators
+
+@dataclass
+class SafeCallExpression(ASTNode):
+    """Represents a safe call: obj?.method() or obj?.property."""
+    object: ASTNode
+    member: Union[str, ASTNode]
+    is_call: bool = False
+    arguments: List[ASTNode] = field(default_factory=list)
+
+
+@dataclass
+class ElvisExpression(ASTNode):
+    """Represents an elvis operator: value ?: default."""
+    left: ASTNode
+    right: ASTNode
+
+
+@dataclass
+class NotNullExpression(ASTNode):
+    """Represents a not-null assertion: value!!."""
+    value: ASTNode
+
+
+@dataclass
+class SmartCastExpression(ASTNode):
+    """Represents a smart cast in a condition: if (x is String) { ... }."""
+    value: ASTNode
+    target_type: str
+    body: Optional[List[ASTNode]] = None
+
+
+@dataclass
+class LetBindingExpression(ASTNode):
+    """Represents a let binding with type: let x: number = 42."""
+    name: str
+    type_annotation: Optional[TypeAnnotation] = None
+    value: Optional[ASTNode] = None
+    annotations: List['Union[LayerAnnotation, RequireAnnotation, PreferAnnotation]'] = field(default_factory=list)

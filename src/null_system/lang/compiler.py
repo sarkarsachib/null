@@ -51,6 +51,13 @@ from .ast_nodes import (
     ModuleDeclaration,
     ImportStatement,
     QualifiedIdentifier,
+    TypeAliasDeclaration,
+    DataClassDeclaration,
+    SealedTraitDeclaration,
+    SafeCallExpression,
+    ElvisExpression,
+    NotNullExpression,
+    LetBindingExpression,
 )
 from ..superbit.ir import SuperBitIRToken, SuperBitOpCode, SuperBitStream
 
@@ -355,6 +362,51 @@ class NullLangCompiler:
         if node.finally_block:
             for stmt in node.finally_block:
                 self._visit(stmt)
+    
+    def _visit_TypeAliasDeclaration(self, node: TypeAliasDeclaration) -> None:
+        """Emit tokens for type alias declaration."""
+        pass
+    
+    def _visit_DataClassDeclaration(self, node: DataClassDeclaration) -> None:
+        """Emit tokens for data class declaration."""
+        pass
+    
+    def _visit_SealedTraitDeclaration(self, node: SealedTraitDeclaration) -> None:
+        """Emit tokens for sealed trait declaration."""
+        pass
+    
+    def _visit_LetBindingExpression(self, node: LetBindingExpression) -> None:
+        """Emit tokens for let binding."""
+        if node.value:
+            self._visit(node.value)
+            self._emit(SuperBitOpCode.STORE_VAR, node.name)
+    
+    def _visit_SafeCallExpression(self, node: SafeCallExpression) -> None:
+        """Emit tokens for safe call (?.) expression."""
+        self._visit(node.object)
+        self._emit(SuperBitOpCode.SAFE_CALL, node.member)
+        
+        if node.is_call:
+            for arg in node.arguments:
+                self._visit(arg)
+    
+    def _visit_ElvisExpression(self, node: ElvisExpression) -> None:
+        """Emit tokens for elvis (?:) expression."""
+        self._visit(node.left)
+        self._emit(SuperBitOpCode.ELVIS_CHECK)
+        jump_idx = len(self.tokens)
+        self._emit(SuperBitOpCode.JUMP_IF_FALSE, 0)
+        
+        self._visit(node.right)
+        end_idx = len(self.tokens)
+        self.tokens[jump_idx] = SuperBitIRToken(
+            opcode=SuperBitOpCode.JUMP_IF_FALSE, operand=end_idx
+        )
+    
+    def _visit_NotNullExpression(self, node: NotNullExpression) -> None:
+        """Emit tokens for not-null assertion (!!)."""
+        self._visit(node.value)
+        self._emit(SuperBitOpCode.NOT_NULL_CHECK)
 
     def _apply_annotations(self, node: ASTNode) -> None:
         """Apply annotations from a statement to the current metadata."""
