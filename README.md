@@ -4,6 +4,8 @@ A TypeScript implementation of a virtual machine that executes super-bit program
 
 > **🚀 Null v2 in Development**: We're building the next generation of Null with modern language features including ownership system, pattern matching, async/await, SIMD, and more. See the [**Null v2 Language Specification**](docs/null_v2_language_spec.md) for the complete roadmap and blueprint.
 
+> **✨ New Feature - Syntax Transpiler**: Automatic translation between English, modern Rust, and Python syntaxes with learning annotations! Use `nullc transpile` to convert between syntaxes with educational comments.
+
 ## Features
 
 - **Instruction Set Support**: SET, ADD, SHOW, IF, REPEAT, DEFINE, CALL, RETURN, JMP, NOP, security opcodes, and AI opcodes
