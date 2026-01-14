@@ -24,6 +24,8 @@ from .knowledge.query_language import QueryEngine
 from .knowledge.inference import InferenceEngine, Rule, RuleType
 from .knowledge.external.wikidata import ExternalKnowledgeBase
 from .lsp import run_lsp_server
+from .lang.syntax_modes import SyntaxMode, SyntaxConfig, SyntaxPreprocessor
+from .config.project import discover_project_config
 
 app = typer.Typer(
     name="nullc",
@@ -43,6 +45,9 @@ def compile(
     compress: Optional[str] = typer.Option(None, "--compress", help="Compression level (low, medium, high)"),
     security_profile: Optional[str] = typer.Option(None, "--security-profile", help="Security profile (dev, prod)"),
     encryption_key_id: Optional[str] = typer.Option(None, "--key-id", help="Encryption key ID"),
+    syntax: Optional[str] = typer.Option(None, "--syntax", help="Syntax mode (english, modern, hybrid)"),
+    allow_hybrid: Optional[bool] = typer.Option(None, "--allow-hybrid/--no-allow-hybrid", help="Allow hybrid mode"),
+    english_warnings: bool = typer.Option(False, "--english-warnings", help="Show warnings for English syntax"),
 ):
     """Compile a Null-Lang source file."""
     try:
@@ -53,6 +58,47 @@ def compile(
         source = file.read_text()
         
         console.print(f"[cyan]Compiling {file}...[/cyan]")
+        
+        # Load project configuration
+        project_config = discover_project_config(file.parent)
+        
+        # Resolve syntax mode with precedence: CLI > @syntax directive > project default
+        cli_mode = None
+        if syntax:
+            try:
+                cli_mode = SyntaxMode(syntax.lower())
+            except ValueError:
+                console.print(f"[red]Invalid syntax mode '{syntax}'. Valid modes: english, modern, hybrid[/red]")
+                raise typer.Exit(1)
+        
+        # Initialize preprocessor with project config
+        preprocessor = SyntaxPreprocessor()
+        if project_config:
+            preprocessor.config = project_config.get_syntax_config()
+        
+        # Resolve final syntax configuration
+        syntax_config = preprocessor.resolve_mode(
+            source=source,
+            cli_mode=cli_mode,
+            project_mode=project_config.default_syntax if project_config else None
+        )
+        
+        # Apply CLI overrides
+        if allow_hybrid is not None:
+            syntax_config.allow_hybrid = allow_hybrid
+        if english_warnings is not None:
+            syntax_config.english_warnings = english_warnings
+        
+        # Validate the resolved mode
+        error = preprocessor.validate_mode(syntax_config.mode)
+        if error:
+            console.print(f"[red]Syntax mode error: {error}[/red]")
+            raise typer.Exit(1)
+        
+        # Display resolved syntax mode
+        console.print(f"[green]Using syntax mode: {syntax_config.mode.value}[/green]")
+        if syntax_config.mode != SyntaxMode.ENGLISH:
+            console.print(f"[blue]Hybrid allowed: {syntax_config.allow_hybrid}, English warnings: {syntax_config.english_warnings}[/blue]")
         
         optimization_passes = []
         if optimize:
@@ -67,7 +113,7 @@ def compile(
                 raise typer.Exit(1)
         
         compiler = NullCompiler(optimization_passes=optimization_passes)
-        artifact = compiler.compile(source)
+        artifact = compiler.compile(source, syntax_config=syntax_config)
         
         if security_profile and security_profile.lower() in ["dev", "prod"]:
             try:
@@ -145,6 +191,9 @@ def run(
     compress: Optional[str] = typer.Option(None, "--compress", help="Compression level (low, medium, high)"),
     security_profile: Optional[str] = typer.Option(None, "--security-profile", help="Security profile (dev, prod)"),
     encryption_key_id: Optional[str] = typer.Option(None, "--key-id", help="Encryption key ID"),
+    syntax: Optional[str] = typer.Option(None, "--syntax", help="Syntax mode (english, modern, hybrid)"),
+    allow_hybrid: Optional[bool] = typer.Option(None, "--allow-hybrid/--no-allow-hybrid", help="Allow hybrid mode"),
+    english_warnings: bool = typer.Option(False, "--english-warnings", help="Show warnings for English syntax"),
 ):
     """Compile and run a Null-Lang source file."""
     try:
@@ -156,6 +205,45 @@ def run(
         
         if verbose:
             console.print(f"[cyan]Compiling and running {file}...[/cyan]\n")
+        
+        # Load project configuration
+        project_config = discover_project_config(file.parent)
+        
+        # Resolve syntax mode with precedence: CLI > @syntax directive > project default
+        cli_mode = None
+        if syntax:
+            try:
+                cli_mode = SyntaxMode(syntax.lower())
+            except ValueError:
+                console.print(f"[red]Invalid syntax mode '{syntax}'. Valid modes: english, modern, hybrid[/red]")
+                raise typer.Exit(1)
+        
+        # Initialize preprocessor with project config
+        preprocessor = SyntaxPreprocessor()
+        if project_config:
+            preprocessor.config = project_config.get_syntax_config()
+        
+        # Resolve final syntax configuration
+        syntax_config = preprocessor.resolve_mode(
+            source=source,
+            cli_mode=cli_mode,
+            project_mode=project_config.default_syntax if project_config else None
+        )
+        
+        # Apply CLI overrides
+        if allow_hybrid is not None:
+            syntax_config.allow_hybrid = allow_hybrid
+        if english_warnings is not None:
+            syntax_config.english_warnings = english_warnings
+        
+        # Validate the resolved mode
+        error = preprocessor.validate_mode(syntax_config.mode)
+        if error:
+            console.print(f"[red]Syntax mode error: {error}[/red]")
+            raise typer.Exit(1)
+        
+        if verbose:
+            console.print(f"[green]Using syntax mode: {syntax_config.mode.value}[/green]")
         
         optimization_passes = []
         if optimize:
@@ -172,6 +260,7 @@ def run(
         compiler = NullCompiler(optimization_passes=optimization_passes)
         result = compiler.compile_and_run(
             source,
+            syntax_config=syntax_config,
             security_profile=security_profile,
             encryption_key_id=encryption_key_id
         )
@@ -220,6 +309,9 @@ def visualize(
     frontend_port: int = typer.Option(5174, "--frontend-port", help="Frontend port"),
     demo: bool = typer.Option(False, "--demo", help="Use bundled sample session data"),
     open_browser: bool = typer.Option(True, "--open/--no-open", help="Open a browser tab"),
+    syntax: Optional[str] = typer.Option(None, "--syntax", help="Syntax mode (english, modern, hybrid)"),
+    allow_hybrid: Optional[bool] = typer.Option(None, "--allow-hybrid/--no-allow-hybrid", help="Allow hybrid mode"),
+    english_warnings: bool = typer.Option(False, "--english-warnings", help="Show warnings for English syntax"),
 ):
     """Launch the execution visualizer (backend + React UI)."""
 
