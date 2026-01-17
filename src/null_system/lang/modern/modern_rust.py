@@ -31,11 +31,12 @@ class ModernRustTransformer(Transformer):
 
     def _get_span(self, meta) -> SourceSpan:
         """Extract source span from Lark meta information."""
+        from ..ast_nodes import SyntaxMode
         if hasattr(meta, 'line') and hasattr(meta, 'column'):
             text = getattr(meta, 'value', '')
             end_line = meta.line
             end_col = meta.column + len(str(text))
-            return SourceSpan(meta.line, meta.column, end_line, end_col, str(text))
+            return SourceSpan(meta.line, meta.column, end_line, end_col, str(text), syntax_mode=SyntaxMode.modern)
         elif hasattr(meta, 'start_pos') and hasattr(meta, 'end_pos'):
             lines = self.source[:meta.start_pos].split('\n')
             start_line = len(lines)
@@ -46,8 +47,8 @@ class ModernRustTransformer(Transformer):
             end_col = len(lines[-1]) + 1 if lines else 1
 
             text = self.source[meta.start_pos:meta.end_pos]
-            return SourceSpan(start_line, start_col, end_line, end_col, text)
-        return SourceSpan(0, 0, 0, 0)
+            return SourceSpan(start_line, start_col, end_line, end_col, text, syntax_mode=SyntaxMode.modern)
+        return SourceSpan(0, 0, 0, 0, syntax_mode=SyntaxMode.modern)
 
     # Program
     def program(self, items):
@@ -329,7 +330,12 @@ class ModernRustParser:
         """Parse a single Rust-like statement."""
         try:
             # Wrap the statement in a program for parsing
-            wrapped_source = source if source.strip().endswith(';') else source + ';'
+            # Only add semicolon if it's not a block statement and doesn't already have one
+            stripped = source.strip()
+            wrapped_source = source
+            if not (stripped.endswith('}') or stripped.endswith(';') or not stripped):
+                wrapped_source = source + ';'
+                
             tree = self.lark.parse(wrapped_source)
             transformer = ModernRustTransformer(wrapped_source)
             result = transformer.transform(tree)

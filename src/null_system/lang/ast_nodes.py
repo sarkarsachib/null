@@ -13,21 +13,38 @@ from enum import Enum
 class SourceSpan:
     """Represents a location in the source code."""
     
-    def __init__(self, start_line: int, start_col: int, end_line: int, end_col: int, text: str = ""):
+    def __init__(self, start_line: int, start_col: int, end_line: int, end_col: int, text: str = "", syntax_mode: Optional['SyntaxMode'] = None):
         self.start_line = start_line
         self.start_col = start_col
         self.end_line = end_line
         self.end_col = end_col
         self.text = text
+        self.syntax_mode = syntax_mode
     
     def __repr__(self):
         return f"SourceSpan({self.start_line}:{self.start_col}-{self.end_line}:{self.end_col})"
 
 
+class SyntaxMode(str, Enum):
+    """Syntax mode for a statement or expression."""
+    english = "english"
+    modern = "modern"
+    hybrid = "hybrid"
+    auto = "auto"
+
+
+class OutputMode(Enum):
+    """Output modes for HybridDynamicParser."""
+    AUTO = "auto"
+    SEMI_AUTO = "semi_auto"
+    MANUAL = "manual"
+
+
 class ASTNode:
     """Base class for all AST nodes."""
-    def __init__(self, span: Optional[SourceSpan] = None):
+    def __init__(self, span: Optional[SourceSpan] = None, syntax_mode: Optional[SyntaxMode] = None):
         self.span = span
+        self.syntax_mode = syntax_mode
 
 
 # Literal Nodes

@@ -7,14 +7,7 @@ from typing import Iterable, Optional
 
 from .errors import LexerError, NullLangError, SyntaxError
 from .parser import NullLangParser
-from .ast_nodes import SourceSpan
-
-
-class SyntaxMode(str, Enum):
-    english = "english"
-    modern = "modern"
-    hybrid = "hybrid"
-    auto = "auto"
+from .ast_nodes import SourceSpan, SyntaxMode, OutputMode
 
 
 @dataclass(frozen=True)
@@ -54,14 +47,28 @@ class ParserDispatcher:
 
     def check(self, source: str, mode: SyntaxMode) -> tuple[SyntaxMode, list[DiagnosticIssue]]:
         if mode == SyntaxMode.auto:
-            mode = SyntaxAdvisor().detect_mode(source)
+            from .hybrid_dynamic_parser import HybridDynamicParser, OutputMode
+            try:
+                HybridDynamicParser().parse(source, OutputMode.AUTO)
+                return mode, []
+            except (SyntaxError, LexerError) as e:
+                return mode, [DiagnosticIssue(message=e.message, span=e.span, source="auto")]
+            except Exception as e:
+                return mode, [DiagnosticIssue(message=str(e), span=None, source="auto")]
 
         if mode == SyntaxMode.english:
             return mode, list(check_english(source, self.english_parser))
         if mode == SyntaxMode.modern:
             return mode, list(check_modern(source))
         if mode == SyntaxMode.hybrid:
-            return mode, list(check_hybrid(source, self.english_parser))
+            from .hybrid_dynamic_parser import HybridDynamicParser, OutputMode
+            try:
+                HybridDynamicParser().parse(source, OutputMode.AUTO)
+                return mode, []
+            except (SyntaxError, LexerError) as e:
+                return mode, [DiagnosticIssue(message=e.message, span=e.span, source="hybrid")]
+            except Exception as e:
+                return mode, [DiagnosticIssue(message=str(e), span=None, source="hybrid")]
         return mode, [DiagnosticIssue(message=f"Unknown syntax mode: {mode}")]
 
 

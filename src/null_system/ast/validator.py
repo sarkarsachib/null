@@ -32,6 +32,7 @@ class ASTValidator:
         self.type_inference = type_inference
         self.sealed_classes: Dict[str, List[str]] = {}
         self.data_classes: Dict[str, Dict[str, str]] = {}
+        self.current_syntax_mode: Optional[Any] = None
     
     def validate(self, node: ASTNode) -> bool:
         """Validate an AST node and its children."""
@@ -56,9 +57,15 @@ class ASTValidator:
     
     def _visit(self, node: ASTNode):
         """Visit a node and dispatch to appropriate handler."""
+        old_mode = self.current_syntax_mode
+        if hasattr(node, "syntax_mode") and node.syntax_mode:
+            self.current_syntax_mode = node.syntax_mode
+
         method_name = f"_visit_{node.__class__.__name__}"
         method = getattr(self, method_name, self._visit_generic)
         method(node)
+
+        self.current_syntax_mode = old_mode
     
     def _visit_generic(self, node: ASTNode):
         """Generic visitor for unknown nodes."""
