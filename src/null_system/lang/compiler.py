@@ -70,6 +70,7 @@ class NullLangCompiler:
         self.current_metadata: Dict[str, Any] = {}
         self.current_module: str = "__main__"
         self.imported_modules: Dict[str, str] = {}
+        self.current_syntax_mode: Optional[str] = None
 
     def compile(self, ast: ASTNode) -> SuperBitStream:
         """Compile an AST node to a Super-Bit IR stream.
@@ -97,6 +98,8 @@ class NullLangCompiler:
         token_metadata = self.current_metadata.copy()
         if self.current_module != "__main__":
             token_metadata["module"] = self.current_module
+        if self.current_syntax_mode:
+            token_metadata["syntax_mode"] = self.current_syntax_mode
         if metadata:
             token_metadata.update(metadata)
 
@@ -105,9 +108,15 @@ class NullLangCompiler:
 
     def _visit(self, node: ASTNode) -> None:
         """Visit a node and emit appropriate tokens."""
+        old_mode = self.current_syntax_mode
+        if hasattr(node, "syntax_mode") and node.syntax_mode:
+            self.current_syntax_mode = node.syntax_mode.value
+
         method_name = f"_visit_{node.__class__.__name__}"
         method = getattr(self, method_name, self._visit_generic)
         method(node)
+
+        self.current_syntax_mode = old_mode
 
     def _visit_generic(self, node: ASTNode) -> None:
         """Generic visitor for unknown nodes."""

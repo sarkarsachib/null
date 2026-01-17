@@ -19,8 +19,12 @@ from .ast_nodes import (
     MatchExpression, MatchArm, Pattern, WildcardPattern, LiteralPattern, IdentifierPattern,
     BorrowCommand, AsyncFunction, AwaitExpression,
     TraitDefinition, TraitMethod, ImplBlock, ImplMethod,
-    PrintCommand, ClassDefinition, TryStatement, ExceptionHandler
+    PrintCommand, ClassDefinition, TryStatement, ExceptionHandler,
+    TypeAnnotation, TypeAliasDeclaration, DataClassDeclaration, SealedTraitDeclaration,
+    SafeCallExpression, ElvisExpression, NotNullExpression, SmartCastExpression, LetBindingExpression,
+    SyntaxMode, OutputMode
 )
+from .hybrid_dynamic_parser import HybridDynamicParser
 from .compiler import NullLangCompiler, compile_program
 from .errors import NullLangError, SyntaxError, SemanticError, LexerError
 from .syntax_router import SyntaxMode, SyntaxAdvisor, ParserDispatcher, HybridParser, DiagnosticIssue
@@ -42,7 +46,10 @@ __all__ = [
     'BorrowCommand', 'AsyncFunction', 'AwaitExpression',
     'TraitDefinition', 'TraitMethod', 'ImplBlock', 'ImplMethod',
     'PrintCommand', 'ClassDefinition', 'TryStatement', 'ExceptionHandler',
+    'TypeAnnotation', 'TypeAliasDeclaration', 'DataClassDeclaration', 'SealedTraitDeclaration',
+    'SafeCallExpression', 'ElvisExpression', 'NotNullExpression', 'SmartCastExpression', 'LetBindingExpression',
     'NullLangError', 'SyntaxError', 'SemanticError', 'LexerError',
-    'SyntaxMode', 'SyntaxAdvisor', 'ParserDispatcher', 'HybridParser', 'DiagnosticIssue',
+    'SyntaxMode', 'OutputMode', 'HybridDynamicParser',
+    'SyntaxAdvisor', 'ParserDispatcher', 'HybridParser', 'DiagnosticIssue',
     'to_english', 'to_modern',
 ]

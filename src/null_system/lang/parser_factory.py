@@ -9,9 +9,8 @@ from typing import Union
 from enum import Enum
 
 from .parser import NullLangParser, parse, parse_statement
-from .syntax_router import SyntaxMode
+from .ast_nodes import Program, ASTNode, SyntaxMode, OutputMode
 from .modern import ModernRustParser, ModernPythonParser
-from .ast_nodes import Program, ASTNode
 
 
 class ParserFactory:
@@ -42,8 +41,23 @@ class ParserFactory:
             return self.rust_parser.parse(source)
         elif mode == "python":
             return self.python_parser.parse(source)
+        elif mode == SyntaxMode.auto or mode == SyntaxMode.hybrid:
+            return self.parse_dynamic(source, OutputMode.AUTO)
         else:
             raise ValueError(f"Unknown syntax mode: {mode}")
+
+    def parse_dynamic(self, source: str, mode: OutputMode = OutputMode.AUTO) -> Program:
+        """Parse source code using HybridDynamicParser with the specified output mode.
+
+        Args:
+            source: Source code to parse
+            mode: OutputMode for dynamic switching
+
+        Returns:
+            A Program AST node
+        """
+        from .hybrid_dynamic_parser import HybridDynamicParser
+        return HybridDynamicParser().parse(source, mode)
 
     def parse_statement(self, source: str, mode: SyntaxMode) -> ASTNode:
         """Parse a single statement in the specified syntax mode.

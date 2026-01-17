@@ -33,12 +33,13 @@ class NullLangTransformer(Transformer):
     
     def _get_span(self, meta) -> SourceSpan:
         """Extract source span from Lark meta information."""
+        from .ast_nodes import SyntaxMode
         if hasattr(meta, 'line') and hasattr(meta, 'column'):
             # For tokens
             text = getattr(meta, 'value', '')
             end_line = meta.line
             end_col = meta.column + len(str(text))
-            return SourceSpan(meta.line, meta.column, end_line, end_col, str(text))
+            return SourceSpan(meta.line, meta.column, end_line, end_col, str(text), syntax_mode=SyntaxMode.english)
         elif hasattr(meta, 'start_pos') and hasattr(meta, 'end_pos'):
             # For tree nodes
             lines = self.source[:meta.start_pos].split('\n')
@@ -50,8 +51,8 @@ class NullLangTransformer(Transformer):
             end_col = len(lines[-1]) + 1 if lines else 1
             
             text = self.source[meta.start_pos:meta.end_pos]
-            return SourceSpan(start_line, start_col, end_line, end_col, text)
-        return SourceSpan(0, 0, 0, 0)
+            return SourceSpan(start_line, start_col, end_line, end_col, text, syntax_mode=SyntaxMode.english)
+        return SourceSpan(0, 0, 0, 0, syntax_mode=SyntaxMode.english)
     
     # Program
     
