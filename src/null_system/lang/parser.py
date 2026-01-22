@@ -13,7 +13,7 @@ from .ast_nodes import (
     ASTNode, Program, SourceSpan,
     TextLiteral, NumLiteral, BoolLiteral, ArrayLiteral, ObjectLiteral,
     Identifier, MemberAccess,
-    SetCommand, AddCommand, IfCommand, ShowCommand, RepeatCommand, DefineCommand,
+    SetCommand, AddCommand, IfCommand, ShowCommand, RepeatCommand, DefineCommand, ReturnCommand,
     BinaryExpression, UnaryExpression, ComparisonExpression, BinaryOperator, UnaryOperator,
     FunctionCall, NullLibAnnotation, Comment,
     LayerAnnotation, RequireAnnotation, PreferAnnotation,
@@ -238,6 +238,9 @@ class NullLangTransformer(Transformer):
             body = items[param_idx] if isinstance(items[param_idx], list) else [items[param_idx]]
         
         return DefineCommand(name=name, parameters=parameters, body=body)
+    
+    def return_cmd(self, items):
+        return ReturnCommand(value=items[0])
     
     def block(self, items):
         return list(items)

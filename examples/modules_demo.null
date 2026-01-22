@@ -1,0 +1,6 @@
+module myapp::main
+import std::math
+
+SET x TO 10
+SET y TO 20
+SHOW "Result: " + (x + y)

@@ -1,0 +1,9 @@
+module std::math
+
+DEFINE add_numbers WITH x, y
+    SHOW "Adding " + x + " and " + y
+    RETURN x + y
+END DEFINE
+
+SET result TO add_numbers(5, 3)
+SHOW result

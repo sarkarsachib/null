@@ -1,0 +1,7 @@
+SET user_email TO "test@example.com"
+SET user_email TO null
+
+SHOW user_email?. length
+
+SET fallback TO user_email ?: "no-email"
+SHOW fallback
