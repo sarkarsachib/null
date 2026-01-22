@@ -28,6 +28,7 @@ annotated_statement: annotation* base_statement -> attach_annotations
                | show_statement
                | repeat_statement
                | define_statement
+               | return_statement
                | expression_statement
 
 // Annotations
@@ -82,6 +83,8 @@ repeat_statement: "REPEAT" atom "TIMES" block "END" "REPEAT" -> repeat_cmd
 
 define_statement: "DEFINE" identifier ("WITH" parameter_list)? block "END" "DEFINE" -> define_cmd
 
+return_statement: "RETURN" expression -> return_cmd
+
 expression_statement: expression
 
 block: statement+
@@ -102,8 +105,10 @@ parameter_list: identifier ("," identifier)*
                       | arithmetic_expression comparison_op arithmetic_expression
 
 ?arithmetic_expression: not_expression
-                      | arithmetic_expression "PLUS" not_expression -> add_expr
-                      | arithmetic_expression "MINUS" not_expression -> subtract_expr
+                       | arithmetic_expression "PLUS" not_expression -> add_expr
+                       | arithmetic_expression "+" not_expression -> add_expr
+                       | arithmetic_expression "MINUS" not_expression -> subtract_expr
+                       | arithmetic_expression "-" not_expression -> subtract_expr
 
 ?not_expression: term
                | "NOT" term -> not_expr
@@ -116,13 +121,22 @@ comparison_op: "IS" "NOT" -> is_not
              | "IS" -> is_equal
              | "EQUALS" -> equals
              | "NOT" "EQUALS" -> not_equals
+             | "==" -> is_equal
+             | "!=" -> not_equals
+             | ">" -> is_greater
+             | "<" -> is_less
+             | ">=" -> is_greater_equal
+             | "<=" -> is_less_equal
 
 ?term: factor
      | term "TIMES" factor -> multiply_expr
+     | term "*" factor -> multiply_expr
      | term "DIVIDED" "BY" factor -> divide_expr
+     | term "/" factor -> divide_expr
 
 ?factor: atom
        | "MINUS" factor -> negate_expr
+       | "-" factor -> negate_expr
 
 ?atom: literal
      | safe_call_expr

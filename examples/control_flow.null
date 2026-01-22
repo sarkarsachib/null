@@ -1,0 +1,8 @@
+SET counter TO 0
+REPEAT 5 TIMES
+    IF counter < 3
+        THEN SHOW "Counter: " + counter
+        ELSE SHOW "Done"
+    END IF
+    SET counter TO counter + 1
+END REPEAT

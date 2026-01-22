@@ -1,0 +1,9 @@
+SET number_val TO 42
+SET string_val TO "Hello"
+SET bool_val TO TRUE
+SET array_val TO [1, 2, 3]
+
+SHOW number_val
+SHOW string_val
+SHOW bool_val
+SHOW array_val

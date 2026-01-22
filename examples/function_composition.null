@@ -1,0 +1,12 @@
+DEFINE square WITH n
+    RETURN n * n
+END DEFINE
+
+DEFINE add_one WITH n
+    RETURN n + 1
+END DEFINE
+
+SET x TO 5
+SET x TO square(x)
+SET x TO add_one(x)
+SHOW x
