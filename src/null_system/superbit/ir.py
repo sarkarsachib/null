@@ -49,6 +49,11 @@ class SuperBitOpCode(IntEnum):
     COMPARE_EQ = 22
 
     PRINT = 30
+    INPUT = 31
+    FILE_READ = 32
+    FILE_WRITE = 33
+    FILE_EXISTS = 34
+    LIST_FILES = 35
 
     JUMP_IF_FALSE = 40
     JUMP = 41
