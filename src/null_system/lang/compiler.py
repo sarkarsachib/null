@@ -13,6 +13,11 @@ from .ast_nodes import (
     SetCommand,
     AddCommand,
     ShowCommand,
+    InputCommand,
+    FileReadCommand,
+    FileWriteCommand,
+    FileExistsCommand,
+    ListFilesCommand,
     IfCommand,
     RepeatCommand,
     DefineCommand,
@@ -155,6 +160,46 @@ class NullLangCompiler:
         self._apply_annotations(node)
         self._visit(node.value)
         self._emit(SuperBitOpCode.PRINT)
+
+    def _visit_InputCommand(self, node: InputCommand) -> None:
+        """Emit tokens for INPUT command."""
+        self._apply_annotations(node)
+        if node.prompt:
+            self._visit(node.prompt)
+            self._emit(SuperBitOpCode.PRINT)
+        self._emit(SuperBitOpCode.INPUT)
+        self._emit(SuperBitOpCode.STORE_VAR, node.variable)
+
+    def _visit_FileReadCommand(self, node: FileReadCommand) -> None:
+        """Emit tokens for READ_FILE command."""
+        self._apply_annotations(node)
+        self._visit(node.path)
+        self._emit(SuperBitOpCode.FILE_READ)
+        if node.target:
+            self._emit(SuperBitOpCode.STORE_VAR, node.target)
+
+    def _visit_FileWriteCommand(self, node: FileWriteCommand) -> None:
+        """Emit tokens for WRITE_FILE command."""
+        self._apply_annotations(node)
+        self._visit(node.path)
+        self._visit(node.content)
+        self._emit(SuperBitOpCode.FILE_WRITE)
+
+    def _visit_FileExistsCommand(self, node: FileExistsCommand) -> None:
+        """Emit tokens for FILE_EXISTS command."""
+        self._apply_annotations(node)
+        self._visit(node.path)
+        self._emit(SuperBitOpCode.FILE_EXISTS)
+        if node.target:
+            self._emit(SuperBitOpCode.STORE_VAR, node.target)
+
+    def _visit_ListFilesCommand(self, node: ListFilesCommand) -> None:
+        """Emit tokens for LIST_FILES command."""
+        self._apply_annotations(node)
+        self._visit(node.path)
+        self._emit(SuperBitOpCode.LIST_FILES)
+        if node.target:
+            self._emit(SuperBitOpCode.STORE_VAR, node.target)
 
     def _visit_IfCommand(self, node: IfCommand) -> None:
         """Emit tokens for IF command."""

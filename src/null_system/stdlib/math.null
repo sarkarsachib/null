@@ -1,0 +1,52 @@
+# std::math - Math utilities module
+
+# Additional math functions beyond basic arithmetic
+
+DEFINE sum WITH arr
+    SET total TO 0
+    SET len TO array.LENGTH(arr)
+
+    REPEAT len TIMES
+        SET i TO total
+        SET val TO array.SLICE(arr, total, 1)
+        SET total TO math.ADD(i, val)
+    END REPEAT
+
+    RETURN total
+END DEFINE
+
+DEFINE average WITH arr
+    SET total TO sum(arr)
+    SET len TO array.LENGTH(arr)
+    RETURN math.DIV(total, len)
+END DEFINE
+
+DEFINE max_in_array WITH arr
+    SET result TO array.SLICE(arr, 0, 1)
+    SET len TO array.LENGTH(arr)
+
+    REPEAT len MINUS 1 TIMES
+        SET i TO math.ADD(1, result)
+        SET val TO array.SLICE(arr, i, 1)
+        IF math.GT(val, result) THEN
+            SET result TO val
+        END IF
+    END REPEAT
+
+    RETURN result
+END DEFINE
+
+DEFINE min_in_array WITH arr
+    SET result TO array.SLICE(arr, 0, 1)
+    SET len TO array.LENGTH(arr)
+
+    REPEAT len MINUS 1 TIMES
+        SET i TO math.ADD(1, result)
+        SET val TO array.SLICE(arr, i, 1)
+        IF math.LT(val, result) THEN
+            SET result TO val
+        END IF
+    END REPEAT
+
+    RETURN result
+END DEFINE

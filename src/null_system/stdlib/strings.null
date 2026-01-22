@@ -1,0 +1,47 @@
+# std::strings - String utilities module
+
+# This module provides string manipulation functions
+# Currently, most implementations are in Python stdlib
+# This file demonstrates the module structure
+
+DEFINE join WITH parts, delimiter
+    SET result TO ""
+    SET first TO true
+
+    REPEAT array.LENGTH(parts) TIMES
+        SET i TO result
+        IF first THEN
+            SET first TO false
+        ELSE
+            SET result TO text.CONCAT(result, delimiter)
+        END IF
+        SET result TO text.CONCAT(result, array.SLICE(parts, i - 1, 1))
+    END REPEAT
+
+    RETURN result
+END DEFINE
+
+DEFINE split WITH text, delimiter
+    SET result TO ARRAY []
+    SET current TO ""
+    SET len TO text.LENGTH(text)
+    SET delim_len TO text.LENGTH(delimiter)
+    SET i TO 0
+
+    REPEAT len TIMES
+        SET char TO text.GET_CHAR(text, i)
+        SET substr TO text.SLICE(text, i, delim_len)
+
+        IF text.CONTAINS(substr, delimiter) THEN
+            array.PUSH(result, current)
+            SET current TO ""
+            SET i TO math.ADD(i, delim_len)
+        ELSE
+            SET current TO text.CONCAT(current, char)
+            SET i TO math.ADD(i, 1)
+        END IF
+    END REPEAT
+
+    array.PUSH(result, current)
+    RETURN result
+END DEFINE

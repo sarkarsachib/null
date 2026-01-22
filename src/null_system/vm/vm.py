@@ -193,7 +193,53 @@ class NullVM:
             value = self.stack.pop()
             output_str = str(value)
             self.output.append(output_str)
-        
+
+        elif token.opcode == SuperBitOpCode.INPUT:
+            import sys
+            line = sys.stdin.readline()
+            self.stack.append(line.rstrip('\n'))
+
+        elif token.opcode == SuperBitOpCode.FILE_READ:
+            if not self.stack:
+                raise RuntimeError("Stack underflow for FILE_READ")
+            path = self.stack.pop()
+            try:
+                with open(str(path), 'r') as f:
+                    content = f.read()
+                self.stack.append(content)
+            except Exception as e:
+                raise RuntimeError(f"Failed to read file '{path}': {e}")
+
+        elif token.opcode == SuperBitOpCode.FILE_WRITE:
+            if len(self.stack) < 2:
+                raise RuntimeError("Stack underflow for FILE_WRITE")
+            content = self.stack.pop()
+            path = self.stack.pop()
+            try:
+                with open(str(path), 'w') as f:
+                    f.write(str(content))
+                self.stack.append(True)
+            except Exception as e:
+                raise RuntimeError(f"Failed to write file '{path}': {e}")
+
+        elif token.opcode == SuperBitOpCode.FILE_EXISTS:
+            if not self.stack:
+                raise RuntimeError("Stack underflow for FILE_EXISTS")
+            path = self.stack.pop()
+            import os
+            self.stack.append(os.path.exists(str(path)))
+
+        elif token.opcode == SuperBitOpCode.LIST_FILES:
+            if not self.stack:
+                raise RuntimeError("Stack underflow for LIST_FILES")
+            path = self.stack.pop()
+            import os
+            try:
+                files = os.listdir(str(path))
+                self.stack.append(files)
+            except Exception as e:
+                raise RuntimeError(f"Failed to list directory '{path}': {e}")
+
         elif token.opcode == SuperBitOpCode.JUMP_IF_FALSE:
             condition = self.stack.pop()
             if not condition:

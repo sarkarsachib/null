@@ -13,7 +13,9 @@ from .ast_nodes import (
     ASTNode, Program, SourceSpan,
     TextLiteral, NumLiteral, BoolLiteral, ArrayLiteral, ObjectLiteral,
     Identifier, MemberAccess,
-    SetCommand, AddCommand, IfCommand, ShowCommand, RepeatCommand, DefineCommand, ReturnCommand,
+    SetCommand, AddCommand, IfCommand, ShowCommand, InputCommand,
+    FileReadCommand, FileWriteCommand, FileExistsCommand, ListFilesCommand,
+    RepeatCommand, DefineCommand, ReturnCommand,
     BinaryExpression, UnaryExpression, ComparisonExpression, BinaryOperator, UnaryOperator,
     FunctionCall, NullLibAnnotation, Comment,
     LayerAnnotation, RequireAnnotation, PreferAnnotation,
@@ -217,7 +219,32 @@ class NullLangTransformer(Transformer):
     
     def show_cmd(self, items):
         return ShowCommand(value=items[0])
-    
+
+    def input_cmd(self, items):
+        variable = items[0].name if isinstance(items[0], Identifier) else str(items[0])
+        prompt = items[1] if len(items) > 1 else None
+        return InputCommand(variable=variable, prompt=prompt)
+
+    def read_file_cmd(self, items):
+        target = items[0].name if isinstance(items[0], Identifier) else str(items[0])
+        path = items[1]
+        return FileReadCommand(path=path, target=target)
+
+    def write_file_cmd(self, items):
+        path = items[0]
+        content = items[1]
+        return FileWriteCommand(path=path, content=content)
+
+    def file_exists_cmd(self, items):
+        target = items[0].name if isinstance(items[0], Identifier) else str(items[0])
+        path = items[1]
+        return FileExistsCommand(path=path, target=target)
+
+    def list_files_cmd(self, items):
+        target = items[0].name if isinstance(items[0], Identifier) else str(items[0])
+        path = items[1]
+        return ListFilesCommand(path=path, target=target)
+
     def repeat_cmd(self, items):
         count = items[0]
         body = items[1] if isinstance(items[1], list) else [items[1]]

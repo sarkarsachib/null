@@ -131,6 +131,46 @@ class ShowCommand(ASTNode):
 
 
 @dataclass
+class InputCommand(ASTNode):
+    """Represents an INPUT command to read from stdin: INPUT variable."""
+    variable: str
+    prompt: Optional[ASTNode] = None
+    annotations: List['Union[LayerAnnotation, RequireAnnotation, PreferAnnotation]'] = field(default_factory=list)
+
+
+@dataclass
+class FileReadCommand(ASTNode):
+    """Represents reading a file: SET content TO READ_FILE path."""
+    path: ASTNode
+    target: Optional[str] = None
+    annotations: List['Union[LayerAnnotation, RequireAnnotation, PreferAnnotation]'] = field(default_factory=list)
+
+
+@dataclass
+class FileWriteCommand(ASTNode):
+    """Represents writing to a file: WRITE_FILE path WITH content."""
+    path: ASTNode
+    content: ASTNode
+    annotations: List['Union[LayerAnnotation, RequireAnnotation, PreferAnnotation]'] = field(default_factory=list)
+
+
+@dataclass
+class FileExistsCommand(ASTNode):
+    """Represents checking if a file exists: SET exists TO FILE_EXISTS path."""
+    path: ASTNode
+    target: Optional[str] = None
+    annotations: List['Union[LayerAnnotation, RequireAnnotation, PreferAnnotation]'] = field(default_factory=list)
+
+
+@dataclass
+class ListFilesCommand(ASTNode):
+    """Represents listing files in a directory: SET files TO LIST_FILES path."""
+    path: ASTNode
+    target: Optional[str] = None
+    annotations: List['Union[LayerAnnotation, RequireAnnotation, PreferAnnotation]'] = field(default_factory=list)
+
+
+@dataclass
 class RepeatCommand(ASTNode):
     """Represents a REPEAT command for loops."""
     count: ASTNode

@@ -19,17 +19,22 @@ module_name: NAME ("::" NAME)*
 annotated_statement: annotation* base_statement -> attach_annotations
 
 ?base_statement: type_alias_statement
-               | data_class_statement
-               | sealed_trait_statement
-               | let_binding_statement
-               | set_statement
-               | add_statement
-               | if_statement
-               | show_statement
-               | repeat_statement
-               | define_statement
-               | return_statement
-               | expression_statement
+                | data_class_statement
+                | sealed_trait_statement
+                | let_binding_statement
+                | set_statement
+                | add_statement
+                | if_statement
+                | show_statement
+                | input_statement
+                | read_file_statement
+                | write_file_statement
+                | file_exists_statement
+                | list_files_statement
+                | repeat_statement
+                | define_statement
+                | return_statement
+                | expression_statement
 
 // Annotations
 
@@ -78,6 +83,16 @@ add_statement: "ADD" comparison_expression ("AND" comparison_expression)+ -> add
 if_statement: "IF" expression "THEN" block ("ELSE" block)? "END" "IF" -> if_cmd
 
 show_statement: "SHOW" expression -> show_cmd
+
+input_statement: "INPUT" identifier ("(" expression ")")? -> input_cmd
+
+read_file_statement: "SET" identifier "TO" "READ_FILE" expression -> read_file_cmd
+
+write_file_statement: "WRITE_FILE" expression "WITH" expression -> write_file_cmd
+
+file_exists_statement: "SET" identifier "TO" "FILE_EXISTS" expression -> file_exists_cmd
+
+list_files_statement: "SET" identifier "TO" "LIST_FILES" expression -> list_files_cmd
 
 repeat_statement: "REPEAT" atom "TIMES" block "END" "REPEAT" -> repeat_cmd
 
