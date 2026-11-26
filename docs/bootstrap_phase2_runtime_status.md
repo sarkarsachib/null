@@ -77,13 +77,16 @@ arguments fit that mapping without a type-mapping table, so a first cut is
 `Num`-only and the contract's "nothing silently degrades" rule applies to
 everything else.
 
-## Phase 4 (self-compilation) — **not reachable yet**
+## Phase 4 (self-compilation) — **fixed point reached, native binary pending**
 
-`bootstrap/nullc.null` is the stage-1 lexer, not a compiler. Self-compilation
-needs a `.null` program that ingests `.null` source and emits the super-bit IR
-rows, plus a way for one `.null` program to *run* another (or to write the IR and
-let `native.null` run it). The second half is close — `bootstrap/emitter.null`
-already writes `program.ir`, and `bench/emit_workloads.sh` drives it — but the
-emitter is stage 3 of a pipeline whose stages are separate programs. Closing
-Phase 4 means merging stages 1-4 into a single `.null` compiler and bootstrapping
-it through itself, which is a project, not a patch.
+`bootstrap/nullc.null` is a compiler now: `bootstrap/link.null` links the front
+end from `emitter.null` with the interpreter from `vm.null` plus a driver, and
+the result compiles its own source. `bench/selfhost_check.sh` checks that the IR
+from `nullc.null` and from `emitter.null` is byte-identical (12,854 rows,
+260,961 bytes). The stage-1 lexer moved to `bootstrap/lexer.null`.
+
+What is still missing for "zero Python in the pipeline" is a native `nullc`
+binary: `native.null` does not yet lower strings, recursion-safe calls or the
+array runtime the compiler itself uses (see `bootstrap_stage5_native_backend.md`).
+Until that lands the fixed point is real, but both compilers execute on the host
+VM.

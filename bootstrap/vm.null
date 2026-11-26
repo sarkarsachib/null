@@ -52,7 +52,9 @@ fn index_of(list, value) -> Num {
 }
 
 // NB: the host front end does not lower && / ||, so conditions are nested.
-fn is_digit(c: Text) -> Bool {
+// Named vm_is_digit, not is_digit: bootstrap/emitter.null has an is_digit over
+// char codes, and both files are linked into bootstrap/nullc.null.
+fn vm_is_digit(c: Text) -> Bool {
     if c < "0" {
         return false;
     }
@@ -71,7 +73,7 @@ fn looks_numeric(text: Text) -> Bool {
     let i = 0;
     while i < LEN(text) {
         let c = CHAR_AT(text, i);
-        if is_digit(c) {
+        if vm_is_digit(c) {
             digits = digits + 1;
         } else {
             if c != "." {
@@ -383,6 +385,16 @@ fn run(rows) {
                 stack = drop_last(stack);
                 stack = APPEND(stack, target[idx]);
             }
+            if op == 106 {
+                // FAST_ARRAY_PUSH: append and leave the (grown) array on top.
+                handled = true;
+                let value = stack[LEN(stack) - 1];
+                stack = drop_last(stack);
+                let arr = stack[LEN(stack) - 1];
+                stack = drop_last(stack);
+                let grown = APPEND(arr, value);
+                stack = APPEND(stack, grown);
+            }
             if op == 70 {
                 handled = true;
                 // Source-level calls arrive as written (LEN, TO_STRING, ...);
@@ -451,7 +463,32 @@ fn run(rows) {
                     }
                     stack = APPEND(stack, items);
                 }
+                if name == "set_index" {
+                    // arr[idx] = value: bounds-checked, then rebuilt because the
+                    // host arrays this VM manipulates are immutable lists.
+                    let value = stack[LEN(stack) - 1];
+                    stack = drop_last(stack);
+                    let idx = stack[LEN(stack) - 1];
+                    stack = drop_last(stack);
+                    let target = stack[LEN(stack) - 1];
+                    stack = drop_last(stack);
+                    if idx < 0 {
+                        println("VM ERROR: index out of range " + TO_STRING(idx));
+                        running = false;
+                    } else {
+                        if idx >= LEN(target) {
+                            println("VM ERROR: index out of range " + TO_STRING(idx));
+                            running = false;
+                        } else {
+                            let updated = replace_at(target, idx, value);
+                            stack = APPEND(stack, updated);
+                        }
+                    }
+                }
                 let is_builtin = false;
+                if name == "set_index" {
+                    is_builtin = true;
+                }
                 if name == "len" {
                     is_builtin = true;
                 }

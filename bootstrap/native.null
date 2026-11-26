@@ -2296,11 +2296,13 @@ fn compile(rows) -> Array {
                     out = APPEND(out, ".Lsetok_" + TO_STRING(i) + ":");
                     out = APPEND(out, "  mov rdx, qword ptr [rbp - " + TO_STRING(4096 + (base + 2) * 8) + "]");
                     out = APPEND(out, "  mov qword ptr [rax + rcx * 8 + 8], rdx");
-                    out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + base * 8) + "], rdx");
+                    // The op yields the array (the emitter follows it with STORE a
+                    // for a plain `a[i] = x`), not the stored value.
+                    out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + base * 8) + "], rax");
                     types = drop_last(types);
                     types = drop_last(types);
                     types = drop_last(types);
-                    types = APPEND(types, "int");
+                    types = APPEND(types, "arr");
                     sp = base + 1;
                     report = APPEND(report, "LOWERED 70 set-index-bounds-checked");
                 }
@@ -2330,11 +2332,13 @@ fn compile(rows) -> Array {
                         report = APPEND(report, "FALLBACK 70 unknown-call-" + name);
                         out = APPEND(out, "  call null_unsupported");
                     } else {
-                        let regs = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
+                        // Not `regs`: let is function-scoped, and a local regs here
+                        // would clobber the allocator's promoted-register table.
+                        let arg_regs = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
                         let a = 0;
                         while a < argc {
                             if a < 6 {
-                                out = APPEND(out, "  mov " + regs[a] + ", qword ptr [rbp - " + TO_STRING(4096 + (base + a) * 8) + "]");
+                                out = APPEND(out, "  mov " + arg_regs[a] + ", qword ptr [rbp - " + TO_STRING(4096 + (base + a) * 8) + "]");
                             }
                             a = a + 1;
                         }
@@ -2413,12 +2417,12 @@ fn compile(rows) -> Array {
                 out = APPEND(out, "  push rbp");
                 out = APPEND(out, "  mov rbp, rsp");
                 out = APPEND(out, "  sub rsp, 16384");
-                let regs = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
+                let arg_regs = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
                 let p = 0;
                 while p < LEN(params) {
                     let sidx = index_of(slot_names, params[p]);
                     if p < 6 {
-                        out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(200 + sidx * 8) + "], " + regs[p]);
+                        out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(200 + sidx * 8) + "], " + arg_regs[p]);
                     }
                     p = p + 1;
                 }

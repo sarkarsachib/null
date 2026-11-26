@@ -137,7 +137,9 @@ binaries print the C baselines' exact results for `comprehension` and `array_map
 that `MOD 2^k` never emits `idiv`, that a Null source program using `a[i] = x`
 compiles through the emitter and prints the written value, that `APPEND` grows a
 ten-element array from capacity zero, that an out-of-bounds write traps with
-exit 3, and that an unhonourable opcode is both reported and trapped. `tests/bootstrap` also covers
+exit 3, that a call after a `println` still returns the callee's value
+(parameters bound, promoted registers never live across a call), and that an
+unhonourable opcode is both reported and trapped. `tests/bootstrap` also covers
 the language-level `&&`/`||` opcodes (26/27), which previously compiled to
 nothing at all.
 
@@ -158,7 +160,19 @@ nothing at all.
   with `APPEND` is therefore slower than the pre-sized 107/105 form that the
   vector pass recognises: on `array_map` the same source measures 117 ms through
   106/73 against 64 ms from the pre-sized IR, which is why the benchmark keeps
-  that form.
+  that form. `set_index` yields the array rather than the stored value, so
+  `a[i] = x` lowers to `set_index` followed by `STORE a`: the store is a no-op
+  in this backend, which mutates in place, and is what makes the write visible
+  to a runtime with immutable arrays (the bootstrap VM).
+- Calls bind up to six integer arguments into the callee's parameter slots. A
+  local `let regs` in the function-definition handler used to overwrite the
+  allocator's promoted-register table (`let` is function-scoped in this
+  language), putting caller variables in `rdi`/`rsi`/`rdx` where a runtime call
+  could clobber them; fixed, and the regression is pinned by
+  `test_source_function_call_survives_an_intervening_print`. Strings,
+  `READ_FILE`/`WRITE_FILE`, `SPLIT`/`JOIN`/`CHAR_AT`/`SUBSTR`/`LEN` and string
+  concatenation still have no runtime here, so `bootstrap/nullc.null` cannot be
+  built natively yet — that is what "zero Python in the pipeline" waits on.
 - `array_map` is still authored directly in IR for speed, not because its source
   cannot be compiled: `bootstrap/emitter.null` lowers `APPEND` to 106 and the
   whole workload now runs from `.null` source (the tests check it), but its push

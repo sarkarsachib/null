@@ -171,6 +171,30 @@ def test_source_array_write_compiles_end_to_end(tmp_path, monkeypatch):
     assert run.stdout.strip() == "82"
 
 
+def test_source_function_call_survives_an_intervening_print(tmp_path, monkeypatch):
+    # A function-scoped `let regs` in the backend's fn-definition handler used to
+    # overwrite the promoted-register table: the caller's `x` moved into `rdx` and
+    # the println between the calls clobbered it, so add(x, 7) returned 8.
+    program = (
+        "fn add(a: Num, b: Num) -> Num {\n"
+        "    return a + b;\n"
+        "}\n"
+        "let x = 0;\n"
+        "let i = 0;\n"
+        "while i < 10 {\n"
+        "    x = x + i;\n"
+        "    i = i + 1;\n"
+        "}\n"
+        "println(x);\n"
+        "println(add(x, 7));\n"
+    )
+    workdir, _ = _run_pipeline(tmp_path, monkeypatch, program)
+
+    exe = _build(workdir, "call_after_print")
+    run = subprocess.run([str(exe)], capture_output=True, text=True, check=True)
+    assert run.stdout.split() == ["45", "52"]
+
+
 def test_source_append_grows_the_array(tmp_path, monkeypatch):
     # 106 doubles the capacity from 0 to 4, 8 and 16 while ten values are pushed.
     program = (

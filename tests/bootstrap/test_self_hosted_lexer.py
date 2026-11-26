@@ -1,4 +1,4 @@
-"""Tests for the first self-hosted Null compiler stage (bootstrap/nullc.null)."""
+"""Tests for the first self-hosted Null compiler stage (bootstrap/lexer.null)."""
 
 from pathlib import Path
 
@@ -58,7 +58,7 @@ EXPECTED = [
 
 def test_self_hosted_lexer_tokenizes_dual_syntax_sample(monkeypatch):
     monkeypatch.chdir(ROOT)
-    source = (ROOT / "bootstrap" / "nullc.null").read_text()
+    source = (ROOT / "bootstrap" / "lexer.null").read_text()
     ast = ModernRustParser().parse(source)
     stream = NullLangCompiler().compile(ast)
     result = NullVM().execute(stream)

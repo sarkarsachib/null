@@ -1,0 +1,256 @@
+// bootstrap/lexer.null
+// Stage 1 of the bootstrap chain: a Null lexer written in Null.
+// Reads bootstrap/input.null and prints one token per line:
+//
+//   KEYWORD fn
+//   IDENT add
+//   PUNCT (
+//   ...
+//
+// This file is written in Modern (v2) syntax. The compiler front-end in the
+// host VM only exists to bootstrap this program; the logic below is Null.
+
+fn is_digit(code: Num) -> Bool {
+    if code >= 48 {
+        if code <= 57 {
+            return true;
+        }
+    }
+    return false;
+}
+
+fn is_upper(code: Num) -> Bool {
+    if code >= 65 {
+        if code <= 90 {
+            return true;
+        }
+    }
+    return false;
+}
+
+fn is_lower(code: Num) -> Bool {
+    if code >= 97 {
+        if code <= 122 {
+            return true;
+        }
+    }
+    return false;
+}
+
+fn is_alpha(code: Num) -> Bool {
+    if code == 95 { // _
+        return true;
+    }
+    if is_upper(code) {
+        return true;
+    }
+    return is_lower(code);
+}
+
+fn is_ident(code: Num) -> Bool {
+    if is_alpha(code) {
+        return true;
+    }
+    return is_digit(code);
+}
+
+fn is_space(code: Num) -> Bool {
+    if code == 32 { // space
+        return true;
+    }
+    if code == 9 { // tab
+        return true;
+    }
+    if code == 10 { // newline
+        return true;
+    }
+    if code == 13 { // carriage return
+        return true;
+    }
+    return false;
+}
+
+fn is_punct(ch: Text) -> Bool {
+    let puncts = ["(", ")", "[", "]", "{", "}", ",", ";", ":", ".",
+                  "+", "-", "*", "/", "=", "<", ">", "!", "&", "|"];
+    let i = 0;
+    while i < LEN(puncts) {
+        if puncts[i] == ch {
+            return true;
+        }
+        i = i + 1;
+    }
+    return false;
+}
+
+fn is_two_char_op(text: Text) -> Bool {
+    let ops = ["->", "<=", ">=", "==", "!=", "&&", "||", ".."];
+    let i = 0;
+    while i < LEN(ops) {
+        if ops[i] == text {
+            return true;
+        }
+        i = i + 1;
+    }
+    return false;
+}
+
+fn is_keyword(word: Text) -> Bool {
+    let words = ["fn", "let", "mut", "if", "else", "while", "for", "in",
+                 "return", "match", "true", "false", "async", "break",
+                 "continue", "print", "println", "import", "module", "data",
+                 "class", "sealed", "trait", "own", "borrow", "move",
+                 "SET", "TO", "ADD", "AND", "SHOW", "DEFINE", "WITH", "END",
+                 "REPEAT", "TIMES", "WHILE", "INPUT", "CALL", "READ_FILE",
+                 "WRITE_FILE", "RETURN"];
+    let i = 0;
+    while i < LEN(words) {
+        if words[i] == word {
+            return true;
+        }
+        i = i + 1;
+    }
+    return false;
+}
+
+fn skip_comment(src: Text, start: Num) -> Num {
+    let i = start;
+    let n = LEN(src);
+    while i < n {
+        if ORD(CHAR_AT(src, i)) == 10 {
+            return i;
+        }
+        i = i + 1;
+    }
+    return i;
+}
+
+fn scan_ident(src: Text, start: Num) {
+    let i = start;
+    let n = LEN(src);
+    let text = "";
+    while i < n {
+        let ch = CHAR_AT(src, i);
+        if is_ident(ORD(ch)) {
+            text = text + ch;
+            i = i + 1;
+        } else {
+            return [text, i];
+        }
+    }
+    return [text, i];
+}
+
+fn scan_number(src: Text, start: Num) {
+    let i = start;
+    let n = LEN(src);
+    let text = "";
+    while i < n {
+        let ch = CHAR_AT(src, i);
+        if is_digit(ORD(ch)) {
+            text = text + ch;
+            i = i + 1;
+        } else {
+            return [text, i];
+        }
+    }
+    return [text, i];
+}
+
+fn scan_string(src: Text, start: Num, quote: Text) {
+    let i = start;
+    let n = LEN(src);
+    let text = "";
+    let done = false;
+    while done == false {
+        if i >= n {
+            done = true;
+        } else {
+            let ch = CHAR_AT(src, i);
+            if ch == quote {
+                done = true;
+                i = i + 1;
+            } else {
+                if ch == "\\" {
+                    i = i + 1;
+                    if i < n {
+                        text = text + CHAR_AT(src, i);
+                        i = i + 1;
+                    }
+                } else {
+                    text = text + ch;
+                    i = i + 1;
+                }
+            }
+        }
+    }
+    return [text, i];
+}
+
+fn tokenize(src: Text) {
+    let i = 0;
+    let n = LEN(src);
+    while i < n {
+        let ch = CHAR_AT(src, i);
+        let code = ORD(ch);
+        if code == 35 { // # comment
+            i = skip_comment(src, i);
+        } else {
+            if is_space(code) {
+                i = i + 1;
+            } else {
+                if is_alpha(code) {
+                    let ident = scan_ident(src, i);
+                    let word = ident[0];
+                    i = ident[1];
+                    if is_keyword(word) {
+                        println("KEYWORD " + word);
+                    } else {
+                        println("IDENT " + word);
+                    }
+                } else {
+                    if is_digit(code) {
+                        let number = scan_number(src, i);
+                        println("NUMBER " + number[0]);
+                        i = number[1];
+                    } else {
+                        if code == 34 {
+                            let text = scan_string(src, i + 1, "\"");
+                            println("STRING " + text[0]);
+                            i = text[1];
+                        } else {
+                            if code == 39 {
+                                let text = scan_string(src, i + 1, "'");
+                                println("STRING " + text[0]);
+                                i = text[1];
+                            } else {
+                                if is_punct(ch) {
+                                    let two = "";
+                                    if i + 1 < n {
+                                        two = ch + CHAR_AT(src, i + 1);
+                                    }
+                                    if two == "//" {
+                                        i = skip_comment(src, i);
+                                    } else {
+                                        let op = ch;
+                                        if is_two_char_op(two) {
+                                            op = two;
+                                            i = i + 1;
+                                        }
+                                        println("PUNCT " + op);
+                                        i = i + 1;
+                                    }
+                                } else {
+                                    println("UNKNOWN " + ch);
+                                    i = i + 1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+tokenize(READ_FILE("bootstrap/input.null"));

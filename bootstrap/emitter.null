@@ -2599,7 +2599,14 @@ fn emit_stmt(node, path: Text) -> Array {
         let out = emit_expr(target[1], path + ".o");
         out = cat(out, emit_expr(target[2], path + ".k"));
         out = cat(out, emit_expr(node[2], path + ".v"));
-        return cat(out, [irx(70, "set_index", "scalar", "arity=3")]);
+        out = cat(out, [irx(70, "set_index", "scalar", "arity=3")]);
+        // set_index yields the array, not the stored value: a runtime with
+        // immutable arrays (the bootstrap VM) only sees the write through the
+        // variable, so a plain `a[i] = x` stores the array back.
+        if target[1][0] == "ident" {
+            out = cat(out, [ir(3, target[1][1], "scalar")]);
+        }
+        return out;
     }
     if tag == "set_op" {
         let out = emit_expr(node[1], path + ".o");
@@ -2745,6 +2752,20 @@ fn emit_program(program) -> Array {
 
 fn emit_main(source: Text) -> Array {
     return emit_program(parse_program(tokenize(source)));
+}
+
+// Entry for the linked compiler (bootstrap/nullc.null): source -> IR text that
+// bootstrap/vm.null's parse_rows accepts. It lives here, in plain source, so
+// the link step emits one call and never has to generate a newline escape.
+fn compile_to_ir_text(source: Text) -> Text {
+    let tokens = emit_program(parse_program(tokenize(source)));
+    let rows = [];
+    let k = 0;
+    while k < LEN(tokens) {
+        rows = APPEND(rows, ir_row(tokens[k]));
+        k = k + 1;
+    }
+    return JOIN(rows, "\n");
 }
 
 let program = parse_program(tokenize(READ_FILE("bootstrap/input.null")));

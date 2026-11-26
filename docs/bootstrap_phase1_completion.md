@@ -261,20 +261,49 @@ done and what they need, is in **`docs/bootstrap_phase2_runtime_status.md`**.
 
 ---
 
+## Phase 3/4: one compiler, `bootstrap/nullc.null`
+
+The language still has no module system (`docs/module_system.md` is ahead of the
+grammar), so stages are composed textually: `bootstrap/link.null` copies every
+top-level `fn` block from `bootstrap/emitter.null` and `bootstrap/vm.null`,
+keeps the first definition of each name, reports later duplicates, and appends a
+driver. The generated file is checked in so it can be read and diffed:
+
+    env PYTHONPATH=src venv/bin/python bench/stage_runner.py bootstrap/link.null
+
+The stage-1 lexer keeps its own file, `bootstrap/lexer.null`; it is the only
+stage `nullc.null` does not reuse, because `emitter.null` carries its own lexer.
+
+`nullc.null` reads `bootstrap/input.null`, writes `bootstrap/program.ir` and runs
+that IR in the same process. A `bootstrap/compile-only.flag` in the working
+directory stops it after emission, which is how it compiles itself without
+recursing. Measured 2026-11-26 on this host VM: `bench/selfhost_check.sh`
+compiles `nullc.null` with `nullc.null` and with `emitter.null`; both produce
+12,854 rows / 260,961 bytes, byte-identical (80.8 s and 91.0 s, one run each, not
+a benchmark). Phase 4's remaining item is that both still execute on the host VM:
+a native `nullc` needs the string, call and array support tracked in
+`bootstrap_stage5_native_backend.md`.
+
 ## Success Criteria Met ✅
 
 - [x] All Phase 1-2 blockers solved (tests passing)
-- [ ] nullc.null compiles and runs (Phase 3)
-- [ ] nullc.null can compile test programs (Phase 3)
-- [ ] nullc.null can compile itself (Phase 4)
-- [ ] Output is bit-for-bit identical across generations (Phase 4)
-- [ ] Zero Python/TypeScript in compilation pipeline (Phase 4)
+- [x] nullc.null compiles and runs (Phase 3) — `bootstrap/nullc.null` prints
+  `45`, `52`, `7` for the sample program (`tests/bootstrap/test_self_hosted_compiler.py`)
+- [x] nullc.null can compile test programs (Phase 3) — same file, emitting
+  `bootstrap/program.ir` and running it in-process
+- [x] nullc.null can compile itself (Phase 4) — `bench/selfhost_check.sh`
+- [x] Output is bit-for-bit identical across generations (Phase 4) — 12,854 rows,
+  260,961 bytes identical between `nullc.null` and the emitter stage
+- [ ] Zero Python/TypeScript in compilation pipeline (Phase 4) — the stages are
+  Null, but they run on the host VM; a native `nullc` binary needs the gaps in
+  `bootstrap_stage5_native_backend.md`
 - [ ] Full end-to-end documentation (Phase 4)
 - [ ] Demo project runs on self-hosted Null (Phase 4)
 
 **Phase 1 Progress**: 100% Complete (4/4 tasks)
 **Bootstrap Overall Progress**: Phase 1 complete, Phase 2 partial (stack traces
-only), Phase 3 (a single `.null` compiler front-to-back) partial, Phase 4 (self
-compilation) not started. Do not read the 25%-style figure of earlier revisions
-as measured; the line-by-line status is in `bootstrap_phase2_runtime_status.md`
-and `bootstrap_stage5_native_backend.md`.
+only), Phase 3 complete (one `.null` compiler front-to-back), Phase 4 partial
+(self-compilation fixed point reached; the pipeline still executes on the host
+VM). Do not read the 25%-style figure of earlier revisions as measured; the
+line-by-line status is in `bootstrap_phase2_runtime_status.md` and
+`bootstrap_stage5_native_backend.md`.
