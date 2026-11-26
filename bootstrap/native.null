@@ -804,6 +804,115 @@ fn type_at(types, idx: Num) -> Text {
     return types[idx];
 }
 
+// --- source-level types -----------------------------------------------------
+// A value's type is one of
+//   "int" | "str" | "bool"
+//   "arr"                an array whose elements were not seen yet
+//   "arr:<spec>"          <spec> is one element type ("str") or a `|`-joined
+//                         tuple of the literal's element types ("str|int")
+// Declared names (Num, Text, Bool, Array<Num>, ...) are normalised here.
+fn type_norm(decl: Text) -> Text {
+    if LEN(decl) == 0 {
+        return "";
+    }
+    if decl == "Text" {
+        return "str";
+    }
+    if decl == "Bool" {
+        return "bool";
+    }
+    if decl == "Num" {
+        return "int";
+    }
+    if decl == "Nothing" {
+        return "";
+    }
+    if decl == "Array" {
+        return "arr";
+    }
+    if starts_with(decl, "Array<") {
+        let inner = SUBSTR(decl, 6, LEN(decl) - 1);
+        return "arr:" + type_norm(inner);
+    }
+    return "int";
+}
+
+fn type_is_arr(t: Text) -> Bool {
+    if t == "arr" {
+        return true;
+    }
+    if starts_with(t, "arr:") {
+        return true;
+    }
+    return false;
+}
+
+fn elem_spec(t: Text) -> Text {
+    if starts_with(t, "arr:") {
+        return SUBSTR(t, 4, LEN(t));
+    }
+    return "int";
+}
+
+// Element type of `arr[idx]` when the index text is a compile-time constant.
+// Homogeneous arrays carry a single spec; tuple literals carry one type per
+// position, and unknown indexes fall back to the first element's type.
+fn elem_at(spec: Text, idx: Text) -> Text {
+    let parts = SPLIT(spec, "|");
+    if LEN(parts) == 0 {
+        return "int";
+    }
+    if looks_numeric(idx) {
+        let k = TO_NUMBER(idx);
+        if k >= 0 {
+            if k < LEN(parts) {
+                return parts[k];
+            }
+        }
+    }
+    return parts[0];
+}
+
+fn index_type(arr_type: Text, idx: Text) -> Text {
+    if type_is_arr(arr_type) == false {
+        return "int";
+    }
+    return elem_at(elem_spec(arr_type), idx);
+}
+
+// Replace the top of the type stack (the value a binary op left behind).
+fn set_top(list, value: Text) -> Array {
+    if LEN(list) == 0 {
+        return APPEND(list, value);
+    }
+    return replace_at(list, LEN(list) - 1, value);
+}
+
+// The row before an index load is that load's index operand, textually, when
+// the index was a literal. Used to pick a tuple element's type.
+fn const_operand(rows, i: Num) -> Text {
+    if i <= 0 {
+        return "";
+    }
+    let pr = rows[i - 1];
+    if pr[0] == "IR" {
+        if pr[1] == 1 {
+            if looks_numeric(pr[2]) {
+                return pr[2];
+            }
+        }
+    }
+    return "";
+}
+
+fn set_var_type(list, k: Num, value: Text) -> Array {
+    let out = list;
+    while LEN(out) <= k {
+        out = APPEND(out, "int");
+    }
+    return replace_at(out, k, value);
+}
+
 fn cc_jump_inverse(cc: Text) -> Text {
     if cc == "l" {
         return "jge";
@@ -1087,6 +1196,29 @@ fn runtime_lines() -> Array {
         "  inc rdx",
         "  jmp .Lps_len",
         ".Lps_out:",
+        "  mov rax, 1",
+        "  mov rdi, 1",
+        "  syscall",
+        "  lea rsi, [rip + .Lnl]",
+        "  mov rdx, 1",
+        "  mov rax, 1",
+        "  mov rdi, 1",
+        "  syscall",
+        "  leave",
+        "  ret",
+        "",
+        "null_print_bool:",
+        "  push rbp",
+        "  mov rbp, rsp",
+        "  test rdi, rdi",
+        "  jz .Lpb_false",
+        "  lea rsi, [rip + .Ltrue]",
+        "  mov rdx, 4",
+        "  jmp .Lpb_out",
+        ".Lpb_false:",
+        "  lea rsi, [rip + .Lfalse]",
+        "  mov rdx, 5",
+        ".Lpb_out:",
         "  mov rax, 1",
         "  mov rdi, 1",
         "  syscall",
@@ -2142,6 +2274,7 @@ fn compile(rows) -> Array {
     let var_types = [];
     let fn_names = [];
     let fn_params = [];
+    let fn_types = [];
     let fn_labels = [];
     let label_names = [];
     let i = 0;
@@ -2157,6 +2290,9 @@ fn compile(rows) -> Array {
             if op == 74 {
                 fn_names = APPEND(fn_names, operand);
                 fn_params = APPEND(fn_params, meta_value(row[4], "params"));
+                // Declared return type; `Array` without a parameter stays "arr"
+                // and is refined at end_fn from what the body actually returns.
+                fn_types = APPEND(fn_types, type_norm(meta_value(row[4], "ret")));
                 fn_labels = APPEND(fn_labels, ".Lfn_" + sanitize(operand) + "_" + TO_STRING(LEN(fn_names)));
             }
             let is_var = false;
@@ -2196,6 +2332,7 @@ fn compile(rows) -> Array {
     let types = [];
     let str_pool = [];
     let fn_cursor = 0;
+    let ret_seen = "";
     let i = 0;
     while i < LEN(rows) {
         let row = rows[i];
@@ -2305,20 +2442,34 @@ fn compile(rows) -> Array {
             let meta = row[4];
 
             if op == 1 {
-                let numeric = looks_numeric(operand);
-                if numeric {
-                    out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + sp * 8) + "], " + operand);
-                    types = APPEND(types, "int");
-                } else {
-                    let literal = ir_unescape(operand);
-                    let sid = index_of(str_pool, literal);
-                    if sid == LEN(str_pool) {
-                        str_pool = APPEND(str_pool, literal);
-                        sid = LEN(str_pool) - 1;
+                // The emitter tags bool literals; a bare `true` operand is the
+                // string literal "true".
+                let is_bool = has_meta(meta, "bool");
+                if is_bool {
+                    // Boolean literals: 1/0 in memory, tagged `bool` so print
+                    // picks the true/false formatting the VM uses.
+                    let bv = "0";
+                    if operand == "true" {
+                        bv = "1";
                     }
-                    out = APPEND(out, "  lea rax, [rip + .LS" + TO_STRING(sid) + "]");
-                    out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + sp * 8) + "], rax");
-                    types = APPEND(types, "str");
+                    out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + sp * 8) + "], " + bv);
+                    types = APPEND(types, "bool");
+                } else {
+                    let numeric = looks_numeric(operand);
+                    if numeric {
+                        out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + sp * 8) + "], " + operand);
+                        types = APPEND(types, "int");
+                    } else {
+                        let literal = ir_unescape(operand);
+                        let sid = index_of(str_pool, literal);
+                        if sid == LEN(str_pool) {
+                            str_pool = APPEND(str_pool, literal);
+                            sid = LEN(str_pool) - 1;
+                        }
+                        out = APPEND(out, "  lea rax, [rip + .LS" + TO_STRING(sid) + "]");
+                        out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + sp * 8) + "], rax");
+                        types = APPEND(types, "str");
+                    }
                 }
                 sp = sp + 1;
             }
@@ -2423,11 +2574,13 @@ fn compile(rows) -> Array {
             if op == 20 {
                 out = cat(out, cmp_sequence("setg", sp));
                 types = drop_last(types);
+                types = set_top(types, "bool");
                 sp = sp - 1;
             }
             if op == 21 {
                 out = cat(out, cmp_sequence("setl", sp));
                 types = drop_last(types);
+                types = set_top(types, "bool");
                 sp = sp - 1;
             }
             if op == 22 {
@@ -2438,12 +2591,13 @@ fn compile(rows) -> Array {
                     out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "], rax");
                     types = drop_last(types);
                     types = drop_last(types);
-                    types = APPEND(types, "int");
+                    types = APPEND(types, "bool");
                     sp = sp - 1;
                     report = APPEND(report, "LOWERED 22 str-eq");
                 } else {
                     out = cat(out, cmp_sequence("sete", sp));
                     types = drop_last(types);
+                    types = set_top(types, "bool");
                     sp = sp - 1;
                 }
             }
@@ -2456,23 +2610,26 @@ fn compile(rows) -> Array {
                     out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "], rax");
                     types = drop_last(types);
                     types = drop_last(types);
-                    types = APPEND(types, "int");
+                    types = APPEND(types, "bool");
                     sp = sp - 1;
                     report = APPEND(report, "LOWERED 23 str-ne");
                 } else {
                     out = cat(out, cmp_sequence("setne", sp));
                     types = drop_last(types);
+                    types = set_top(types, "bool");
                     sp = sp - 1;
                 }
             }
             if op == 24 {
                 out = cat(out, cmp_sequence("setge", sp));
                 types = drop_last(types);
+                types = set_top(types, "bool");
                 sp = sp - 1;
             }
             if op == 25 {
                 out = cat(out, cmp_sequence("setle", sp));
                 types = drop_last(types);
+                types = set_top(types, "bool");
                 sp = sp - 1;
             }
 
@@ -2485,7 +2642,11 @@ fn compile(rows) -> Array {
                 if t == "str" {
                     out = APPEND(out, "  call null_print_str");
                 } else {
-                    out = APPEND(out, "  call null_print_i64");
+                    if t == "bool" {
+                        out = APPEND(out, "  call null_print_bool");
+                    } else {
+                        out = APPEND(out, "  call null_print_i64");
+                    }
                 }
                 types = drop_last(types);
                 sp = sp - 1;
@@ -2662,7 +2823,16 @@ fn compile(rows) -> Array {
                             types = drop_last(types);
                             k = k + 1;
                         }
-                        types = APPEND(types, "int");
+                        // Declared return type of the callee (refined by its
+                        // body for bare `Array`), so `f(x)[0]` and string
+                        // returns keep their type through the call.
+                        let rt = "int";
+                        if fidx < LEN(fn_types) {
+                            if LEN(fn_types[fidx]) > 0 {
+                                rt = fn_types[fidx];
+                            }
+                        }
+                        types = APPEND(types, rt);
                         sp = base + 1;
                         report = APPEND(report, "LOWERED 70 call-" + name);
                     }
@@ -2674,6 +2844,9 @@ fn compile(rows) -> Array {
                     out = APPEND(out, "  xor eax, eax");
                 } else {
                     out = APPEND(out, "  mov rax, qword ptr [rbp - " + TO_STRING(4096 + (sp - 1) * 8) + "]");
+                    if LEN(types) > 0 {
+                        ret_seen = types[LEN(types) - 1];
+                    }
                     types = drop_last(types);
                     sp = sp - 1;
                 }
@@ -2688,8 +2861,15 @@ fn compile(rows) -> Array {
                 out = APPEND(out, "  mov rdi, " + TO_STRING(argc));
                 out = APPEND(out, "  call null_array_new");
                 out = APPEND(out, "  mov qword ptr [rbp - 3000], rax");
+                // The literal's element types, in order: `arr:str|int` for a
+                // tuple, `arr:str` for a homogeneous list.
+                let spec = "";
                 let e = 0;
                 while e < argc {
+                    if e > 0 {
+                        spec = spec + "|";
+                    }
+                    spec = spec + type_at(types, base + e);
                     out = APPEND(out, "  mov rcx, qword ptr [rbp - " + TO_STRING(4096 + (base + e) * 8) + "]");
                     out = APPEND(out, "  mov qword ptr [rax + " + TO_STRING((e + 1) * 8) + "], rcx");
                     types = drop_last(types);
@@ -2697,7 +2877,7 @@ fn compile(rows) -> Array {
                 }
                 out = APPEND(out, "  mov rax, qword ptr [rbp - 3000]");
                 out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + base * 8) + "], rax");
-                types = APPEND(types, "arr");
+                types = APPEND(types, "arr:" + spec);
                 sp = base + 1;
                 report = APPEND(report, "LOWERED 72 array-literal");
             }
@@ -2711,9 +2891,11 @@ fn compile(rows) -> Array {
                 out = APPEND(out, ".Lidx_ok_" + TO_STRING(i) + ":");
                 out = APPEND(out, "  mov rax, qword ptr [rax + rcx * 8 + 8]");
                 out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "], rax");
+                let atype = type_at(types, sp - 2);
+                let idx_text = const_operand(rows, i);
                 types = drop_last(types);
                 types = drop_last(types);
-                types = APPEND(types, "int");
+                types = APPEND(types, index_type(atype, idx_text));
                 sp = sp - 1;
                 report = APPEND(report, "LOWERED 73 index-bounds-checked");
             }
@@ -2723,6 +2905,11 @@ fn compile(rows) -> Array {
                 let params = [];
                 if LEN(params_text) > 0 {
                     params = SPLIT(params_text, ",");
+                }
+                let types_text = meta_value(meta, "types");
+                let ptypes = [];
+                if LEN(types_text) > 0 {
+                    ptypes = SPLIT(types_text, ",");
                 }
                 let label = fn_labels[fn_cursor];
                 out = APPEND(out, "  jmp .Lfnskip_" + TO_STRING(fn_cursor));
@@ -2734,6 +2921,14 @@ fn compile(rows) -> Array {
                 let p = 0;
                 while p < LEN(params) {
                     let sidx = index_of(slot_names, params[p]);
+                    if p < LEN(ptypes) {
+                        // Declared parameter types: a parameter is in scope from
+                        // the first instruction, before any store types it.
+                        let pt = type_norm(ptypes[p]);
+                        if LEN(pt) > 0 {
+                            var_types = set_var_type(var_types, sidx, pt);
+                        }
+                    }
                     if p < 6 {
                         out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(200 + sidx * 8) + "], " + arg_regs[p]);
                     }
@@ -2741,7 +2936,8 @@ fn compile(rows) -> Array {
                 }
                 sp = 0;
                 types = [];
-                fn_cursor = fn_cursor + 2;
+                ret_seen = "";
+                fn_cursor = fn_cursor + 1;
                 report = APPEND(report, "LOWERED 74 function-" + operand);
             }
 
@@ -2751,7 +2947,19 @@ fn compile(rows) -> Array {
                     out = APPEND(out, "  xor eax, eax");
                     out = APPEND(out, "  leave");
                     out = APPEND(out, "  ret");
-                    let skip = fn_cursor - 2;
+                    let skip = fn_cursor - 1;
+                    if skip >= 0 {
+                        if skip < LEN(fn_types) {
+                            // A body returning an array tells the backend its
+                            // element types even when the signature only says
+                            // `-> Array` (or nothing).
+                            if fn_types[skip] == "" || fn_types[skip] == "arr" {
+                                if LEN(ret_seen) > 0 {
+                                    fn_types = replace_at(fn_types, skip, ret_seen);
+                                }
+                            }
+                        }
+                    }
                     out = APPEND(out, ".Lfnskip_" + TO_STRING(skip) + ":");
                     sp = 0;
                     types = [];
@@ -2784,6 +2992,7 @@ fn compile(rows) -> Array {
             if op == 102 {
                 out = cat(out, cmp_sequence("setl", sp));
                 types = drop_last(types);
+                types = set_top(types, "bool");
                 sp = sp - 1;
                 report = APPEND(report, "LOWERED 102 fast-lt-int");
             }
@@ -2792,9 +3001,11 @@ fn compile(rows) -> Array {
                 out = APPEND(out, "  mov rcx, qword ptr [rbp - " + TO_STRING(4096 + (sp - 1) * 8) + "]");
                 out = APPEND(out, "  mov rax, qword ptr [rax + rcx * 8 + 8]");
                 out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "], rax");
+                let atype = type_at(types, sp - 2);
+                let idx_text = const_operand(rows, i);
                 types = drop_last(types);
                 types = drop_last(types);
-                types = APPEND(types, "int");
+                types = APPEND(types, index_type(atype, idx_text));
                 sp = sp - 1;
                 report = APPEND(report, "LOWERED 103 fast-index-unchecked");
             }
@@ -2931,6 +3142,8 @@ fn compile(rows) -> Array {
     out = APPEND(out, "");
     out = APPEND(out, ".section .rodata");
     out = APPEND(out, ".Lnl: .byte 10");
+    out = APPEND(out, ".Ltrue: .ascii \"true\"");
+    out = APPEND(out, ".Lfalse: .ascii \"false\"");
     out = APPEND(out, ".Loob: .ascii \"OOB PANIC!!!\\n\"");
     out = APPEND(out, ".Lunsup: .ascii \"UNSUPPORTED OP!!\\n\"");
     out = APPEND(out, ".Lempty: .asciz \"\"");

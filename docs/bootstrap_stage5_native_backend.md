@@ -174,19 +174,36 @@ nothing at all.
   re-escapes for `.asciz`. Lowering is type-directed: `len`/`+`/`==`/`!=` pick the
   string runtime when both operands are `str`. Missing: `SUBSTR`, `SPLIT`,
   `JOIN`, `TO_STRING` (int to text), `WRITE_FILE`.
-- No aggregate typing: an index load (`arr[i]`) and a call result are both typed
-  `int`, so a stage that keeps strings in arrays (every `scan_*` in
-  `bootstrap/lexer.null` returns `[text, pos]`) cannot be compiled natively yet.
-  Booleans print as `1`/`0` here and `true`/`false` in the VM.
+- Aggregate typing. Values carry `int`, `str`, `bool`, `arr` or `arr:<spec>`,
+  where `<spec>` is one element type (`arr:str`) or a `|`-joined tuple of the
+  literal's element types (`arr:str|int`). An array literal emits its spec, and
+  an index load takes the element type at that constant index
+  (`const_operand` reads the IR row before the load), so `t = f(x); t[0]` is a
+  string while `t[1]` is a number. Function markers now carry `types=` and
+  `ret=` from the source signature (`bootstrap/emitter.null`); parameters are
+  typed at entry, calls take the declared return type, and a body that returns
+  an array refines a bare `-> Array` at `end_fn`. Nothing is annotated in the
+  IR for English-dialect functions, so those parameters default to `int`.
+- Booleans, matching the VM: comparisons (`20`-`25`, `102`) and bool literals
+  are typed `bool`, and `print` on a bool calls `null_print_bool`, which writes
+  `true`/`false`. The emitter tags bool literals (`meta=bool`) because `IR 1
+  true` would otherwise be the string `"true"`; `vm.null` reads the same tag.
 - Calls bind up to six integer arguments into the callee's parameter slots. A
   local `let regs` in the function-definition handler used to overwrite the
   allocator's promoted-register table (`let` is function-scoped in this
   language), putting caller variables in `rdi`/`rsi`/`rdx` where a runtime call
   could clobber them; fixed, and the regression is pinned by
-  `test_source_function_call_survives_an_intervening_print`. Strings,
-  `READ_FILE`/`WRITE_FILE`, `SPLIT`/`JOIN`/`CHAR_AT`/`SUBSTR`/`LEN` and string
-  concatenation still have no runtime here, so `bootstrap/nullc.null` cannot be
-  built natively yet — that is what "zero Python in the pipeline" waits on.
+  `test_source_function_call_survives_an_intervening_print`. The function
+  cursor also advanced by two per definition, so a program with more than seven
+  functions indexed past the label table; it now advances by one.
+- Stage 1 runs natively. `bootstrap/lexer.null` compiles through
+  emitter -> backend -> `cc` and tokenises `bootstrap/input.null` identically to
+  the VM (44/44 and 1,242/1,242 tokens, pinned by
+  `test_native_stage1_lexer_matches_the_vm`). `bench/selfhost_check.sh` still
+  only covers the VM-hosted fixed point (13,293 rows, 272,744 bytes, identical);
+  `bootstrap/nullc.null` itself cannot be built natively yet — `SPLIT`, `JOIN`,
+  `SUBSTR`, `TO_STRING` and `WRITE_FILE` have no native runtime, so the pipeline
+  is not Python-free.
 - `array_map` is still authored directly in IR for speed, not because its source
   cannot be compiled: `bootstrap/emitter.null` lowers `APPEND` to 106 and the
   whole workload now runs from `.null` source (the tests check it), but its push

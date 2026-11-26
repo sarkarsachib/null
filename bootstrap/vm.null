@@ -119,12 +119,8 @@ fn ir_unescape(text: Text) -> Text {
 }
 
 fn const_value(text: Text) {
-    if text == "true" {
-        return true;
-    }
-    if text == "false" {
-        return false;
-    }
+    // `true`/`false` reach here only as strings: bool literals are tagged in
+    // the IR (see the op-1 handler), so a string literal "true" stays a string.
     if text == "NOTHING" {
         return "NOTHING";
     }
@@ -145,6 +141,19 @@ fn meta_value(meta: Text, key: Text) -> Text {
             if kv[0] == key {
                 found = kv[1];
             }
+        }
+        i = i + 1;
+    }
+    return found;
+}
+
+fn has_meta(meta: Text, key: Text) -> Bool {
+    let parts = SPLIT(meta, " ");
+    let found = false;
+    let i = 0;
+    while i < LEN(parts) {
+        if parts[i] == key {
+            found = true;
         }
         i = i + 1;
     }
@@ -246,7 +255,11 @@ fn run(rows) {
 
             if op == 1 {
                 handled = true;
-                stack = APPEND(stack, const_value(operand));
+                if has_meta(meta, "bool") {
+                    stack = APPEND(stack, operand == "true");
+                } else {
+                    stack = APPEND(stack, const_value(operand));
+                }
             }
             if op == 2 {
                 handled = true;

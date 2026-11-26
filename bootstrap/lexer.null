@@ -125,7 +125,7 @@ fn skip_comment(src: Text, start: Num) -> Num {
     return i;
 }
 
-fn scan_ident(src: Text, start: Num) {
+fn scan_ident(src: Text, start: Num) -> Array {
     let i = start;
     let n = LEN(src);
     let text = "";
@@ -141,7 +141,7 @@ fn scan_ident(src: Text, start: Num) {
     return [text, i];
 }
 
-fn scan_number(src: Text, start: Num) {
+fn scan_number(src: Text, start: Num) -> Array {
     let i = start;
     let n = LEN(src);
     let text = "";
@@ -157,7 +157,7 @@ fn scan_number(src: Text, start: Num) {
     return [text, i];
 }
 
-fn scan_string(src: Text, start: Num, quote: Text) {
+fn scan_string(src: Text, start: Num, quote: Text) -> Array {
     let i = start;
     let n = LEN(src);
     let text = "";

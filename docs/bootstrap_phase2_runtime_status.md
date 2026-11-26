@@ -82,12 +82,17 @@ everything else.
 `bootstrap/nullc.null` is a compiler now: `bootstrap/link.null` links the front
 end from `emitter.null` with the interpreter from `vm.null` plus a driver, and
 the result compiles its own source. `bench/selfhost_check.sh` checks that the IR
-from `nullc.null` and from `emitter.null` is byte-identical (12,854 rows,
-260,961 bytes). The stage-1 lexer moved to `bootstrap/lexer.null`.
+from `nullc.null` and from `emitter.null` is byte-identical (13,293 rows,
+272,744 bytes). The stage-1 lexer moved to `bootstrap/lexer.null`.
+
+Stage 1 now also compiles natively: `native.null` types arrays by their literal
+elements and by the declared parameter/return types in the function marker, so
+`scan_*` results keep `[text, pos]` element types through calls and index loads,
+and booleans print as `true`/`false` like the VM. The natively built lexer's
+token stream is identical to the VM's (`test_native_stage1_lexer_matches_the_vm`).
 
 What is still missing for "zero Python in the pipeline" is a native `nullc`
-binary. `native.null` now has string literals, `LEN`, `+`, `==`/`!=`, `CHAR_AT`,
-`ORD` and `READ_FILE`, but no aggregate typing (an index load and a call result
-are still `int`), so stage 1's `[text, pos]` returns cannot be compiled yet; see
-`bootstrap_stage5_native_backend.md`. Until that lands the fixed point is real,
-but both compilers execute on the host VM.
+binary: `SPLIT`, `JOIN`, `SUBSTR`, `TO_STRING` and `WRITE_FILE` have no runtime
+in `native.null` yet, so the linked compiler cannot be built natively. Until
+that lands the fixed point is real, but both compilers execute on the host VM;
+see `bootstrap_stage5_native_backend.md`.

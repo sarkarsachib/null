@@ -423,7 +423,7 @@ fn parse_fn(tokens, pos: Num) {
         pos = t[1];
     }
     let b = parse_block(tokens, pos);
-    return [["fn", name, params, b[0], ret, flag], b[1]];
+    return [["fn", name, params, b[0], ret, flag, r[1]], b[1]];
 }
 
 fn parse_define(tokens, pos: Num) {
@@ -465,7 +465,7 @@ fn parse_define(tokens, pos: Num) {
         body = APPEND(body, s[0]);
         pos = s[1];
     }
-    return [["fn", name, params, body, "", ""], pos];
+    return [["fn", name, params, body, "", "", []], pos];
 }
 
 fn parse_let(tokens, pos: Num) {
@@ -2402,7 +2402,9 @@ fn emit_expr(node, path: Text) -> Array {
         return [ir(1, ir_escape(node[1]), "scalar")];
     }
     if tag == "bool" {
-        return [ir(1, node[1], "scalar")];
+        // The `bool` marker keeps the literal `true` distinguishable from the
+        // string literal "true", which is also an op-1 constant.
+        return [irx(1, node[1], "scalar", "bool")];
     }
     if tag == "null" {
         return [ir(1, "NOTHING", "scalar")];
@@ -2448,7 +2450,7 @@ fn emit_expr(node, path: Text) -> Array {
         if node[1] == "-" {
             return cat(out, [irx(70, "neg", "scalar", "arity=1")]);
         }
-        out = cat(out, [ir(1, false, "scalar")]);
+        out = cat(out, [irx(1, false, "scalar", "bool")]);
         return cat(out, [ir(22, "", "scalar")]);
     }
     if tag == "compare" {
@@ -2706,7 +2708,11 @@ fn emit_stmt(node, path: Text) -> Array {
             params = APPEND(params, node[2][pi]);
             pi = pi + 1;
         }
-        let out = [irx(74, node[1], "lang", "arity=" + TO_STRING(arity) + " params=" + JOIN(params, ","))];
+        // The marker carries the declared parameter and return types so a
+        // backend can type parameters and call results without re-parsing the
+        // source. Types are plain names (`Text`, `Array<Num>`); no spaces.
+        let ptypes = node[6];
+        let out = [irx(74, node[1], "lang", "arity=" + TO_STRING(arity) + " params=" + JOIN(params, ",") + " types=" + JOIN(ptypes, ",") + " ret=" + node[4])];
         if node[5] == "async" {
             out = cat(out, [irx(255, "async", "async", "decl")]);
         }
@@ -2879,12 +2885,8 @@ fn ir_unescape(text: Text) -> Text {
 }
 
 fn const_value(text: Text) {
-    if text == "true" {
-        return true;
-    }
-    if text == "false" {
-        return false;
-    }
+    // `true`/`false` reach here only as strings: bool literals are tagged in
+    // the IR (see the op-1 handler), so a string literal "true" stays a string.
     if text == "NOTHING" {
         return "NOTHING";
     }
@@ -2904,6 +2906,19 @@ fn meta_value(meta: Text, key: Text) -> Text {
             if kv[0] == key {
                 found = kv[1];
             }
+        }
+        i = i + 1;
+    }
+    return found;
+}
+
+fn has_meta(meta: Text, key: Text) -> Bool {
+    let parts = SPLIT(meta, " ");
+    let found = false;
+    let i = 0;
+    while i < LEN(parts) {
+        if parts[i] == key {
+            found = true;
         }
         i = i + 1;
     }
@@ -3005,7 +3020,11 @@ fn run(rows) {
 
             if op == 1 {
                 handled = true;
-                stack = APPEND(stack, const_value(operand));
+                if has_meta(meta, "bool") {
+                    stack = APPEND(stack, operand == "true");
+                } else {
+                    stack = APPEND(stack, const_value(operand));
+                }
             }
             if op == 2 {
                 handled = true;

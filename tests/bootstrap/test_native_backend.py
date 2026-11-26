@@ -225,13 +225,14 @@ def test_source_string_runtime_matches_the_vm(tmp_path, monkeypatch):
     run = subprocess.run(
         [str(exe)], capture_output=True, text=True, check=True, cwd=workdir
     )
+    # string comparisons yield booleans, printed the way the VM prints them
     assert run.stdout.splitlines() == [
         "abc",
         "3",
         "b",
         "abcdef",
-        "1",
-        "0",
+        "true",
+        "false",
         "65",
         "hello",
         "",
@@ -594,3 +595,63 @@ def test_logical_and_or_evaluate_both_operands():
     result = NullVM().execute(stream)
     assert result.success, result.error
     assert result.output == ["or", "and"]
+
+
+def test_boolean_results_print_like_the_vm(tmp_path, monkeypatch):
+    # Comparisons now carry the `bool` type through stores, parameters and
+    # returns, so print formats them as true/false instead of 1/0. The VM is the
+    # reference: both pipelines must produce the same lines.
+    program = (
+        "fn greater(a: Num, b: Num) -> Bool {\n"
+        "    return a > b;\n"
+        "}\n"
+        "println(greater(2, 1));\n"
+        "println(greater(1, 2));\n"
+        "let flag = 3 == 3;\n"
+        "println(flag);\n"
+        "println(flag != false);\n"
+    )
+    workdir, _ = _run_pipeline(tmp_path, monkeypatch, program)
+
+    report = (workdir / "bootstrap" / "backend.report").read_text()
+    assert "FALLBACK" not in report
+
+    exe = _build(workdir, "bools")
+    native = subprocess.run([str(exe)], capture_output=True, text=True, check=True)
+    assert native.stdout.splitlines() == ["true", "false", "true", "true"]
+
+    vm = NullVM().execute(NullLangCompiler().compile(ModernRustParser().parse(program)))
+    assert vm.success, vm.error
+    assert native.stdout.splitlines() == vm.output
+
+
+def test_native_stage1_lexer_matches_the_vm(tmp_path, monkeypatch):
+    # The stage-1 lexer compiled by the native backend must tokenise exactly like
+    # the same lexer on the VM. This needs the declared parameter/return types
+    # (`Array` element types for `ident[0]`, `ident[1]`, `text[0]`) to survive the
+    # call boundary, and bool printing for `is_*` results.
+    lexer = (ROOT / "bootstrap" / "lexer.null").read_text()
+    workdir, _ = _run_pipeline(tmp_path, monkeypatch, lexer)
+
+    report = (workdir / "bootstrap" / "backend.report").read_text()
+    assert "FALLBACK" not in report
+
+    sample = (
+        "fn add(a: Num, b: Num) -> Num {\n"
+        "    return a + b; // doubles\n"
+        "}\n"
+        "let label = \"a\\\"b\";\n"
+        "SET legacy TO 7\n"
+        "if a != b { println(label); }\n"
+    )
+    (workdir / "bootstrap" / "input.null").write_text(sample)
+
+    exe = _build(workdir, "lexer")
+    native = subprocess.run(
+        [str(exe)], capture_output=True, text=True, check=True
+    ).stdout.splitlines()
+
+    vm = NullVM().execute(NullLangCompiler().compile(ModernRustParser().parse(lexer)))
+    assert vm.success, vm.error
+    assert native == vm.output
+    assert "PUNCT ->" in native and "STRING a\"b" in native

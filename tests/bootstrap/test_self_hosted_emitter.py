@@ -4,6 +4,7 @@ The emitter lowers the unified AST to super-bit IR tokens:
 ["IR", opcode, operand, layer, meta?] and ["LABEL", name].
 """
 
+import re
 from pathlib import Path
 
 from null_system.lang.compiler import NullLangCompiler
@@ -13,7 +14,7 @@ from null_system.vm.vm import NullVM
 ROOT = Path(__file__).resolve().parents[2]
 
 SAMPLE_IR = [
-    "IR 74 add @lang arity=2 params=a,b",
+    "IR 74 add @lang arity=2 params=a,b types=Num,Num ret=Num",
     "IR 2 a @scalar",
     "IR 2 b @scalar",
     "IR 10  @scalar",
@@ -81,6 +82,14 @@ def test_emitter_lowers_sample_program_to_superbit(tmp_path, monkeypatch):
     assert _emit(tmp_path, monkeypatch, sample) == SAMPLE_IR
 
 
+def _without_declared_types(lines: list[str]) -> list[str]:
+    # The function marker carries the declared parameter and return types for
+    # backends that type calls. English-dialect functions have no type syntax, so
+    # that surface-only annotation is the one legitimate difference between the
+    # two dialect dumps; the instructions themselves must still agree.
+    return [re.sub(r" types=\S* ret=\S*$", "", line) for line in lines]
+
+
 def test_english_and_modern_programs_emit_identical_ir(tmp_path, monkeypatch):
     english = (ROOT / "bootstrap" / "dual_english.null").read_text()
     modern = (ROOT / "bootstrap" / "dual_modern.null").read_text()
@@ -88,7 +97,8 @@ def test_english_and_modern_programs_emit_identical_ir(tmp_path, monkeypatch):
     english_ir = _emit(tmp_path / "e", monkeypatch, english)
     modern_ir = _emit(tmp_path / "m", monkeypatch, modern)
 
-    assert english_ir == modern_ir
+    assert _without_declared_types(english_ir) == _without_declared_types(modern_ir)
+    assert "types=Num,Num" in "\n".join(modern_ir)
     instructions = [line for line in english_ir if line.startswith("IR ")]
     assert len(instructions) >= 60
     assert english_ir[-1].startswith("TOKENS ")
@@ -120,7 +130,7 @@ def test_emitter_writes_the_ir_file(tmp_path, monkeypatch):
     output = _emit(tmp_path, monkeypatch, sample)
 
     rows = (tmp_path / "run" / "bootstrap" / "program.ir").read_text().splitlines()
-    assert rows[0] == "IR\t74\tadd\tlang\tarity=2 params=a,b"
+    assert rows[0] == "IR\t74\tadd\tlang\tarity=2 params=a,b types=Num,Num ret=Num"
     assert rows[-1] == "IR\t255\tHALT\tscalar\tend"
     assert len(rows) == len(output) - 1
     assert [row.split("\t")[1] for row in rows if row.startswith("IR")] == [
