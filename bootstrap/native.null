@@ -1508,6 +1508,368 @@ fn fast_vec_filtered_square(rows, i, regs, slot_names) -> Array {
     return body;
 }
 
+// Operand text for a scalar variable: its promoted register, or the frame slot it
+// lives in when the register allocator did not promote it. "" means unknown.
+fn scalar_operand(name, regs, slot_names) -> Text {
+    let idx = index_of(slot_names, name);
+    if idx == LEN(slot_names) {
+        return "";
+    }
+    if idx < LEN(regs) {
+        if regs[idx] != "" {
+            return regs[idx];
+        }
+    }
+    return "qword ptr [rbp - " + TO_STRING(200 + idx * 8) + "]";
+}
+
+// Array fill: `while iv <op> n { a[iv] = iv; b[iv] = iv * 2; iv = iv + 1 }` with
+// a, b, iv and n all in promoted registers. Four lanes per pass: the iota vector
+// is stored to a, its double to b, then both advance by four. The scalar loop is
+// re-emitted as the tail, so any trip count and any remainder stay exact.
+fn fast_vec_array_fill(rows, i, regs, slot_names) -> Array {
+    if i + 21 >= LEN(rows) {
+        return [];
+    }
+    let k = 0;
+    let span = [];
+    while k < 22 {
+        span = APPEND(span, rows[i + k]);
+        k = k + 1;
+    }
+    k = 0;
+    while k < 22 {
+        if LEN(span[k]) < 2 {
+            return [];
+        }
+        k = k + 1;
+    }
+    if span[0][0] != "LABEL" || LEN(span[1]) < 3 || LEN(span[2]) < 3 {
+        return [];
+    }
+    if span[4][1] != 40 {
+        return [];
+    }
+    let is_lt = span[3][1] == 21 || span[3][1] == 102;
+    let is_le = span[3][1] == 25 || span[3][1] == 103;
+    if is_lt == false && is_le == false {
+        return [];
+    }
+    // LOAD a; LOAD iv; LOAD iv; INDEX_STORE; STORE a      (a[iv] = iv)
+    if span[5][1] != 2 || span[6][1] != 2 || span[7][1] != 2 || span[8][1] != 105 {
+        return [];
+    }
+    if span[9][1] != 3 {
+        return [];
+    }
+    // LOAD b; LOAD iv; LOAD iv; LOAD 2; MUL; INDEX_STORE; STORE b
+    if span[10][1] != 2 || span[11][1] != 2 || span[12][1] != 2 || span[13][1] != 1 {
+        return [];
+    }
+    if span[14][1] != 12 || span[15][1] != 105 || span[16][1] != 3 {
+        return [];
+    }
+    // LOAD iv; LOAD 1; ADD; STORE iv; JUMP loop
+    if span[17][1] != 2 || span[18][1] != 1 || span[20][1] != 3 || span[21][1] != 41 {
+        return [];
+    }
+    if span[19][1] != 100 && span[19][1] != 10 {
+        return [];
+    }
+    if span[13][2] != "2" || span[18][2] != "1" {
+        return [];
+    }
+    // every operand must be the variable the shape says it is
+    if span[6][2] != span[1][2] || span[7][2] != span[1][2] || span[11][2] != span[1][2] {
+        return [];
+    }
+    if span[12][2] != span[1][2] || span[17][2] != span[1][2] || span[20][2] != span[1][2] {
+        return [];
+    }
+    if span[9][2] != span[5][2] || span[16][2] != span[10][2] {
+        return [];
+    }
+    if span[21][2] != span[0][1] {
+        return [];
+    }
+    if span[5][2] == span[10][2] || span[5][2] == span[1][2] || span[10][2] == span[1][2] {
+        return [];
+    }
+    if span[5][2] == span[2][2] || span[10][2] == span[2][2] || span[1][2] == span[2][2] {
+        return [];
+    }
+    // The four values do not all have to be promoted: a pointer or the index
+    // that stayed in its frame slot is loaded into a scratch register once, and
+    // a spilled index is written back on the way out so following code sees it.
+    let lbl = span[0][1];
+    let prelude = [];
+    let iv = reg_of(span[1][2], regs, slot_names);
+    let nn = reg_of(span[2][2], regs, slot_names);
+    let ar = reg_of(span[5][2], regs, slot_names);
+    let br = reg_of(span[10][2], regs, slot_names);
+    let iv_slot = "";
+    if iv == "" {
+        iv_slot = "qword ptr [rbp - " + TO_STRING(200 + index_of(slot_names, span[1][2]) * 8) + "]";
+        iv = "r9";
+        prelude = APPEND(prelude, "  mov r9, " + iv_slot);
+    }
+    if nn == "" {
+        nn = "r8";
+        prelude = APPEND(prelude, "  mov r8, qword ptr [rbp - " + TO_STRING(200 + index_of(slot_names, span[2][2]) * 8) + "]");
+    }
+    if ar == "" {
+        ar = "r10";
+        prelude = APPEND(prelude, "  mov r10, qword ptr [rbp - " + TO_STRING(200 + index_of(slot_names, span[5][2]) * 8) + "]");
+    }
+    if br == "" {
+        br = "r11";
+        prelude = APPEND(prelude, "  mov r11, qword ptr [rbp - " + TO_STRING(200 + index_of(slot_names, span[10][2]) * 8) + "]");
+    }
+    let tail = ".L" + lbl + "_at";
+    let leave = ".L" + lbl + "_ax";
+    let done = "  jg " + tail;
+    let exit_cc = "  jg .L" + span[4][2];
+    let guard = "  lea rdx, [" + iv + " + 4]";
+    if is_lt {
+        done = "  jge " + tail;
+        exit_cc = "  jge .L" + span[4][2];
+    }
+    if is_le {
+        guard = "  lea rdx, [" + iv + " + 3]";
+    }
+    if iv_slot != "" {
+        exit_cc = "  jg " + leave;
+        if is_lt {
+            exit_cc = "  jge " + leave;
+        }
+    }
+    let body = prelude;
+    body = APPEND(body, "  vmovq xmm0, " + iv);
+    body = APPEND(body, "  vpbroadcastq ymm1, xmm0");
+    body = APPEND(body, "  vpaddq ymm1, ymm1, ymmword ptr [rip + .Liota0]");
+    body = APPEND(body, "  vpaddq ymm2, ymm1, ymm1");
+    body = APPEND(body, ".L" + lbl + "_av:");
+    body = APPEND(body, guard);
+    body = APPEND(body, "  cmp rdx, " + nn);
+    body = APPEND(body, done);
+    body = APPEND(body, "  vmovdqu ymmword ptr [" + ar + " + " + iv + "*8 + 8], ymm1");
+    body = APPEND(body, "  vmovdqu ymmword ptr [" + br + " + " + iv + "*8 + 8], ymm2");
+    body = APPEND(body, "  vpaddq ymm1, ymm1, ymmword ptr [rip + .Lfour]");
+    body = APPEND(body, "  vpaddq ymm2, ymm2, ymmword ptr [rip + .Leight]");
+    body = APPEND(body, "  add " + iv + ", 4");
+    body = APPEND(body, "  jmp .L" + lbl + "_av");
+    body = APPEND(body, tail + ":");
+    body = APPEND(body, "  cmp " + iv + ", " + nn);
+    body = APPEND(body, exit_cc);
+    body = APPEND(body, "  mov qword ptr [" + ar + " + " + iv + "*8 + 8], " + iv);
+    body = APPEND(body, "  lea rax, [" + iv + " + " + iv + "]");
+    body = APPEND(body, "  mov qword ptr [" + br + " + " + iv + "*8 + 8], rax");
+    body = APPEND(body, "  add " + iv + ", 1");
+    body = APPEND(body, "  jmp " + tail);
+    if iv_slot != "" {
+        body = APPEND(body, leave + ":");
+        body = APPEND(body, "  mov " + iv_slot + ", " + iv);
+        body = APPEND(body, "  jmp .L" + span[4][2]);
+    }
+    return body;
+}
+
+// Array map reduction: `while iv <op> n { acc = acc + a[iv] * k + b[iv]; iv = iv + 1 }`
+// with a, b, iv and n in promoted registers and k a constant 2, 3 or 4. Two
+// four-lane windows per pass into two accumulators, so the lane loads stay 32-byte
+// aligned to the i64 lanes. The scalar loop is re-emitted as the tail and the
+// accumulator may live in a frame slot, so the pass does not depend on the
+// allocator promoting all five values.
+fn fast_vec_array_axpy(rows, i, regs, slot_names) -> Array {
+    if i + 21 >= LEN(rows) {
+        return [];
+    }
+    let k = 0;
+    let span = [];
+    while k < 22 {
+        span = APPEND(span, rows[i + k]);
+        k = k + 1;
+    }
+    k = 0;
+    while k < 22 {
+        if LEN(span[k]) < 2 {
+            return [];
+        }
+        k = k + 1;
+    }
+    if span[0][0] != "LABEL" || LEN(span[1]) < 3 || LEN(span[2]) < 3 {
+        return [];
+    }
+    if span[4][1] != 40 {
+        return [];
+    }
+    let is_lt = span[3][1] == 21 || span[3][1] == 102;
+    let is_le = span[3][1] == 25 || span[3][1] == 103;
+    if is_lt == false && is_le == false {
+        return [];
+    }
+    // LOAD acc; LOAD a; LOAD iv; INDEX_LOAD; LOAD k; MUL
+    if span[5][1] != 2 || span[6][1] != 2 || span[7][1] != 2 || span[8][1] != 103 {
+        return [];
+    }
+    if span[9][1] != 1 || span[10][1] != 12 {
+        return [];
+    }
+    // LOAD b; LOAD iv; INDEX_LOAD; ADD; ADD; STORE acc
+    if span[11][1] != 2 || span[12][1] != 2 || span[13][1] != 103 {
+        return [];
+    }
+    if span[14][1] != 100 || span[15][1] != 100 || span[16][1] != 3 {
+        return [];
+    }
+    // LOAD iv; LOAD 1; ADD; STORE iv; JUMP loop
+    if span[17][1] != 2 || span[18][1] != 1 || span[20][1] != 3 || span[21][1] != 41 {
+        return [];
+    }
+    if span[19][1] != 100 && span[19][1] != 10 {
+        return [];
+    }
+    if span[18][2] != "1" || span[21][2] != span[0][1] {
+        return [];
+    }
+    if span[7][2] != span[1][2] || span[12][2] != span[1][2] || span[17][2] != span[1][2] {
+        return [];
+    }
+    if span[20][2] != span[1][2] || span[16][2] != span[5][2] {
+        return [];
+    }
+    if span[6][2] == span[11][2] {
+        return [];
+    }
+    if span[5][2] == span[6][2] || span[5][2] == span[11][2] || span[5][2] == span[1][2] {
+        return [];
+    }
+    if span[5][2] == span[2][2] || span[6][2] == span[1][2] {
+        return [];
+    }
+    if span[11][2] == span[1][2] || span[1][2] == span[2][2] {
+        return [];
+    }
+    let kk = TO_NUMBER(span[9][2]);
+    if kk != 2 && kk != 3 && kk != 4 {
+        return [];
+    }
+    // As in the fill pass, only the accumulator may live in memory: everything
+    // else is loaded into a scratch register for the duration of the loop.
+    let lbl = span[0][1];
+    let prelude = [];
+    let iv = reg_of(span[1][2], regs, slot_names);
+    let nn = reg_of(span[2][2], regs, slot_names);
+    let ar = reg_of(span[6][2], regs, slot_names);
+    let br = reg_of(span[11][2], regs, slot_names);
+    let acc = scalar_operand(span[5][2], regs, slot_names);
+    if acc == "" {
+        return [];
+    }
+    let iv_slot = "";
+    if iv == "" {
+        iv_slot = "qword ptr [rbp - " + TO_STRING(200 + index_of(slot_names, span[1][2]) * 8) + "]";
+        iv = "r9";
+        prelude = APPEND(prelude, "  mov r9, " + iv_slot);
+    }
+    if nn == "" {
+        nn = "r8";
+        prelude = APPEND(prelude, "  mov r8, qword ptr [rbp - " + TO_STRING(200 + index_of(slot_names, span[2][2]) * 8) + "]");
+    }
+    if ar == "" {
+        ar = "r10";
+        prelude = APPEND(prelude, "  mov r10, qword ptr [rbp - " + TO_STRING(200 + index_of(slot_names, span[6][2]) * 8) + "]");
+    }
+    if br == "" {
+        br = "r11";
+        prelude = APPEND(prelude, "  mov r11, qword ptr [rbp - " + TO_STRING(200 + index_of(slot_names, span[11][2]) * 8) + "]");
+    }
+    let vec_tail = ".L" + lbl + "_mvt";
+    let tail = ".L" + lbl + "_mt2";
+    let leave = ".L" + lbl + "_mx";
+    let done = "  jg " + vec_tail;
+    let exit_cc = "  jg .L" + span[4][2];
+    let guard = "  lea rdx, [" + iv + " + 8]";
+    if is_lt {
+        done = "  jge " + vec_tail;
+        exit_cc = "  jge .L" + span[4][2];
+    }
+    if is_le {
+        guard = "  lea rdx, [" + iv + " + 7]";
+    }
+    if iv_slot != "" {
+        exit_cc = "  jg " + leave;
+        if is_lt {
+            exit_cc = "  jge " + leave;
+        }
+    }
+    let body = prelude;
+    body = APPEND(body, "  vpxor ymm2, ymm2, ymm2");
+    body = APPEND(body, "  vpxor ymm3, ymm3, ymm3");
+    body = APPEND(body, ".L" + lbl + "_mv:");
+    body = APPEND(body, guard);
+    body = APPEND(body, "  cmp rdx, " + nn);
+    body = APPEND(body, done);
+    let lane = 1;
+    while lane < 3 {
+        let off = " + 8";
+        let tgt = "ymm2";
+        if lane == 2 {
+            off = " + 40";
+            tgt = "ymm3";
+        }
+        body = APPEND(body, "  vmovdqu ymm0, ymmword ptr [" + ar + " + " + iv + "*8" + off + "]");
+        body = APPEND(body, "  vmovdqu ymm1, ymmword ptr [" + br + " + " + iv + "*8" + off + "]");
+        if kk == 2 {
+            body = APPEND(body, "  vpsllq ymm0, ymm0, 1");
+        }
+        if kk == 3 {
+            body = APPEND(body, "  vpsllq ymm4, ymm0, 1");
+            body = APPEND(body, "  vpaddq ymm0, ymm0, ymm4");
+        }
+        if kk == 4 {
+            body = APPEND(body, "  vpsllq ymm0, ymm0, 2");
+        }
+        body = APPEND(body, "  vpaddq ymm0, ymm0, ymm1");
+        body = APPEND(body, "  vpaddq " + tgt + ", " + tgt + ", ymm0");
+        lane = lane + 1;
+    }
+    body = APPEND(body, "  add " + iv + ", 8");
+    body = APPEND(body, "  jmp .L" + lbl + "_mv");
+    body = APPEND(body, vec_tail + ":");
+    body = APPEND(body, "  vpaddq ymm2, ymm2, ymm3");
+    body = APPEND(body, "  vextracti128 xmm0, ymm2, 1");
+    body = APPEND(body, "  vpaddq xmm0, xmm0, xmm2");
+    body = APPEND(body, "  vpsrldq xmm1, xmm0, 8");
+    body = APPEND(body, "  vpaddq xmm0, xmm0, xmm1");
+    body = APPEND(body, "  vmovq rax, xmm0");
+    body = APPEND(body, "  add " + acc + ", rax");
+    body = APPEND(body, "  vzeroupper");
+    body = APPEND(body, tail + ":");
+    body = APPEND(body, "  cmp " + iv + ", " + nn);
+    body = APPEND(body, exit_cc);
+    body = APPEND(body, "  mov rax, qword ptr [" + ar + " + " + iv + "*8 + 8]");
+    if kk == 2 {
+        body = APPEND(body, "  lea rax, [rax + rax]");
+    }
+    if kk == 3 {
+        body = APPEND(body, "  lea rax, [rax + rax*2]");
+    }
+    if kk == 4 {
+        body = APPEND(body, "  lea rax, [rax*4]");
+    }
+    body = APPEND(body, "  add rax, qword ptr [" + br + " + " + iv + "*8 + 8]");
+    body = APPEND(body, "  add " + acc + ", rax");
+    body = APPEND(body, "  add " + iv + ", 1");
+    body = APPEND(body, "  jmp " + tail);
+    if iv_slot != "" {
+        body = APPEND(body, leave + ":");
+        body = APPEND(body, "  mov " + iv_slot + ", " + iv);
+        body = APPEND(body, "  jmp .L" + span[4][2]);
+    }
+    return body;
+}
+
 fn compile(rows) -> Array {
     let out = [
         ".intel_syntax noprefix",
@@ -1596,6 +1958,28 @@ fn compile(rows) -> Array {
                 }
                 report = APPEND(report, "VECTORIZED filtered-square-loop " + row[1] + " 8-wide-avx2");
                 i = i + 29;
+                continue;
+            }
+            let fasta = fast_vec_array_axpy(rows, i, regs, slot_names);
+            if LEN(fasta) > 0 {
+                let ai = 0;
+                while ai < LEN(fasta) {
+                    out = APPEND(out, fasta[ai]);
+                    ai = ai + 1;
+                }
+                report = APPEND(report, "VECTORIZED array-map-loop " + row[1] + " 8-wide-avx2");
+                i = i + 22;
+                continue;
+            }
+            let fastl = fast_vec_array_fill(rows, i, regs, slot_names);
+            if LEN(fastl) > 0 {
+                let li = 0;
+                while li < LEN(fastl) {
+                    out = APPEND(out, fastl[li]);
+                    li = li + 1;
+                }
+                report = APPEND(report, "VECTORIZED array-fill-loop " + row[1] + " 4-wide-avx2");
+                i = i + 22;
                 continue;
             }
             let fastv = fast_vec_reduce(rows, i, regs, slot_names);

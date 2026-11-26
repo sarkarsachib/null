@@ -96,6 +96,8 @@ invent an encoding of its own.
 | 120 / 121 | `SIMD_ADD` / `SIMD_MUL` | AVX2 loop + scalar tail |
 | 122 | `SIMD_SUM` | AVX2 4-lane i64 accumulation + horizontal add + scalar tail |
 | — | counting reduction loop | 8-wide AVX2 (two 4-lane accumulators) + scalar tail |
+| — | array fill loop | 4-wide AVX2 stores of an iota vector and its double + scalar tail |
+| — | array map reduction | 8-wide AVX2 `acc += a[i]*k + b[i]`, k in {2, 3, 4} + scalar tail |
 | 255 | `HALT` | exit with the current value |
 
 Reported as `FALLBACK` today: 101 (float add), 106 (`FAST_ARRAY_PUSH` — there
@@ -128,19 +130,24 @@ store), that the reduction loop becomes the AVX2 body (`vpbroadcastq`/`vpaddq`)
 and still prints the exact result, that the vector tail is exact for trip counts
 of 5, 8, 13 and 21, that the filtered square reduction is vectorised
 (`vpcmpeqq` lane masks) with exact results for both `<` and `<=` and for windows
-that do not divide evenly, that the generated binaries print the C baselines' exact
-results for `comprehension` and `array_map`, that `MOD 2^k` never emits `idiv`,
+that do not divide evenly, that both array loops are vectorised and their tails
+are exact for bounds of 5, 8, 9, 13 and 21 in both `<` and `<=` forms, that a
+single store outside any loop still uses the 105/107 lowerings, that the generated
+binaries print the C baselines' exact results for `comprehension` and `array_map`,
+that `MOD 2^k` never emits `idiv`,
 and that an unhonourable opcode is both reported and trapped. `tests/bootstrap` also covers
 the language-level `&&`/`||` opcodes (26/27), which previously compiled to
 nothing at all.
 
 ## Known gaps
 
-- Vectorisation is two patterns, not a vectoriser: the counting reduction
-  (`acc += iv`) and the filtered square reduction
-  (`if ((iv / c) * c == iv) { acc += iv * iv }`, c a power of two). `array_map`
-  stays scalar inside its loop and is the one workload still behind C `-O3`
-  (28%: see §6.2 of the contract). Nothing is unrolled yet.
+- Vectorisation is four patterns, not a vectoriser: the counting reduction
+  (`acc += iv`), the filtered square reduction
+  (`if ((iv / c) * c == iv) { acc += iv * iv }`, c a power of two), the two-array
+  fill and the two-array map reduction (`acc += a[i]*k + b[i]`, k in {2, 3, 4}).
+  All three workloads are now ahead of C `-O3` (1.19x-3.61x: §6.2 of the
+  contract), but nothing is unrolled yet and a fill followed by a map stays two
+  loops.
 - Register promotion is frequency-based, not a real allocation (no liveness or
   interference), and is disabled for programs with functions.
 - There is no growable array opcode (106 traps), so arrays must be pre-sized with

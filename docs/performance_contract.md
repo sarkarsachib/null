@@ -119,7 +119,7 @@ once through the stage-5 native backend and once as a C baseline built with
   stage-3 emitter lowers a 7-statement program and the full `sum_loop` source in
   ~0.73 s of wall time. Earlier notes that claimed it needed minutes were wrong.
 
-### 6.2 Measured result (stage 5, 2026-11-26T12:52Z)
+### 6.2 Measured result (stage 5, 2026-11-26T21:14Z)
 
 Machine: Linux 4.19.0-gvisor, 2 shared cores, AVX2/FMA, CPU model not exposed.
 Workloads: `sum_loop` (sum 1..1e8), `comprehension` (sum of even squares 1..2e7),
@@ -129,9 +129,9 @@ to its C baseline, so each comparison is semantics-equal.
 
 | workload | Null native | C `-O3` | C/Null | Null RSS | C RSS |
 | --- | --- | --- | --- | --- | --- |
-| `sum_loop` | 9.6 ms | 31.2 ms | **3.25x** | 3072 KiB | 4484 KiB |
-| `comprehension` | 8.2 ms | 15.6 ms | **1.90x** | 2348 KiB | 4536 KiB |
-| `array_map` | 232.7 ms | 168.2 ms | 0.72x | 128764 KiB | 128752 KiB |
+| `sum_loop` | 10.1 ms | 36.5 ms | **3.61x** | 2356 KiB | 3148 KiB |
+| `comprehension` | 6.4 ms | 19.7 ms | **3.08x** | 3204 KiB | 3660 KiB |
+| `array_map` | 63.9 ms | 75.9 ms | **1.19x** | 127416 KiB | 128776 KiB |
 
 Absolute times on this host move by up to ~20% between runs (the two cores are
 shared and the C baseline moves with them), so the ratio against the same run's
@@ -142,25 +142,26 @@ All three binaries are built from `.null` sources by the self-hosted pipeline
 `bootstrap/native.null` → asm), except `array_map`, which is hand-written IR for
 the reason given in 6.3.
 
-**Verdict: the 10x target is not demonstrated.** Both reductions are now faster
-than `cc -O3` — 3.25x on the counting loop and 1.90x on the filtered square sum —
-and the array kernel is 28% behind, which is now the only workload where C's
-auto-vectoriser still wins. The gap closes exactly where the backend recognises a
-vector form: `array_map` is the one shape with no such form yet.
+**Verdict: the 10x target is not demonstrated.** All three workloads are now
+faster than `cc -O3` — 3.61x on the counting loop, 3.08x on the filtered square
+sum and 1.19x on the array kernel — and the gap closes exactly where the backend
+recognises a vector form. `array_map` was 28% behind in the previous run and is
+19% ahead here, the largest single gain since instruction selection.
 
 What closed the gap. The first three rows were recorded with the old in-shell
 sampler, which added roughly a constant ~10 ms to a short workload whichever
 side it measured; they are kept for the trend, and the last two rows use
 `bench/measure.py`:
 
-| change | `sum_loop` | `comprehension` |
-| --- | --- | --- |
-| template expander, everything in stack slots | 797 ms | 249 ms |
-| hot variables in callee-saved registers (r12-r15), redundant load/store peephole, `cmp`+`setcc`+`test` folded into one conditional jump | 70 ms | 183 ms |
-| IR-level instruction selection: register-to-register arithmetic, fused compare+branch, fused `c = c + a*b`, `x MOD 2^k == 0` lowered to `test`/`jne` | 61 ms | 44-65 ms |
-| strength reduction of the emitted `x - (x / 2^k) * 2^k == 0` idiom to `test x, 2^k-1` (kills the last `idiv`) | 61 ms | 15-18 ms |
-| 8-wide AVX2 reduction loop: two 4-lane i64 accumulators, constant iota vector advanced by 8, horizontal sum, original scalar loop kept as the tail | **10.6 ms** | — |
-| filtered square reduction: two iota windows per pass (second is iota+4, so no two lanes coincide), AVX2 64-bit square, `vpcmpeqq` lane mask for divisibility by a power of two, masked accumulate into two 4-lane accumulators | — | **8.2 ms** |
+| change | `sum_loop` | `comprehension` | `array_map` |
+| --- | --- | --- | --- |
+| template expander, everything in stack slots | 797 ms | 249 ms | — |
+| hot variables in callee-saved registers (r12-r15), redundant load/store peephole, `cmp`+`setcc`+`test` folded into one conditional jump | 70 ms | 183 ms | — |
+| IR-level instruction selection: register-to-register arithmetic, fused compare+branch, fused `c = c + a*b`, `x MOD 2^k == 0` lowered to `test`/`jne` | 61 ms | 44-65 ms | — |
+| strength reduction of the emitted `x - (x / 2^k) * 2^k == 0` idiom to `test x, 2^k-1` (kills the last `idiv`) | 61 ms | 15-18 ms | — |
+| 8-wide AVX2 reduction loop: two 4-lane i64 accumulators, constant iota vector advanced by 8, horizontal sum, original scalar loop kept as the tail | **10.6 ms** | — | — |
+| filtered square reduction: two iota windows per pass (second is iota+4, so no two lanes coincide), AVX2 64-bit square, `vpcmpeqq` lane mask for divisibility by a power of two, masked accumulate into two 4-lane accumulators | — | **8.2 ms** | — |
+| array kernel vector forms: 4-wide fill (one iota vector and its double stored per pass) and 8-wide `acc += a[i]*3 + b[i]` (two 4-lane accumulators, `3a` as `(a << 1) + a`, scalar tail) | — | — | **63.9 ms** |
 
 The array kernels are now strictly AVX2. `SIMD_MUL` used to emit `vpmullq`,
 which is AVX512DQ+VL — it worked here only because the emulated CPU behind this
@@ -173,11 +174,15 @@ run, i.e. inside the noise above.
 The generated `sum_loop` loop is now three vector instructions per eight
 iterations plus `lea`/`cmp`/`jg`/`add`/`jmp`; `comprehension` is `cmp`/`jg`,
 `test`/`jne`, `mov`/`imul`/`add`, with no stack traffic and no division.
+`array_map`'s fill loop is two 32-byte stores per four elements, and its map loop
+is two 32-byte loads, three arithmetic ops and one accumulate per four elements,
+with the index, bound and base pointers held in registers for the whole loop.
 
-Next levers, in order of expected payoff: a vector form for the array kernel
-(`array_map`: `acc += a[i]*k + b[i]`, the last scalar loop), a fused array-map
-opcode (110-113 need captured lambdas in the IR), and loop unrolling by two for
-the vector bodies.
+Next levers, in order of expected payoff: a push/append opcode (106) so
+`array_map`'s own source can be lowered by the emitter instead of hand-authored
+IR, a fused array-map opcode (110-113 need captured lambdas in the IR), and loop
+unrolling by two for the four vector bodies, which are all still one window per
+branch.
 
 ### 6.3 Not yet measurable
 
@@ -192,14 +197,18 @@ the vector bodies.
   `null_unsupported` (exit 4) instead of silently doing something slower.
 - `SIMD_SUM` (122) lowers to a real AVX2 horizontal reduction and
   `array_map` drives it.
-- Vectorisation is pattern-driven, not a general vectoriser. Two loop shapes
+- Vectorisation is pattern-driven, not a general vectoriser. Four loop shapes
   currently have a vector form: the canonical counting reduction
-  (`while iv <op> n { acc += iv; iv += 1 }`) and the filtered square reduction
-  (`if ((iv / c) * c == iv) { acc += iv * iv }`, c a power of two), both requiring
-  the induction variable, bound and accumulator to be in promoted registers. Only
-  `x MOD 2^k` (in either spelling) becomes a bit test. A loop with a non-unit
-  stride, a non-power-of-two divisor, a different body, or a second accumulator
-  stays scalar.
+  (`while iv <op> n { acc += iv; iv += 1 }`), the filtered square reduction
+  (`if ((iv / c) * c == iv) { acc += iv * iv }`, c a power of two), the two-array
+  fill (`a[iv] = iv; b[iv] = iv * 2`) and the two-array map reduction
+  (`acc += a[iv] * k + b[iv]`, k in {2, 3, 4}). The reductions require the
+  induction variable, bound and accumulator in promoted registers; the array
+  forms load a spilled pointer, bound or index into a scratch register for the
+  loop and write a spilled index back on exit, so they do not depend on the
+  frequency heuristic promoting all four values. Only `x MOD 2^k` (in either
+  spelling) becomes a bit test. A loop with a non-unit stride, a non-power-of-two
+  divisor, a different body, or a multiplier outside {2, 3, 4} stays scalar.
 
 Status for the workloads above: **measured, target not met.** Status for the
 rest: **targeted, not yet demonstrated.**

@@ -89,17 +89,21 @@ def test_unhonourable_opcode_is_reported_and_traps(tmp_path, monkeypatch):
     assert run.returncode == 4
 
 
-def test_array_workload_uses_index_store_and_array_zero(tmp_path, monkeypatch):
+def test_array_workload_is_vectorised(tmp_path, monkeypatch):
     ir = (ROOT / "bench" / "ir" / "array_map.ir").read_text()
     workdir, _ = _run_backend(tmp_path, monkeypatch, ir)
 
     asm = (workdir / "bootstrap" / "program.s").read_text()
     report = (workdir / "bootstrap" / "backend.report").read_text()
-    # 107 FAST_ARRAY_ZERO allocates through calloc, 105 stores without a bounds check
+    # both loops in the workload have a vector form: the fill stores four lanes at
+    # a time, and the map reads both arrays four lanes at a time into two
+    # accumulators. No 105/103 scalar access is left inside either loop.
+    assert "VECTORIZED array-fill-loop" in report
+    assert "VECTORIZED array-map-loop" in report
+    assert "LOWERED 105" not in report
+    assert re.search(r"vmovdqu ymmword ptr \[r\d+ \+ r\d+\*8 \+ 8\], ymm1", asm)
+    assert "vpsllq ymm4, ymm0, 1" in asm  # a[i] * 3 as (a << 1) + a
     assert "call null_array_zero" in asm
-    assert "mov qword ptr [rcx + rdx * 8 + 8], rax" in asm
-    assert "LOWERED 107 fast-array-zero" in report
-    assert "LOWERED 105 fast-index-store" in report
     # 121 SIMD_MUL must stay AVX2: vpmullq is AVX512DQ+VL and traps on an AVX2-only
     # machine, so the lane product is three vpmuludq plus shifts.
     assert "vpmullq" not in asm
@@ -108,6 +112,125 @@ def test_array_workload_uses_index_store_and_array_zero(tmp_path, monkeypatch):
     exe = _build(workdir, "array_map")
     run = subprocess.run([str(exe)], capture_output=True, text=True, check=True)
     assert run.stdout.strip() == "159999980000000"
+
+
+def test_index_store_and_array_zero_still_lower(tmp_path, monkeypatch):
+    # A single store outside any loop: neither vector pass applies, so the
+    # specialised 105/107 lowerings still have to carry it.
+    ir = (
+        "IR\t1\t4\tscalar\nIR\t107\t\tscalar\nIR\t3\ta\tscalar\n"
+        "IR\t2\ta\tscalar\nIR\t1\t2\tscalar\nIR\t1\t42\tscalar\nIR\t105\t\tscalar\nIR\t3\ta\tscalar\n"
+        "IR\t2\ta\tscalar\nIR\t1\t2\tscalar\nIR\t103\t\tscalar\n"
+        "IR\t30\t\tscalar\nIR\t255\tHALT\tscalar\n"
+    )
+    workdir, _ = _run_backend(tmp_path, monkeypatch, ir)
+
+    asm = (workdir / "bootstrap" / "program.s").read_text()
+    report = (workdir / "bootstrap" / "backend.report").read_text()
+    assert "LOWERED 107 fast-array-zero" in report
+    assert "LOWERED 105 fast-index-store" in report
+    assert "mov qword ptr [rcx + rdx * 8 + 8], rax" in asm
+
+    exe = _build(workdir, "index_store")
+    run = subprocess.run([str(exe)], capture_output=True, text=True, check=True)
+    assert run.stdout.strip() == "42"
+
+
+def _array_map_ir(bound: int, cmp_op: int = 21) -> str:
+    """`a[i] = i; b[i] = i*2` then `total += a[i]*3 + b[i]`, as super-bit IR.
+
+    Both arrays are allocated eight elements longer than the bound so the `<=`
+    form can read one past the last filled element without leaving the array.
+    """
+    return (
+        "IR\t1\t0\tscalar\n"
+        "IR\t3\ttotal\tscalar\n"
+        "IR\t1\t0\tscalar\n"
+        "IR\t3\ti\tscalar\n"
+        f"IR\t1\t{bound}\tscalar\n"
+        "IR\t3\tlimit\tscalar\n"
+        "IR\t2\tlimit\tscalar\n"
+        "IR\t1\t8\tscalar\n"
+        "IR\t100\t\tscalar\n"
+        "IR\t107\t\tscalar\n"
+        "IR\t3\ta\tscalar\n"
+        "IR\t2\tlimit\tscalar\n"
+        "IR\t1\t8\tscalar\n"
+        "IR\t100\t\tscalar\n"
+        "IR\t107\t\tscalar\n"
+        "IR\t3\tb\tscalar\n"
+        "LABEL\tfill\n"
+        "IR\t2\ti\tscalar\n"
+        "IR\t2\tlimit\tscalar\n"
+        f"IR\t{cmp_op}\t\tscalar\n"
+        "IR\t40\tafter_fill\tscalar\n"
+        "IR\t2\ta\tscalar\n"
+        "IR\t2\ti\tscalar\n"
+        "IR\t2\ti\tscalar\n"
+        "IR\t105\t\tscalar\n"
+        "IR\t3\ta\tscalar\n"
+        "IR\t2\tb\tscalar\n"
+        "IR\t2\ti\tscalar\n"
+        "IR\t2\ti\tscalar\n"
+        "IR\t1\t2\tscalar\n"
+        "IR\t12\t\tscalar\n"
+        "IR\t105\t\tscalar\n"
+        "IR\t3\tb\tscalar\n"
+        "IR\t2\ti\tscalar\n"
+        "IR\t1\t1\tscalar\n"
+        "IR\t100\t\tscalar\n"
+        "IR\t3\ti\tscalar\n"
+        "IR\t41\tfill\tscalar\n"
+        "LABEL\tafter_fill\n"
+        "IR\t1\t0\tscalar\n"
+        "IR\t3\ti\tscalar\n"
+        "LABEL\tsum\n"
+        "IR\t2\ti\tscalar\n"
+        "IR\t2\tlimit\tscalar\n"
+        f"IR\t{cmp_op}\t\tscalar\n"
+        "IR\t40\tafter_sum\tscalar\n"
+        "IR\t2\ttotal\tscalar\n"
+        "IR\t2\ta\tscalar\n"
+        "IR\t2\ti\tscalar\n"
+        "IR\t103\t\tscalar\n"
+        "IR\t1\t3\tscalar\n"
+        "IR\t12\t\tscalar\n"
+        "IR\t2\tb\tscalar\n"
+        "IR\t2\ti\tscalar\n"
+        "IR\t103\t\tscalar\n"
+        "IR\t100\t\tscalar\n"
+        "IR\t100\t\tscalar\n"
+        "IR\t3\ttotal\tscalar\n"
+        "IR\t2\ti\tscalar\n"
+        "IR\t1\t1\tscalar\n"
+        "IR\t100\t\tscalar\n"
+        "IR\t3\ti\tscalar\n"
+        "IR\t41\tsum\tscalar\n"
+        "LABEL\tafter_sum\n"
+        "IR\t2\ttotal\tscalar\n"
+        "IR\t30\t\tscalar\n"
+        "IR\t255\tHALT\tscalar\n"
+    )
+
+
+@pytest.mark.parametrize(
+    "bound, cmp_op",
+    [
+        (5, 21),   # tail only, both loops
+        (8, 21),   # exactly one fill window and one map window
+        (9, 21),   # one window plus one tail element each
+        (13, 21),  # one map window + 5 tail elements
+        (21, 21),  # two map windows + tail
+        (16, 25),  # `<=` form: one extra element
+        (5, 25),   # `<=` tail only
+    ],
+)
+def test_array_map_vector_tail_is_exact(tmp_path, monkeypatch, bound, cmp_op):
+    workdir, _ = _run_backend(tmp_path, monkeypatch, _array_map_ir(bound, cmp_op))
+    exe = _build(workdir, f"array_{bound}_{cmp_op}")
+    run = subprocess.run([str(exe)], capture_output=True, text=True, check=True)
+    last = bound - 1 if cmp_op == 21 else bound
+    assert run.stdout.strip() == str(5 * sum(range(last + 1)))
 
 
 def test_modulo_by_power_of_two_becomes_a_bit_test(tmp_path, monkeypatch):
