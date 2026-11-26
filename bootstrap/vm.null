@@ -258,7 +258,11 @@ fn run(rows) {
                 if has_meta(meta, "bool") {
                     stack = APPEND(stack, operand == "true");
                 } else {
-                    stack = APPEND(stack, const_value(operand));
+                    if has_meta(meta, "str") {
+                        stack = APPEND(stack, ir_unescape(operand));
+                    } else {
+                        stack = APPEND(stack, const_value(operand));
+                    }
                 }
             }
             if op == 2 {

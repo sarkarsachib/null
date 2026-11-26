@@ -26,7 +26,7 @@ SAMPLE_IR = [
     "IR 3 total @scalar",
     "IR 2 total @scalar",
     "IR 30  @scalar",
-    "IR 1 null @scalar",
+    "IR 1 null @scalar str",
     "IR 3 label @scalar",
     "IR 1 7 @scalar",
     "IR 3 legacy @scalar",
@@ -61,7 +61,7 @@ def test_break_semicolons_and_literal_braces_do_not_derail_the_parser(tmp_path, 
     lines = _emit(tmp_path, monkeypatch, program)
 
     assert not [line for line in lines if "unsupported:" in line]
-    assert "IR 1 { @scalar" in lines
+    assert "IR 1 { @scalar str" in lines
     assert "IR 72  @scalar arity=8" in lines
 
 

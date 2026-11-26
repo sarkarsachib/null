@@ -2461,7 +2461,9 @@ fn emit_expr(node, path: Text) -> Array {
         return [ir(1, node[1], "scalar")];
     }
     if tag == "str" {
-        return [ir(1, ir_escape(node[1]), "scalar")];
+        // Tagged, so a literal like "123" or "true" is not read back as a
+        // number or a boolean by the IR consumers.
+        return [irx(1, ir_escape(node[1]), "scalar", "str")];
     }
     if tag == "bool" {
         // The `bool` marker keeps the literal `true` distinguishable from the
@@ -2724,7 +2726,7 @@ fn emit_stmt(node, path: Text) -> Array {
         let out = [label(start_label)];
         out = cat(out, emit_expr(node[1], path + ".c"));
         out = cat(out, [ir(40, end_label, "control")]);
-        out = cat(out, emit_stmts(node[2], path + ".b"));
+        out = cat(out, resolve_breaks(emit_stmts(node[2], path + ".b"), end_label, start_label));
         out = cat(out, [ir(41, start_label, "control")]);
         return cat(out, [label(end_label)]);
     }
@@ -2733,6 +2735,7 @@ fn emit_stmt(node, path: Text) -> Array {
         let it = "__it_" + path;
         let idx = "__i_" + path;
         let start_label = "L_" + path + "_start";
+        let step_label = "L_" + path + "_step";
         let end_label = "L_" + path + "_end";
         let out = emit_expr(node[2], path + ".x");
         out = cat(out, [ir(3, it, "scalar")]);
@@ -2741,7 +2744,8 @@ fn emit_stmt(node, path: Text) -> Array {
         out = cat(out, [ir(2, idx, "scalar"), ir(2, it, "scalar"), irx(70, "len", "scalar", "arity=1"), ir(21, "", "scalar")]);
         out = cat(out, [ir(40, end_label, "control")]);
         out = cat(out, [ir(2, it, "scalar"), ir(2, idx, "scalar"), ir(73, "", "scalar"), ir(3, var, "scalar")]);
-        out = cat(out, emit_stmts(node[3], path + ".b"));
+        out = cat(out, resolve_breaks(emit_stmts(node[3], path + ".b"), end_label, step_label));
+        out = cat(out, [label(step_label)]);
         out = cat(out, [ir(2, idx, "scalar"), ir(1, 1, "scalar"), ir(10, "", "scalar"), ir(3, idx, "scalar")]);
         out = cat(out, [ir(41, start_label, "control")]);
         return cat(out, [label(end_label)]);
@@ -2757,7 +2761,7 @@ fn emit_stmt(node, path: Text) -> Array {
         out = cat(out, [label(start_label)]);
         out = cat(out, [ir(2, i, "scalar"), ir(2, count, "scalar"), ir(21, "", "scalar")]);
         out = cat(out, [ir(40, end_label, "control")]);
-        out = cat(out, emit_stmts(node[2], path + ".b"));
+        out = cat(out, resolve_breaks(emit_stmts(node[2], path + ".b"), end_label, start_label));
         out = cat(out, [ir(2, i, "scalar"), ir(1, 1, "scalar"), ir(10, "", "scalar"), ir(3, i, "scalar")]);
         out = cat(out, [ir(41, start_label, "control")]);
         return cat(out, [label(end_label)]);
@@ -2816,6 +2820,36 @@ fn emit_stmt(node, path: Text) -> Array {
         return [irx(41, "__continue__", "control", "unresolved")];
     }
     return [irx(255, "unsupported:" + tag, "lang", "todo")];
+}
+
+// `break`/`continue` are emitted as jumps to __break__/__continue__; the loop
+// that owns them rewrites those to its own end/step labels. Inner loops have
+// already done so by the time an outer loop sees the rows.
+fn resolve_breaks(rows, break_label: Text, cont_label: Text) -> Array {
+    let out = [];
+    let i = 0;
+    while i < LEN(rows) {
+        let row = rows[i];
+        let rewritten = false;
+        if row[0] == "IR" {
+            if row[1] == 41 {
+                if row[2] == "__break__" {
+                    out = APPEND(out, ["IR", 41, break_label, row[3], "control"]);
+                    rewritten = true;
+                } else {
+                    if row[2] == "__continue__" {
+                        out = APPEND(out, ["IR", 41, cont_label, row[3], "control"]);
+                        rewritten = true;
+                    }
+                }
+            }
+        }
+        if rewritten == false {
+            out = APPEND(out, row);
+        }
+        i = i + 1;
+    }
+    return out;
 }
 
 fn emit_program(program) -> Array {

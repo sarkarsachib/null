@@ -655,3 +655,74 @@ def test_native_stage1_lexer_matches_the_vm(tmp_path, monkeypatch):
     assert vm.success, vm.error
     assert native == vm.output
     assert "PUNCT ->" in native and "STRING a\"b" in native
+
+
+def test_native_string_builtins_match_the_vm(tmp_path, monkeypatch):
+    # SPLIT/JOIN/SUBSTR/TO_STRING/TO_NUMBER/SLICE/CONTAINS/WRITE_FILE/FILE_EXISTS
+    # all lower to the byte-oriented runtime; the VM is the reference for values
+    # and for the file the write leaves behind.
+    program = (
+        'let parts = SPLIT("a,b,c", ",");\n'
+        "println(LEN(parts));\n"
+        'println(JOIN(parts, "-"));\n'
+        'println(SUBSTR("abcdef", 1, 4));\n'
+        "println(TO_STRING(42));\n"
+        "println(TO_STRING(true));\n"
+        'println(TO_NUMBER("123"));\n'
+        "let nums = [10, 20, 30, 40];\n"
+        "let mid = SLICE(nums, 1, 3);\n"
+        "println(LEN(mid));\n"
+        "println(mid[0] + mid[1]);\n"
+        'println(CONTAINS("hello world", "lo w"));\n'
+        'println(FILE_EXISTS("bootstrap/input.null"));\n'
+        'WRITE_FILE("bootstrap/out.txt", "written");\n'
+        'println(READ_FILE("bootstrap/out.txt"));\n'
+    )
+    workdir, _ = _run_pipeline(tmp_path, monkeypatch, program)
+
+    report = (workdir / "bootstrap" / "backend.report").read_text()
+    assert "FALLBACK" not in report
+    for builtin in (
+        "split", "join", "substr", "to_string", "to_number",
+        "slice", "contains", "write_file", "file_exists",
+    ):
+        assert f"LOWERED 70 {builtin}" in report
+
+    exe = _build(workdir, "builtins")
+    native = subprocess.run(
+        [str(exe)], capture_output=True, text=True, check=True, cwd=workdir
+    ).stdout.splitlines()
+
+    vm = NullVM().execute(NullLangCompiler().compile(ModernRustParser().parse(program)))
+    assert vm.success, vm.error
+    assert native == vm.output
+    assert (workdir / "bootstrap" / "out.txt").read_text() == "written"
+
+
+def test_break_and_continue_resolve_to_loop_labels(tmp_path, monkeypatch):
+    # A `break` used to stay a jump to `__break__`, which no stage resolved: the
+    # VM ignored it and a native link failed on the missing label.
+    program = (
+        "let i = 0;\n"
+        "let acc = 0;\n"
+        "while i < 10 {\n"
+        "    i = i + 1;\n"
+        "    if i == 3 { continue; }\n"
+        "    if i == 6 { break; }\n"
+        "    acc = acc + i;\n"
+        "}\n"
+        "println(acc);\n"
+    )
+    workdir, _ = _run_pipeline(tmp_path, monkeypatch, program)
+
+    ir = (workdir / "bootstrap" / "program.ir").read_text()
+    assert "__break__" not in ir and "__continue__" not in ir
+
+    exe = _build(workdir, "break_continue")
+    native = subprocess.run(
+        [str(exe)], capture_output=True, text=True, check=True, cwd=workdir
+    ).stdout.splitlines()
+
+    vm = NullVM().execute(NullLangCompiler().compile(ModernRustParser().parse(program)))
+    assert vm.success, vm.error
+    assert native == vm.output == ["12"]

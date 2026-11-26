@@ -168,12 +168,20 @@ nothing at all.
   to a runtime with immutable arrays (the bootstrap VM).
 - Strings are NUL-terminated byte pointers with a small runtime: `null_str_len`,
   `null_str_eq`, `null_str_concat`, `null_str_char_at`, `null_str_ord`,
-  `null_read_file`. Literals travel through the IR escaped (`ir_escape` in the
-  emitter, `ir_unescape` in the VM and here), so quotes, backslashes, tabs and
-  newlines survive a row; op 1 decodes into the `.rodata` pool, and `gas_literal`
-  re-escapes for `.asciz`. Lowering is type-directed: `len`/`+`/`==`/`!=` pick the
-  string runtime when both operands are `str`. Missing: `SUBSTR`, `SPLIT`,
-  `JOIN`, `TO_STRING` (int to text), `WRITE_FILE`.
+  `null_read_file`, `null_read_file`'s counterpart `null_write_file` (open/
+  write/close syscalls), `null_str_dup`, `null_int_to_str`, `null_str_find`,
+  `null_contains`, `null_str_substr`, `null_str_split`, `null_str_join`,
+  `null_array_slice`, `null_str_to_number` and `null_file_exists` (`access`).
+  `SPLIT`, `JOIN`, `SUBSTR`, `TO_STRING`, `TO_NUMBER`, `SLICE`, `CONTAINS`,
+  `WRITE_FILE` and `FILE_EXISTS` all lower through op 70 and are pinned against
+  the VM by `test_native_string_builtins_match_the_vm`. `TO_STRING` dispatches
+  on the static type: ints through `null_int_to_str`, bools to the shared
+  true/false text, strings unchanged. Literals travel through the IR escaped
+  (`ir_escape` in the emitter, `ir_unescape` in the VM and here), so quotes,
+  backslashes, tabs and newlines survive a row; op 1 decodes string literals
+  into the `.rodata` pool and `gas_literal` re-escapes for `.asciz`. Lowering is
+  type-directed: `len`/`+`/`==`/`!=` pick the string runtime when both operands
+  are `str`.
 - Aggregate typing. Values carry `int`, `str`, `bool`, `arr` or `arr:<spec>`,
   where `<spec>` is one element type (`arr:str`) or a `|`-joined tuple of the
   literal's element types (`arr:str|int`). An array literal emits its spec, and
@@ -186,8 +194,14 @@ nothing at all.
   IR for English-dialect functions, so those parameters default to `int`.
 - Booleans, matching the VM: comparisons (`20`-`25`, `102`) and bool literals
   are typed `bool`, and `print` on a bool calls `null_print_bool`, which writes
-  `true`/`false`. The emitter tags bool literals (`meta=bool`) because `IR 1
-  true` would otherwise be the string `"true"`; `vm.null` reads the same tag.
+  `true`/`false`. The emitter tags constants (`meta=bool`, `meta=str`) because
+  `IR 1 true` and `IR 1 123` were otherwise indistinguishable from the string
+  literals `"true"` and `"123"`; `vm.null` reads the same tags.
+- `break`/`continue` reach a backend as jumps to `__break__`/`__continue__`.
+  The emitter now rewrites those to the owning loop's end/step labels as each
+  loop is emitted (inner loops first), so the VM jumps where it should and the
+  native assembler has no unresolved label. Pinned by
+  `test_break_and_continue_resolve_to_loop_labels`.
 - Calls bind up to six integer arguments into the callee's parameter slots. A
   local `let regs` in the function-definition handler used to overwrite the
   allocator's promoted-register table (`let` is function-scoped in this
@@ -200,10 +214,18 @@ nothing at all.
   emitter -> backend -> `cc` and tokenises `bootstrap/input.null` identically to
   the VM (44/44 and 1,242/1,242 tokens, pinned by
   `test_native_stage1_lexer_matches_the_vm`). `bench/selfhost_check.sh` still
-  only covers the VM-hosted fixed point (13,293 rows, 272,744 bytes, identical);
-  `bootstrap/nullc.null` itself cannot be built natively yet — `SPLIT`, `JOIN`,
-  `SUBSTR`, `TO_STRING` and `WRITE_FILE` have no native runtime, so the pipeline
-  is not Python-free.
+  only covers the VM-hosted fixed point (13,426 rows, 280,860 bytes, identical).
+- `bootstrap/nullc.null` lowers completely: its 13,426 IR rows become 36,871
+  lines of assembly with 2,856 LOWERED ops, **0 FALLBACK**, a maximum operand
+  depth of 73 slots, and `cc` links a 217 KB executable from it. That binary
+  does not yet run correctly: it crashes on every input, including the empty
+  one, because the backend still types *untyped* parameters and locals as `int`.
+  `fn ir_row(token)` is the first example — `token[3]` is then an `int`, so
+  `row + token[3]` becomes an integer add on a pointer and `print` dereferences
+  the result. Executing the compiler natively needs dynamic values (runtime type
+  tags and dispatched `+`/`==`/`LEN`/index), or static annotations on every
+  helper that carries mixed values; that is the remaining gap for a Python-free
+  pipeline.
 - `array_map` is still authored directly in IR for speed, not because its source
   cannot be compiled: `bootstrap/emitter.null` lowers `APPEND` to 106 and the
   whole workload now runs from `.null` source (the tests check it), but its push
