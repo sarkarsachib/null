@@ -119,7 +119,7 @@ once through the stage-5 native backend and once as a C baseline built with
   stage-3 emitter lowers a 7-statement program and the full `sum_loop` source in
   ~0.73 s of wall time. Earlier notes that claimed it needed minutes were wrong.
 
-### 6.2 Measured result (stage 5, 2026-11-26T21:14Z)
+### 6.2 Measured result (stage 5, 2026-11-26T21:23Z)
 
 Machine: Linux 4.19.0-gvisor, 2 shared cores, AVX2/FMA, CPU model not exposed.
 Workloads: `sum_loop` (sum 1..1e8), `comprehension` (sum of even squares 1..2e7),
@@ -129,24 +129,29 @@ to its C baseline, so each comparison is semantics-equal.
 
 | workload | Null native | C `-O3` | C/Null | Null RSS | C RSS |
 | --- | --- | --- | --- | --- | --- |
-| `sum_loop` | 10.1 ms | 36.5 ms | **3.61x** | 2356 KiB | 3148 KiB |
-| `comprehension` | 6.4 ms | 19.7 ms | **3.08x** | 3204 KiB | 3660 KiB |
-| `array_map` | 63.9 ms | 75.9 ms | **1.19x** | 127416 KiB | 128776 KiB |
+| `sum_loop` | 7.6 ms | 30.4 ms | **4.00x** | 2184 KiB | 3700 KiB |
+| `comprehension` | 6.2 ms | 9.3 ms | **1.50x** | 3948 KiB | 3164 KiB |
+| `array_map` | 63.4 ms | 61.0 ms | **0.96x** | 127532 KiB | 127904 KiB |
 
-Absolute times on this host move by up to ~20% between runs (the two cores are
-shared and the C baseline moves with them), so the ratio against the same run's
-baseline is the number to read, not the millisecond column.
+Absolute times on this host move between runs (the two cores are shared), and the
+`cc -O3` baseline moves more than the Null binaries. Between the 21:14Z and
+21:23Z runs Null's own times were 7.6-10.1 ms, 6.2-6.4 ms and 63.4-63.9 ms, while
+the C baseline for `comprehension` went 19.7 → 9.3 ms and for `array_map`
+75.9 → 61.0 ms. Read a ratio only against the same run's baseline, and treat the
+pair of runs as the range: 3.61-4.00x, 1.50-3.08x and 0.96-1.19x.
 
 All three binaries are built from `.null` sources by the self-hosted pipeline
 (`bench/workloads/*.null` → `bootstrap/emitter.null` → `bench/ir/*.ir` →
 `bootstrap/native.null` → asm), except `array_map`, which is hand-written IR for
 the reason given in 6.3.
 
-**Verdict: the 10x target is not demonstrated.** All three workloads are now
-faster than `cc -O3` — 3.61x on the counting loop, 3.08x on the filtered square
-sum and 1.19x on the array kernel — and the gap closes exactly where the backend
-recognises a vector form. `array_map` was 28% behind in the previous run and is
-19% ahead here, the largest single gain since instruction selection.
+**Verdict: the 10x target is not demonstrated.** The counting loop is 3.6-4.0x
+ahead and the filtered square sum 1.5-3.1x ahead; the array kernel is at parity
+with `cc -O3` (0.96x in this run, 1.19x in the previous one, with Null's own time
+stable at ~64 ms). The gap closes exactly where the backend recognises a vector
+form: before the array loops had one, `array_map` was 28% behind. Parity, not a
+lead, is the honest reading for that kernel — it moves 256 MB through memory, and
+the vector form mainly removes the stack traffic around each element.
 
 What closed the gap. The first three rows were recorded with the old in-shell
 sampler, which added roughly a constant ~10 ms to a short workload whichever
@@ -189,9 +194,11 @@ branch.
 - Array-input `FUSED_COMPREHEND` (113) and the `FUSED_MAP`/`FILTER`/`REDUCE`
   family (110-112): these need captured lambdas in the IR, which the front end
   does not emit yet. `array_map` runs as an explicit loop instead.
-- Growable arrays: there is still no push/append opcode, so arrays are
-  pre-sized with 107 (`FAST_ARRAY_ZERO`) and filled with 105
-  (`FAST_INDEX_STORE`). Opcode 106 remains a documented `FALLBACK`.
+- Growable arrays: 106 (`FAST_ARRAY_PUSH`) doubles the capacity and may move the
+  array. The benchmark's fill loop still uses 107/105 because that shape is
+  vectorised and a push loop is not: the same `array_map` source compiled through
+  106 and checked index loads (73) measures 117 ms against 64 ms for the
+  pre-sized IR, i.e. 0.65x versus C `-O3`. Both paths print the same result.
 - `GPU_KERNEL` (130), `DIST_SEND`/`DIST_RECV` (140/141), float add (101) and
   string `concat` are reported as `FALLBACK` by the backend and trap with
   `null_unsupported` (exit 4) instead of silently doing something slower.

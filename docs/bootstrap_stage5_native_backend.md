@@ -84,13 +84,14 @@ invent an encoding of its own.
 | 20-25 | `EQ`…`LE` | `cmp` + `setCC` |
 | 30 | `PRINT` | `call null_print_i64` |
 | 40 / 41 | `JUMP_IF_FALSE` / `JUMP` | `je` / `jmp` to the named label |
-| 70 | `CALL` | `call` (builtin calls inside the runtime) |
+| 70 | `CALL` | `call` (builtin calls inside the runtime); `set_index` is a checked store |
 | 71 | `RETURN` | `leave` / `ret` |
 | 100 | `FAST_ADD_INT` | unchecked integer `add` |
 | 102 | `FAST_LT_INT` | `cmp` + `setl`, fused into `cmp`/`jge` before a branch |
 | 103 | `FAST_INDEX` | unchecked element load |
 | 104 | `FAST_LEN` | array header load |
 | 105 | `FAST_INDEX_STORE` | unchecked `mov [arr + idx*8 + 8], value` (bounds proven) |
+| 106 | `FAST_ARRAY_PUSH` | inline length/capacity check, `null_array_grow` on overflow |
 | 107 | `FAST_ARRAY_ZERO` | `call null_array_zero` (`calloc`, length in the header) |
 | 113 | `FUSED_COMPREHEND` | one fused loop, `<var>\|<expr>\|<pred>` operand |
 | 120 / 121 | `SIMD_ADD` / `SIMD_MUL` | AVX2 loop + scalar tail |
@@ -100,11 +101,10 @@ invent an encoding of its own.
 | — | array map reduction | 8-wide AVX2 `acc += a[i]*k + b[i]`, k in {2, 3, 4} + scalar tail |
 | 255 | `HALT` | exit with the current value |
 
-Reported as `FALLBACK` today: 101 (float add), 106 (`FAST_ARRAY_PUSH` — there
-is no growable array yet), 110-112 (`FUSED_MAP`, `FUSED_FILTER`, `FUSED_REDUCE`
-— they need captured lambdas), 113 with a malformed operand, 130
-(`GPU_KERNEL`), 140/141 (`DIST_SEND`/`DIST_RECV`), and `CALL` of `concat`,
-`__range__` and map/filter lambdas.
+Reported as `FALLBACK` today: 101 (float add), 110-112 (`FUSED_MAP`,
+`FUSED_FILTER`, `FUSED_REDUCE` — they need captured lambdas), 113 with a
+malformed operand, 130 (`GPU_KERNEL`), 140/141 (`DIST_SEND`/`DIST_RECV`), and
+`CALL` of `concat`, `__range__` and map/filter lambdas.
 
 ## Running it
 
@@ -134,8 +134,10 @@ that do not divide evenly, that both array loops are vectorised and their tails
 are exact for bounds of 5, 8, 9, 13 and 21 in both `<` and `<=` forms, that a
 single store outside any loop still uses the 105/107 lowerings, that the generated
 binaries print the C baselines' exact results for `comprehension` and `array_map`,
-that `MOD 2^k` never emits `idiv`,
-and that an unhonourable opcode is both reported and trapped. `tests/bootstrap` also covers
+that `MOD 2^k` never emits `idiv`, that a Null source program using `a[i] = x`
+compiles through the emitter and prints the written value, that `APPEND` grows a
+ten-element array from capacity zero, that an out-of-bounds write traps with
+exit 3, and that an unhonourable opcode is both reported and trapped. `tests/bootstrap` also covers
 the language-level `&&`/`||` opcodes (26/27), which previously compiled to
 nothing at all.
 
@@ -145,17 +147,24 @@ nothing at all.
   (`acc += iv`), the filtered square reduction
   (`if ((iv / c) * c == iv) { acc += iv * iv }`, c a power of two), the two-array
   fill and the two-array map reduction (`acc += a[i]*k + b[i]`, k in {2, 3, 4}).
-  All three workloads are now ahead of C `-O3` (1.19x-3.61x: §6.2 of the
-  contract), but nothing is unrolled yet and a fill followed by a map stays two
-  loops.
+  Two of the three workloads are 1.5x-4.0x ahead of C `-O3` and the array kernel
+  is at parity (§6.2 of the contract), but nothing is unrolled yet and a fill
+  followed by a map stays two loops.
 - Register promotion is frequency-based, not a real allocation (no liveness or
   interference), and is disabled for programs with functions.
-- There is no growable array opcode (106 traps), so arrays must be pre-sized with
-  107 and filled with 105.
-- `array_map` is the one workload still authored directly in IR: its source needs
-  `APPEND`, and there is no push opcode. Everything else is generated from
-  `.null` source by `bootstrap/emitter.null` via `bench/emit_workloads.sh`
-  (~0.7 s per workload, not the "too slow" the earlier revision of this document
-  claimed).
+- Arrays are growable: 106 doubles the capacity through `null_array_grow` and
+  may move the array, so the IR contract is `a = APPEND(a, x)`. The push is
+  scalar, with a length/capacity compare per element, and a fill loop written
+  with `APPEND` is therefore slower than the pre-sized 107/105 form that the
+  vector pass recognises: on `array_map` the same source measures 117 ms through
+  106/73 against 64 ms from the pre-sized IR, which is why the benchmark keeps
+  that form.
+- `array_map` is still authored directly in IR for speed, not because its source
+  cannot be compiled: `bootstrap/emitter.null` lowers `APPEND` to 106 and the
+  whole workload now runs from `.null` source (the tests check it), but its push
+  fill loop and checked index loads (73) have no vector form, so the pre-sized
+  107/105 IR is 1.8x faster. Everything else is generated from `.null` source via
+  `bench/emit_workloads.sh` (~0.7-1.0 s per workload, not the "too slow" the
+  earlier revision of this document claimed).
 - Floating point, string concatenation and distributed/GPU targets are declared
   unsupported rather than half-implemented.

@@ -2486,6 +2486,11 @@ fn emit_expr(node, path: Text) -> Array {
     }
     if tag == "call" {
         let out = emit_args(node[2], path + ".a");
+        // APPEND is the growable-array push (106): it consumes the array and the
+        // value and yields the array, which may have moved when it grew.
+        if node[1] == "APPEND" && LEN(node[2]) == 2 {
+            return cat(out, [irx(106, "", "scalar", "arity=2")]);
+        }
         return cat(out, [irx(70, node[1], "scalar", "arity=" + TO_STRING(LEN(node[2])))]);
     }
     if tag == "call_value" {

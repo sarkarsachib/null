@@ -947,6 +947,10 @@ fn reg_assignment(rows, slot_names) -> Array {
     return [regs, hot];
 }
 
+// Array layout: [capacity][length][elements...], with the pointer returned by
+// these helpers aimed at the length word. So arr[0] is the length, the elements
+// stay at arr + idx*8 + 8 (unchanged), and the capacity lives at arr - 8, where
+// nothing else looks. FAST_ARRAY_PUSH grows the capacity and may move the array.
 fn runtime_lines() -> Array {
     return [
         "",
@@ -1018,9 +1022,11 @@ fn runtime_lines() -> Array {
         "  push rbx",
         "  sub rsp, 8",
         "  mov rbx, rdi",
-        "  lea rdi, [rdi * 8 + 8]",
+        "  lea rdi, [rdi * 8 + 16]",
         "  call malloc@PLT",
         "  mov qword ptr [rax], rbx",
+        "  mov qword ptr [rax + 8], rbx",
+        "  add rax, 8",
         "  add rsp, 8",
         "  pop rbx",
         "  leave",
@@ -1032,11 +1038,37 @@ fn runtime_lines() -> Array {
         "  push rbx",
         "  sub rsp, 8",
         "  mov rbx, rdi",
-        "  lea rdi, [rbx + 1]",
+        "  lea rdi, [rbx + 2]",
         "  mov rsi, 8",
         "  call calloc@PLT",
         "  mov qword ptr [rax], rbx",
+        "  mov qword ptr [rax + 8], rbx",
+        "  add rax, 8",
         "  add rsp, 8",
+        "  pop rbx",
+        "  leave",
+        "  ret",
+        "",
+        "null_array_grow:",
+        "  push rbp",
+        "  mov rbp, rsp",
+        "  push rbx",
+        "  push r12",
+        "  sub rsp, 8",
+        "  mov rbx, rdi",
+        "  mov r12, qword ptr [rbx - 8]",
+        "  add r12, r12",
+        "  cmp r12, 4",
+        "  jge .Lag_cap",
+        "  mov r12, 4",
+        ".Lag_cap:",
+        "  lea rdi, [rbx - 8]",
+        "  lea rsi, [r12 * 8 + 16]",
+        "  call realloc@PLT",
+        "  mov qword ptr [rax], r12",
+        "  add rax, 8",
+        "  add rsp, 8",
+        "  pop r12",
         "  pop rbx",
         "  leave",
         "  ret",
@@ -2252,6 +2284,26 @@ fn compile(rows) -> Array {
                     out = APPEND(out, "  neg qword ptr [rbp - " + TO_STRING(4096 + base * 8) + "]");
                     report = APPEND(report, "LOWERED 70 neg");
                 }
+                if name == "set_index" {
+                    // arr[idx] = value, bounds-checked: the write now exists in the
+                    // language, so source programs can mutate an array literal.
+                    builtin = true;
+                    out = APPEND(out, "  mov rax, qword ptr [rbp - " + TO_STRING(4096 + base * 8) + "]");
+                    out = APPEND(out, "  mov rcx, qword ptr [rbp - " + TO_STRING(4096 + (base + 1) * 8) + "]");
+                    out = APPEND(out, "  cmp rcx, qword ptr [rax]");
+                    out = APPEND(out, "  jb .Lsetok_" + TO_STRING(i));
+                    out = APPEND(out, "  call null_panic_oob");
+                    out = APPEND(out, ".Lsetok_" + TO_STRING(i) + ":");
+                    out = APPEND(out, "  mov rdx, qword ptr [rbp - " + TO_STRING(4096 + (base + 2) * 8) + "]");
+                    out = APPEND(out, "  mov qword ptr [rax + rcx * 8 + 8], rdx");
+                    out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + base * 8) + "], rdx");
+                    types = drop_last(types);
+                    types = drop_last(types);
+                    types = drop_last(types);
+                    types = APPEND(types, "int");
+                    sp = base + 1;
+                    report = APPEND(report, "LOWERED 70 set-index-bounds-checked");
+                }
                 if name == "concat" {
                     builtin = true;
                     report = APPEND(report, "FALLBACK 70 concat-string-runtime-not-in-this-stage");
@@ -2453,8 +2505,28 @@ fn compile(rows) -> Array {
             }
 
             if op == 106 {
-                report = APPEND(report, "FALLBACK 106 append-needs-growable-array");
-                out = APPEND(out, "  call null_unsupported");
+                // FAST_ARRAY_PUSH: pop the value and the array, append (growing in
+                // place when the capacity is exhausted) and push the array back.
+                // Growing can move the array, so the IR contract is a = APPEND(a, x).
+                out = APPEND(out, "  mov rcx, qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "]");
+                out = APPEND(out, "  mov rax, qword ptr [rcx]");
+                out = APPEND(out, "  cmp rax, qword ptr [rcx - 8]");
+                out = APPEND(out, "  jl .Lpush_store_" + TO_STRING(i));
+                out = APPEND(out, "  mov rdi, rcx");
+                out = APPEND(out, "  call null_array_grow");
+                out = APPEND(out, "  mov rcx, rax");
+                out = APPEND(out, "  mov rax, qword ptr [rcx]");
+                out = APPEND(out, ".Lpush_store_" + TO_STRING(i) + ":");
+                out = APPEND(out, "  mov rdx, qword ptr [rbp - " + TO_STRING(4096 + (sp - 1) * 8) + "]");
+                out = APPEND(out, "  mov qword ptr [rcx + rax * 8 + 8], rdx");
+                out = APPEND(out, "  add rax, 1");
+                out = APPEND(out, "  mov qword ptr [rcx], rax");
+                out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "], rcx");
+                types = drop_last(types);
+                types = drop_last(types);
+                types = APPEND(types, "arr");
+                sp = sp - 1;
+                report = APPEND(report, "LOWERED 106 fast-array-push");
             }
 
             if op == 107 {

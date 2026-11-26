@@ -136,6 +136,73 @@ def test_index_store_and_array_zero_still_lower(tmp_path, monkeypatch):
     assert run.stdout.strip() == "42"
 
 
+def _run_pipeline(tmp_path, monkeypatch, program: str):
+    """Lower a Null source program with the self-hosted emitter, then the backend."""
+    emitter = NullLangCompiler().compile(
+        ModernRustParser().parse((ROOT / "bootstrap" / "emitter.null").read_text())
+    )
+    backend = NullLangCompiler().compile(
+        ModernRustParser().parse((ROOT / "bootstrap" / "native.null").read_text())
+    )
+    workdir = tmp_path / "run"
+    (workdir / "bootstrap").mkdir(parents=True)
+    (workdir / "bootstrap" / "input.null").write_text(program)
+    monkeypatch.chdir(workdir)
+
+    emitted = NullVM().execute(emitter)
+    assert emitted.success, emitted.error
+    lowered = NullVM().execute(backend)
+    assert lowered.success, lowered.error
+    return workdir, lowered
+
+
+def test_source_array_write_compiles_end_to_end(tmp_path, monkeypatch):
+    # `a[i] = x` lowers to CALL set_index, whose checked store the backend now
+    # implements; before that the source could not write to an array at all.
+    program = "let a = [10, 20, 30];\na[1] = 42;\nprintln(a[0] + a[1] + a[2]);\n"
+    workdir, _ = _run_pipeline(tmp_path, monkeypatch, program)
+
+    report = (workdir / "bootstrap" / "backend.report").read_text()
+    assert "LOWERED 70 set-index-bounds-checked" in report
+    assert "FALLBACK" not in report
+
+    exe = _build(workdir, "array_write")
+    run = subprocess.run([str(exe)], capture_output=True, text=True, check=True)
+    assert run.stdout.strip() == "82"
+
+
+def test_source_append_grows_the_array(tmp_path, monkeypatch):
+    # 106 doubles the capacity from 0 to 4, 8 and 16 while ten values are pushed.
+    program = (
+        "let a = [];\n"
+        "let i = 0;\n"
+        "while i < 10 {\n"
+        "    a = APPEND(a, i);\n"
+        "    i = i + 1;\n"
+        "}\n"
+        "println(a[9]);\n"
+    )
+    workdir, _ = _run_pipeline(tmp_path, monkeypatch, program)
+
+    report = (workdir / "bootstrap" / "backend.report").read_text()
+    assert "LOWERED 106 fast-array-push" in report
+    assert "FALLBACK" not in report
+
+    exe = _build(workdir, "array_push")
+    run = subprocess.run([str(exe)], capture_output=True, text=True, check=True)
+    assert run.stdout.strip() == "9"
+
+
+def test_source_array_write_past_the_end_traps(tmp_path, monkeypatch):
+    program = "let a = [1, 2];\na[5] = 9;\nprintln(a[0]);\n"
+    workdir, _ = _run_pipeline(tmp_path, monkeypatch, program)
+
+    exe = _build(workdir, "array_oob")
+    run = subprocess.run([str(exe)], capture_output=True, text=True)
+    assert run.returncode == 3  # null_panic_oob
+    assert run.stdout.strip() == ""
+
+
 def _array_map_ir(bound: int, cmp_op: int = 21) -> str:
     """`a[i] = i; b[i] = i*2` then `total += a[i]*3 + b[i]`, as super-bit IR.
 
