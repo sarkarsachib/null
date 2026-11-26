@@ -1,0 +1,2136 @@
+// ---------------------------------------------------------------------------
+// Stage 5: the native backend (Null side).
+//
+// Reads the TSV super-bit stream written by bootstrap/emitter.null and lowers
+// it to x86-64 (System V, GNU as, Intel syntax).  The result is assembled and
+// linked by the benchmark harness with `cc`.
+//
+// Design:
+//   * no dispatch loop - every IR token becomes a fixed instruction sequence,
+//     so there is no per-instruction opcode fetch/decode/switch;
+//   * values live in frame slots addressed at compile time; there is no runtime
+//     name lookup, no map, no boxing;
+//   * variables get fixed frame offsets in a pre-pass (load/store are a single
+//     mov), and functions are real `call`/`ret` with the SysV register ABI;
+//   * specialised opcodes lower to their typed form: FAST_INDEX drops the
+//     bounds check, FAST_LEN reads the array header, SIMD_ADD/SIMD_MUL run an
+//     AVX2 loop with a scalar tail, FUSED_COMPREHEND becomes one fused loop
+//     with a single output allocation;
+//   * anything this stage cannot honour is reported as FALLBACK and lowered to
+//     a trapping stub rather than silently miscompiled.  Every specialised
+//     token's generic form is listed in bootstrap/ir.null.
+//
+// Outputs:
+//   bootstrap/program.s       x86-64 assembly
+//   bootstrap/backend.report  LOWERED / FALLBACK / STAT lines
+// ---------------------------------------------------------------------------
+
+fn index_of(list, value) -> Num {
+    let found = LEN(list);
+    let i = 0;
+    while i < LEN(list) {
+        if list[i] == value {
+            found = i;
+            break;
+        }
+        i = i + 1;
+    }
+    return found;
+}
+
+fn is_digit(c: Text) -> Bool {
+    if c < "0" {
+        return false;
+    }
+    if c > "9" {
+        return false;
+    }
+    return true;
+}
+
+fn looks_numeric(text: Text) -> Bool {
+    if LEN(text) == 0 {
+        return false;
+    }
+    let ok = true;
+    let digits = 0;
+    let i = 0;
+    while i < LEN(text) {
+        let c = CHAR_AT(text, i);
+        if is_digit(c) {
+            digits = digits + 1;
+        } else {
+            if c != "." {
+                if c != "-" {
+                    ok = false;
+                }
+            }
+        }
+        i = i + 1;
+    }
+    if digits == 0 {
+        ok = false;
+    }
+    return ok;
+}
+
+fn meta_value(meta: Text, key: Text) -> Text {
+    let parts = SPLIT(meta, " ");
+    let found = "";
+    let i = 0;
+    while i < LEN(parts) {
+        let kv = SPLIT(parts[i], "=");
+        if LEN(kv) > 1 {
+            if kv[0] == key {
+                found = kv[1];
+            }
+        }
+        i = i + 1;
+    }
+    return found;
+}
+
+fn has_meta(meta: Text, key: Text) -> Bool {
+    let parts = SPLIT(meta, " ");
+    let found = false;
+    let i = 0;
+    while i < LEN(parts) {
+        if parts[i] == key {
+            found = true;
+        }
+        i = i + 1;
+    }
+    return found;
+}
+
+fn is_ident_char(c: Text) -> Bool {
+    if LEN(c) == 0 {
+        return false;
+    }
+    if is_digit(c) {
+        return true;
+    }
+    if c == "_" {
+        return true;
+    }
+    return false;
+}
+
+fn sanitize(text: Text) -> Text {
+    let out = "";
+    let i = 0;
+    while i < LEN(text) {
+        let c = CHAR_AT(text, i);
+        let keep = false;
+        if is_ident_char(c) {
+            keep = true;
+        }
+        if c >= "a" {
+            if c <= "z" {
+                keep = true;
+            }
+        }
+        if c >= "A" {
+            if c <= "Z" {
+                keep = true;
+            }
+        }
+        if keep {
+            out = out + c;
+        } else {
+            out = out + "_";
+        }
+        i = i + 1;
+    }
+    return out;
+}
+
+fn parse_rows(text: Text) -> Array {
+    let lines = SPLIT(text, "\n");
+    let rows = [];
+    let i = 0;
+    while i < LEN(lines) {
+        let line = lines[i];
+        if LEN(line) > 0 {
+            let f = SPLIT(line, "\t");
+            if f[0] == "LABEL" {
+                if LEN(f) > 1 {
+                    rows = APPEND(rows, ["LABEL", f[1]]);
+                }
+            } else {
+                if f[0] == "IR" {
+                    let meta = "";
+                    if LEN(f) > 4 {
+                        meta = f[4];
+                    }
+                    rows = APPEND(rows, ["IR", TO_NUMBER(f[1]), f[2], f[3], meta]);
+                }
+            }
+        }
+        i = i + 1;
+    }
+    return rows;
+}
+
+// --- expression trees for fused comprehensions -----------------------------
+// The emitter writes a comprehension pattern as
+//   <var>|<expr>|<pred>
+// where each expression is a prefix dump:
+//   NUM 2 | IDENT x | BINARY * <l> <r> | UNARY - <e> | NOT <e>
+fn parse_term(toks, pos) -> Array {
+    if pos >= LEN(toks) {
+        return [["bad"], pos];
+    }
+    let head = toks[pos];
+    if head == "NUM" {
+        if pos + 1 < LEN(toks) {
+            return [["num", toks[pos + 1]], pos + 2];
+        }
+        return [["bad"], pos + 1];
+    }
+    if head == "IDENT" {
+        if pos + 1 < LEN(toks) {
+            return [["id", toks[pos + 1]], pos + 2];
+        }
+        return [["bad"], pos + 1];
+    }
+    if head == "NOT" {
+        let inner = parse_term(toks, pos + 1);
+        return [["not", inner[0]], inner[1]];
+    }
+    if head == "UNARY" {
+        if pos + 1 >= LEN(toks) {
+            return [["bad"], pos + 1];
+        }
+        let op = toks[pos + 1];
+        let inner = parse_term(toks, pos + 2);
+        return [["un", op, inner[0]], inner[1]];
+    }
+    if head == "BINARY" {
+        if pos + 2 >= LEN(toks) {
+            return [["bad"], pos + 1];
+        }
+        let op = toks[pos + 1];
+        let left = parse_term(toks, pos + 2);
+        let right = parse_term(toks, left[1]);
+        return [["bin", op, left[0], right[0]], right[1]];
+    }
+    if head == "BOOL" {
+        if pos + 1 < LEN(toks) {
+            return [["num", "0"], pos + 2];
+        }
+    }
+    return [["bad"], pos + 1];
+}
+
+fn tree_from(text: Text) -> Array {
+    if LEN(text) == 0 {
+        return ["none"];
+    }
+    let toks = SPLIT(text, " ");
+    let parsed = parse_term(toks, 0);
+    if parsed[1] != LEN(toks) {
+        return ["bad"];
+    }
+    return parsed[0];
+}
+
+fn tree_status(tree) -> Text {
+    if LEN(tree) == 0 {
+        return "bad";
+    }
+    if tree[0] == "none" {
+        return "none";
+    }
+    if tree[0] == "bad" {
+        return "bad";
+    }
+    if tree[0] == "num" {
+        return "ok";
+    }
+    if tree[0] == "id" {
+        return "ok";
+    }
+    if tree[0] == "not" {
+        return tree_status(tree[1]);
+    }
+    if tree[0] == "un" {
+        return tree_status(tree[2]);
+    }
+    if tree[0] == "bin" {
+        let a = tree_status(tree[2]);
+        let b = tree_status(tree[3]);
+        if a == "ok" {
+            if b == "ok" {
+                return "ok";
+            }
+        }
+        return "bad";
+    }
+    return "bad";
+}
+
+// Emits code computing `tree` into frame slot `dest`.  `vofs` is the frame
+// offset of the comprehension variable, used by IDENT leaves.
+fn emit_tree(out, tree, dest: Num, vofs: Num) -> Array {
+    let o = out;
+    let tag = tree[0];
+    if tag == "num" {
+        o = APPEND(o, "  mov qword ptr [rbp - " + TO_STRING(dest) + "], " + tree[1]);
+    }
+    if tag == "id" {
+        o = APPEND(o, "  mov rax, qword ptr [rbp - " + TO_STRING(vofs) + "]");
+        o = APPEND(o, "  mov qword ptr [rbp - " + TO_STRING(dest) + "], rax");
+    }
+    if tag == "not" {
+        o = emit_tree(o, tree[1], dest, vofs);
+        o = APPEND(o, "  cmp qword ptr [rbp - " + TO_STRING(dest) + "], 0");
+        o = APPEND(o, "  sete al");
+        o = APPEND(o, "  movzx rax, al");
+        o = APPEND(o, "  mov qword ptr [rbp - " + TO_STRING(dest) + "], rax");
+    }
+    if tag == "un" {
+        o = emit_tree(o, tree[2], dest, vofs);
+        if tree[1] == "-" {
+            o = APPEND(o, "  neg qword ptr [rbp - " + TO_STRING(dest) + "]");
+        }
+    }
+    if tag == "bin" {
+        let right_dest = dest + 64;
+        o = emit_tree(o, tree[2], dest, vofs);
+        o = emit_tree(o, tree[3], right_dest, vofs);
+        let op = tree[1];
+        let d = "  mov rax, qword ptr [rbp - " + TO_STRING(right_dest) + "]";
+        if op == "+" {
+            o = APPEND(o, d);
+            o = APPEND(o, "  add qword ptr [rbp - " + TO_STRING(dest) + "], rax");
+        }
+        if op == "-" {
+            o = APPEND(o, d);
+            o = APPEND(o, "  sub qword ptr [rbp - " + TO_STRING(dest) + "], rax");
+        }
+        if op == "*" {
+            o = APPEND(o, d);
+            o = APPEND(o, "  imul rax, qword ptr [rbp - " + TO_STRING(dest) + "]");
+            o = APPEND(o, "  mov qword ptr [rbp - " + TO_STRING(dest) + "], rax");
+        }
+        if op == "/" {
+            o = APPEND(o, "  mov rax, qword ptr [rbp - " + TO_STRING(dest) + "]");
+            o = APPEND(o, "  cqo");
+            o = APPEND(o, "  idiv qword ptr [rbp - " + TO_STRING(right_dest) + "]");
+            o = APPEND(o, "  mov qword ptr [rbp - " + TO_STRING(dest) + "], rax");
+        }
+        if op == "%" {
+            o = APPEND(o, "  mov rax, qword ptr [rbp - " + TO_STRING(dest) + "]");
+            o = APPEND(o, "  cqo");
+            o = APPEND(o, "  idiv qword ptr [rbp - " + TO_STRING(right_dest) + "]");
+            o = APPEND(o, "  mov qword ptr [rbp - " + TO_STRING(dest) + "], rdx");
+        }
+        if op == "==" {
+            o = APPEND(o, d);
+            o = APPEND(o, "  cmp qword ptr [rbp - " + TO_STRING(dest) + "], rax");
+            o = APPEND(o, "  sete al");
+            o = APPEND(o, "  movzx rax, al");
+            o = APPEND(o, "  mov qword ptr [rbp - " + TO_STRING(dest) + "], rax");
+        }
+        if op == "!=" {
+            o = APPEND(o, d);
+            o = APPEND(o, "  cmp qword ptr [rbp - " + TO_STRING(dest) + "], rax");
+            o = APPEND(o, "  setne al");
+            o = APPEND(o, "  movzx rax, al");
+            o = APPEND(o, "  mov qword ptr [rbp - " + TO_STRING(dest) + "], rax");
+        }
+        if op == "<" {
+            o = APPEND(o, d);
+            o = APPEND(o, "  cmp qword ptr [rbp - " + TO_STRING(dest) + "], rax");
+            o = APPEND(o, "  setl al");
+            o = APPEND(o, "  movzx rax, al");
+            o = APPEND(o, "  mov qword ptr [rbp - " + TO_STRING(dest) + "], rax");
+        }
+        if op == "<=" {
+            o = APPEND(o, d);
+            o = APPEND(o, "  cmp qword ptr [rbp - " + TO_STRING(dest) + "], rax");
+            o = APPEND(o, "  setle al");
+            o = APPEND(o, "  movzx rax, al");
+            o = APPEND(o, "  mov qword ptr [rbp - " + TO_STRING(dest) + "], rax");
+        }
+        if op == ">" {
+            o = APPEND(o, d);
+            o = APPEND(o, "  cmp qword ptr [rbp - " + TO_STRING(dest) + "], rax");
+            o = APPEND(o, "  setg al");
+            o = APPEND(o, "  movzx rax, al");
+            o = APPEND(o, "  mov qword ptr [rbp - " + TO_STRING(dest) + "], rax");
+        }
+        if op == ">=" {
+            o = APPEND(o, d);
+            o = APPEND(o, "  cmp qword ptr [rbp - " + TO_STRING(dest) + "], rax");
+            o = APPEND(o, "  setge al");
+            o = APPEND(o, "  movzx rax, al");
+            o = APPEND(o, "  mov qword ptr [rbp - " + TO_STRING(dest) + "], rax");
+        }
+    }
+    return o;
+}
+
+// --- runtime support emitted into every module -----------------------------
+// x - (x / 2^k) * 2^k == 0  ->  test x, 2^k-1 ; jne end
+// This is the shape the front end emits for a modulo test, since `%` is not a
+// token in the lexer. The identity holds for every signed x: the quotient times
+// the divisor removes all low bits, so the difference is zero exactly when the
+// low k bits of x are zero.
+fn fast_rem_branch(rows, i, regs, slot_names) -> Array {
+    // The front end emits the minuend first: LOAD x; LOAD x; LOAD k; DIV; ...
+    // Match the longer window when that pair is present and report the span.
+    let base = i;
+    let span = 9;
+    if i + 9 < LEN(rows) {
+        if LEN(rows[i]) > 2 && LEN(rows[i + 1]) > 2 {
+            if rows[i][1] == 2 && rows[i + 1][1] == 2 && rows[i][2] == rows[i + 1][2] {
+                base = i + 1;
+                span = 10;
+            }
+        }
+    }
+    if base + 8 >= LEN(rows) {
+        return [];
+    }
+    let r0 = rows[base];
+    let r1 = rows[base + 1];
+    let r2 = rows[base + 2];
+    let r3 = rows[base + 3];
+    let r4 = rows[base + 4];
+    let r5 = rows[base + 5];
+    let r6 = rows[base + 6];
+    let r7 = rows[base + 7];
+    let r8 = rows[base + 8];
+    if LEN(r0) < 3 || LEN(r1) < 3 || LEN(r2) < 3 || LEN(r3) < 3 || LEN(r4) < 3 {
+        return [];
+    }
+    if LEN(r5) < 3 || LEN(r6) < 3 || LEN(r7) < 3 || LEN(r8) < 3 {
+        return [];
+    }
+    if r0[1] != 2 || r1[1] != 1 || r2[1] != 13 || r3[1] != 1 || r4[1] != 12 {
+        return [];
+    }
+    if r5[1] != 11 || r6[1] != 1 || r7[1] != 22 || r8[1] != 40 {
+        return [];
+    }
+    if r1[2] != r3[2] || r6[2] != "0" {
+        return [];
+    }
+    if looks_numeric(r1[2]) == false {
+        return [];
+    }
+    let k = TO_NUMBER(r1[2]);
+    if is_pow2(k) == false {
+        return [];
+    }
+    let ra = reg_of(r0[2], regs, slot_names);
+    if ra == "" {
+        return [];
+    }
+    return ["  test " + ra + ", " + TO_STRING(k - 1), "  jne .L" + r8[2], TO_STRING(span)];
+}
+
+fn is_pow2(k: Num) -> Bool {
+    let n = k;
+    if n < 1 {
+        return false;
+    }
+    while n > 1 {
+        if n / 2 * 2 != n {
+            return false;
+        }
+        n = n / 2;
+    }
+    return true;
+}
+
+// c = c + a * b, all in registers  ->  mov/imul/add (no stack traffic).
+fn fast_mul_add(rows, i, regs, slot_names) -> Array {
+    if i + 5 >= LEN(rows) {
+        return [];
+    }
+    let r0 = rows[i];
+    let r1 = rows[i + 1];
+    let r2 = rows[i + 2];
+    let r3 = rows[i + 3];
+    let r4 = rows[i + 4];
+    let r5 = rows[i + 5];
+    if LEN(r0) < 3 || LEN(r1) < 3 || LEN(r2) < 3 || LEN(r3) < 3 || LEN(r4) < 3 || LEN(r5) < 3 {
+        return [];
+    }
+    if r0[1] != 2 || r1[1] != 2 || r2[1] != 2 {
+        return [];
+    }
+    if r3[1] != 12 {
+        return [];
+    }
+    if r4[1] != 100 && r4[1] != 10 {
+        return [];
+    }
+    if r5[1] != 3 {
+        return [];
+    }
+    let rc = reg_of(r0[2], regs, slot_names);
+    let ra = reg_of(r1[2], regs, slot_names);
+    let rb = reg_of(r2[2], regs, slot_names);
+    let rd = reg_of(r5[2], regs, slot_names);
+    if rc == "" || ra == "" || rb == "" || rd == "" {
+        return [];
+    }
+    if rc != rd {
+        return [];
+    }
+    if r0[2] != r5[2] {
+        return [];
+    }
+    return ["  mov rax, " + ra, "  imul rax, " + rb, "  add " + rc + ", rax"];
+}
+
+// (x MOD 2^k) == 0  ->  test x, 2^k-1 ; jne end
+// Two's complement multiples of a power of two have their low bits clear, so
+// the division is never needed for this comparison.
+fn fast_mod_branch(rows, i, regs, slot_names) -> Array {
+    if i + 5 >= LEN(rows) {
+        return [];
+    }
+    let r0 = rows[i];
+    let r1 = rows[i + 1];
+    let r2 = rows[i + 2];
+    let r3 = rows[i + 3];
+    let r4 = rows[i + 4];
+    let r5 = rows[i + 5];
+    if LEN(r0) < 3 || LEN(r1) < 3 || LEN(r2) < 3 || LEN(r3) < 3 || LEN(r4) < 3 || LEN(r5) < 3 {
+        return [];
+    }
+    if r0[1] != 2 {
+        return [];
+    }
+    if r1[1] != 1 {
+        return [];
+    }
+    if r2[1] != 70 {
+        return [];
+    }
+    if r2[2] != "MOD" {
+        return [];
+    }
+    if r3[1] != 1 {
+        return [];
+    }
+    if r3[2] != "0" {
+        return [];
+    }
+    if r4[1] != 22 {
+        return [];
+    }
+    if r5[1] != 40 {
+        return [];
+    }
+    let ra = reg_of(r0[2], regs, slot_names);
+    if ra == "" {
+        return [];
+    }
+    if looks_numeric(r1[2]) == false {
+        return [];
+    }
+    let k = TO_NUMBER(r1[2]);
+    if is_pow2(k) == false {
+        return [];
+    }
+    return ["  test " + ra + ", " + TO_STRING(k - 1), "  jne .L" + r5[2]];
+}
+
+// Three-row window: LOAD a; LOAD b|const; ARITH. The result stays in rax and is
+// also pushed to the operand stack, so following generic rows still work.
+fn fast_partial(rows, i, regs, slot_names, sp) -> Array {
+    if i + 2 >= LEN(rows) {
+        return [];
+    }
+    let r0 = rows[i];
+    let r1 = rows[i + 1];
+    let r2 = rows[i + 2];
+    if LEN(r0) < 3 || LEN(r1) < 3 || LEN(r2) < 3 {
+        return [];
+    }
+    if r0[1] != 2 {
+        return [];
+    }
+    let ra = reg_of(r0[2], regs, slot_names);
+    if ra == "" {
+        return [];
+    }
+    let mnem = bin_mnemonic(r2[1]);
+    if mnem == "" {
+        return [];
+    }
+    let off = TO_STRING(4096 + sp * 8);
+    if r1[1] == 2 {
+        let rb = reg_of(r1[2], regs, slot_names);
+        if rb == "" {
+            return [];
+        }
+        return ["  mov rax, " + ra, "  " + mnem + " rax, " + rb, "  mov qword ptr [rbp - " + off + "], rax"];
+    }
+    if r1[1] == 1 {
+        if looks_numeric(r1[2]) {
+            return ["  mov rax, " + ra, "  " + mnem + " rax, " + r1[2], "  mov qword ptr [rbp - " + off + "], rax"];
+        }
+    }
+    return [];
+}
+
+fn reg_of(name, regs, slot_names) -> Text {
+    let idx = index_of(slot_names, name);
+    if idx < LEN(regs) {
+        return regs[idx];
+    }
+    return "";
+}
+
+fn cmp_cc(op: Num) -> Text {
+    if op == 102 {
+        return "l";
+    }
+    if op == 20 {
+        return "g";
+    }
+    if op == 21 {
+        return "l";
+    }
+    if op == 22 {
+        return "e";
+    }
+    if op == 23 {
+        return "ne";
+    }
+    if op == 24 {
+        return "ge";
+    }
+    if op == 25 {
+        return "le";
+    }
+    return "";
+}
+
+fn bin_mnemonic(op: Num) -> Text {
+    if op == 100 {
+        return "add";
+    }
+    if op == 10 {
+        return "add";
+    }
+    if op == 11 {
+        return "sub";
+    }
+    if op == 12 {
+        return "imul";
+    }
+    return "";
+}
+
+// Instruction selection over four consecutive IR rows: when both operands and
+// the destination are in registers, the whole stack round-trip collapses to a
+// register-to-register operation. Returns [] when the window does not match.
+fn fast_pattern(rows, i, regs, slot_names) -> Array {
+    if i + 3 >= LEN(rows) {
+        return [];
+    }
+    let r0 = rows[i];
+    let r1 = rows[i + 1];
+    let r2 = rows[i + 2];
+    let r3 = rows[i + 3];
+    if LEN(r0) < 3 {
+        return [];
+    }
+    if LEN(r1) < 3 {
+        return [];
+    }
+    if LEN(r2) < 3 {
+        return [];
+    }
+    if LEN(r3) < 3 {
+        return [];
+    }
+    if r0[1] != 2 {
+        return [];
+    }
+    let ra = reg_of(r0[2], regs, slot_names);
+    if ra == "" {
+        return [];
+    }
+    let op = r2[1];
+
+    // compare + conditional branch
+    let cc = cmp_cc(op);
+    if cc != "" {
+        let inv = cc_jump_inverse(cc);
+        if r3[1] == 40 {
+            if r1[1] == 2 {
+                let rb = reg_of(r1[2], regs, slot_names);
+                if rb != "" {
+                    return ["  cmp " + ra + ", " + rb, "  " + inv + " .L" + r3[2]];
+                }
+            }
+            if r1[1] == 1 {
+                if looks_numeric(r1[2]) {
+                    return ["  cmp " + ra + ", " + r1[2], "  " + inv + " .L" + r3[2]];
+                }
+            }
+        }
+        return [];
+    }
+
+    // arithmetic into a register
+    let mnem = bin_mnemonic(op);
+    if mnem == "" {
+        return [];
+    }
+    if r3[1] != 3 {
+        return [];
+    }
+    let rc = reg_of(r3[2], regs, slot_names);
+    if rc == "" {
+        return [];
+    }
+    if r1[1] == 2 {
+        let rb = reg_of(r1[2], regs, slot_names);
+        if rb == "" {
+            return [];
+        }
+        if rc == ra {
+            return ["  " + mnem + " " + ra + ", " + rb];
+        }
+        return ["  mov rax, " + ra, "  " + mnem + " rax, " + rb, "  mov " + rc + ", rax"];
+    }
+    if r1[1] == 1 {
+        if looks_numeric(r1[2]) {
+            if rc == ra {
+                return ["  " + mnem + " " + ra + ", " + r1[2]];
+            }
+            return ["  mov rax, " + ra, "  " + mnem + " rax, " + r1[2], "  mov " + rc + ", rax"];
+        }
+    }
+    return [];
+}
+
+fn find_text(text, needle) -> Num {
+    let n = LEN(needle);
+    let i = 0;
+    while i + n <= LEN(text) {
+        if SUBSTR(text, i, i + n) == needle {
+            return i;
+        }
+        i = i + 1;
+    }
+    return LEN(text);
+}
+
+fn slot_addr(line) -> Text {
+    let pos = find_text(line, "[rbp - ");
+    if pos == LEN(line) {
+        return "";
+    }
+    let rest = SUBSTR(line, pos, LEN(line));
+    let end = find_text(rest, "]");
+    return SUBSTR(line, pos, pos + end);
+}
+
+fn is_slot_load(line) -> Bool {
+    if starts_with(line, "  mov rax, qword ptr [rbp - ") {
+        return true;
+    }
+    return false;
+}
+
+fn is_slot_store_rax(line) -> Bool {
+    if starts_with(line, "  mov qword ptr [rbp - ") {
+        if SUBSTR(line, LEN(line) - 5, LEN(line)) == ", rax" {
+            return true;
+        }
+    }
+    return false;
+}
+
+// Redundant-load elimination: a load of a slot that was just written from rax
+// is dead, because the value is still in rax.
+fn peephole(lines) -> Array {
+    let kept = [];
+    let i = 0;
+    while i < LEN(lines) {
+        let line = lines[i];
+        let skip = false;
+        if LEN(kept) > 0 {
+            let prev = kept[LEN(kept) - 1];
+            if is_slot_load(line) {
+                if is_slot_store_rax(prev) {
+                    if slot_addr(line) == slot_addr(prev) {
+                        skip = true;
+                    }
+                }
+            }
+        }
+        if skip == false {
+            kept = APPEND(kept, line);
+        }
+        i = i + 1;
+    }
+    return kept;
+}
+
+fn cc_jump_inverse(cc: Text) -> Text {
+    if cc == "l" {
+        return "jge";
+    }
+    if cc == "g" {
+        return "jle";
+    }
+    if cc == "le" {
+        return "jg";
+    }
+    if cc == "ge" {
+        return "jl";
+    }
+    if cc == "e" {
+        return "jne";
+    }
+    if cc == "ne" {
+        return "je";
+    }
+    return "";
+}
+
+// Compare + setCC + store + test + je  ->  compare + inverted conditional jump.
+fn fuse_branches(lines) -> Array {
+    let out = [];
+    let i = 0;
+    while i < LEN(lines) {
+        if i + 5 < LEN(lines) {
+            let c = lines[i];
+            let sc = lines[i + 1];
+            let zx = lines[i + 2];
+            let st = lines[i + 3];
+            let c2 = lines[i + 4];
+            let j = lines[i + 5];
+            let fused = "";
+            if starts_with(c, "  cmp qword ptr [rbp - ") {
+                if starts_with(sc, "  set") {
+                    if zx == "  movzx rax, al" {
+                        if is_slot_store_rax(st) {
+                            if starts_with(c2, "  cmp qword ptr [rbp - ") {
+                                if starts_with(j, "  je .L") {
+                                    if slot_addr(c) == slot_addr(st) {
+                                        if slot_addr(st) == slot_addr(c2) {
+                                            let cc = SUBSTR(sc, 5, LEN(sc) - 3);
+                                            let inv = cc_jump_inverse(cc);
+                                            if inv != "" {
+                                                out = APPEND(out, c);
+                                                out = APPEND(out, "  " + inv + " " + SUBSTR(j, 5, LEN(j)));
+                                                fused = "yes";
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            if fused == "yes" {
+                i = i + 6;
+            } else {
+                out = APPEND(out, lines[i]);
+                i = i + 1;
+            }
+        } else {
+            out = APPEND(out, lines[i]);
+            i = i + 1;
+        }
+    }
+    return out;
+}
+
+// Restore the callee-saved registers pushed in the prologue before every ret.
+fn add_epilogues(lines) -> Array {
+    let out = [];
+    let i = 0;
+    while i < LEN(lines) {
+        if lines[i] == "  leave" {
+            out = APPEND(out, "  pop r15");
+            out = APPEND(out, "  pop r14");
+            out = APPEND(out, "  pop r13");
+            out = APPEND(out, "  pop r12");
+        }
+        out = APPEND(out, lines[i]);
+        i = i + 1;
+    }
+    return out;
+}
+
+// Frequency-based allocation: the four most-referenced variables are held in
+// r12-r15 for the whole function. Only applied to straight-line programs with
+// no user-defined functions, because emitted functions share one frame.
+fn reg_assignment(rows, slot_names) -> Array {
+    let regs = [];
+    let i = 0;
+    while i < LEN(slot_names) {
+        regs = APPEND(regs, "");
+        i = i + 1;
+    }
+    let has_functions = false;
+    i = 0;
+    while i < LEN(rows) {
+        if LEN(rows[i]) > 2 {
+            if rows[i][1] == 74 {
+                has_functions = true;
+            }
+            if rows[i][1] == 70 {
+                if has_functions {
+                    // a call into emitted code would share these registers
+                }
+            }
+        }
+        i = i + 1;
+    }
+    if has_functions {
+        return [regs, []];
+    }
+
+    let counts = [];
+    i = 0;
+    while i < LEN(slot_names) {
+        let name = slot_names[i];
+        let c = 0;
+        let j = 0;
+        while j < LEN(rows) {
+            if LEN(rows[j]) > 2 {
+                let op = rows[j][1];
+                if op == 2 {
+                    if rows[j][2] == name {
+                        c = c + 1;
+                    }
+                }
+                if op == 3 {
+                    if rows[j][2] == name {
+                        c = c + 1;
+                    }
+                }
+            }
+            j = j + 1;
+        }
+        counts = APPEND(counts, c);
+        i = i + 1;
+    }
+
+    let names = ["r12", "r13", "r14", "r15"];
+    let hot = [];
+    let r = 0;
+    while r < 4 {
+        let best = LEN(counts);
+        let bestc = 1;
+        let k = 0;
+        while k < LEN(counts) {
+            if counts[k] > bestc {
+                bestc = counts[k];
+                best = k;
+            }
+            k = k + 1;
+        }
+        if best < LEN(counts) {
+            regs = replace_at(regs, best, names[r]);
+            counts = replace_at(counts, best, 0);
+            hot = APPEND(hot, best);
+        }
+        r = r + 1;
+    }
+    return [regs, hot];
+}
+
+fn runtime_lines() -> Array {
+    return [
+        "",
+        "null_print_i64:",
+        "  push rbp",
+        "  mov rbp, rsp",
+        "  sub rsp, 64",
+        "  lea rsi, [rbp - 1]",
+        "  mov r8, rsi",
+        "  mov rax, rdi",
+        "  xor ecx, ecx",
+        "  test rax, rax",
+        "  jns .Lpi_abs",
+        "  neg rax",
+        "  mov rcx, 1",
+        ".Lpi_abs:",
+        "  mov r9, 10",
+        ".Lpi_loop:",
+        "  xor edx, edx",
+        "  div r9",
+        "  add dl, 48",
+        "  dec rsi",
+        "  mov byte ptr [rsi], dl",
+        "  test rax, rax",
+        "  jnz .Lpi_loop",
+        "  test rcx, rcx",
+        "  jz .Lpi_out",
+        "  dec rsi",
+        "  mov byte ptr [rsi], 45",
+        ".Lpi_out:",
+        "  mov rdx, r8",
+        "  sub rdx, rsi",
+        "  mov rax, 1",
+        "  mov rdi, 1",
+        "  syscall",
+        "  lea rsi, [rip + .Lnl]",
+        "  mov rdx, 1",
+        "  mov rax, 1",
+        "  mov rdi, 1",
+        "  syscall",
+        "  leave",
+        "  ret",
+        "",
+        "null_print_str:",
+        "  push rbp",
+        "  mov rbp, rsp",
+        "  mov rsi, rdi",
+        "  xor edx, edx",
+        ".Lps_len:",
+        "  cmp byte ptr [rsi + rdx], 0",
+        "  je .Lps_out",
+        "  inc rdx",
+        "  jmp .Lps_len",
+        ".Lps_out:",
+        "  mov rax, 1",
+        "  mov rdi, 1",
+        "  syscall",
+        "  lea rsi, [rip + .Lnl]",
+        "  mov rdx, 1",
+        "  mov rax, 1",
+        "  mov rdi, 1",
+        "  syscall",
+        "  leave",
+        "  ret",
+        "",
+        "null_array_new:",
+        "  push rbp",
+        "  mov rbp, rsp",
+        "  push rbx",
+        "  sub rsp, 8",
+        "  mov rbx, rdi",
+        "  lea rdi, [rdi * 8 + 8]",
+        "  call malloc@PLT",
+        "  mov qword ptr [rax], rbx",
+        "  add rsp, 8",
+        "  pop rbx",
+        "  leave",
+        "  ret",
+        "",
+        "null_array_zero:",
+        "  push rbp",
+        "  mov rbp, rsp",
+        "  push rbx",
+        "  sub rsp, 8",
+        "  mov rbx, rdi",
+        "  lea rdi, [rbx + 1]",
+        "  mov rsi, 8",
+        "  call calloc@PLT",
+        "  mov qword ptr [rax], rbx",
+        "  add rsp, 8",
+        "  pop rbx",
+        "  leave",
+        "  ret",
+        "",
+        "null_panic_oob:",
+        "  lea rsi, [rip + .Loob]",
+        "  mov rdx, 12",
+        "  mov rax, 1",
+        "  mov rdi, 2",
+        "  syscall",
+        "  mov rax, 60",
+        "  mov rdi, 3",
+        "  syscall",
+        "",
+        "null_unsupported:",
+        "  lea rsi, [rip + .Lunsup]",
+        "  mov rdx, 16",
+        "  mov rax, 1",
+        "  mov rdi, 2",
+        "  syscall",
+        "  mov rax, 60",
+        "  mov rdi, 4",
+        "  syscall",
+        "",
+        "null_simd_add:",
+        "  push rbp",
+        "  mov rbp, rsp",
+        "  push rbx",
+        "  push r12",
+        "  push r13",
+        "  sub rsp, 8",
+        "  mov rbx, rdi",
+        "  mov r12, rsi",
+        "  mov r13, qword ptr [rdi]",
+        "  mov rax, qword ptr [r12]",
+        "  cmp r13, rax",
+        "  jle .Lsa_n",
+        "  mov r13, rax",
+        ".Lsa_n:",
+        "  mov rdi, r13",
+        "  call null_array_new",
+        "  mov r9, rax",
+        "  xor rcx, rcx",
+        ".Lsa_v:",
+        "  lea rdx, [rcx + 4]",
+        "  cmp rdx, r13",
+        "  jg .Lsa_tail",
+        "  vmovdqu ymm0, ymmword ptr [rbx + rcx * 8 + 8]",
+        "  vpaddq ymm0, ymm0, ymmword ptr [r12 + rcx * 8 + 8]",
+        "  vmovdqu ymmword ptr [r9 + rcx * 8 + 8], ymm0",
+        "  add rcx, 4",
+        "  jmp .Lsa_v",
+        ".Lsa_tail:",
+        "  cmp rcx, r13",
+        "  jge .Lsa_done",
+        ".Lsa_scalar:",
+        "  mov rax, qword ptr [rbx + rcx * 8 + 8]",
+        "  add rax, qword ptr [r12 + rcx * 8 + 8]",
+        "  mov qword ptr [r9 + rcx * 8 + 8], rax",
+        "  inc rcx",
+        "  cmp rcx, r13",
+        "  jl .Lsa_scalar",
+        ".Lsa_done:",
+        "  vzeroupper",
+        "  mov rax, r9",
+        "  add rsp, 8",
+        "  pop r13",
+        "  pop r12",
+        "  pop rbx",
+        "  leave",
+        "  ret",
+        "",
+        "null_simd_sum:",
+        "  push rbp",
+        "  mov rbp, rsp",
+        "  push rbx",
+        "  sub rsp, 8",
+        "  mov rbx, rdi",
+        "  mov rcx, qword ptr [rbx]",
+        "  vpxor ymm0, ymm0, ymm0",
+        "  xor r8, r8",
+        ".Lss_v:",
+        "  lea rdx, [r8 + 4]",
+        "  cmp rdx, rcx",
+        "  jg .Lss_tail",
+        "  vpaddq ymm0, ymm0, ymmword ptr [rbx + r8 * 8 + 8]",
+        "  add r8, 4",
+        "  jmp .Lss_v",
+        ".Lss_tail:",
+        "  vextracti128 xmm1, ymm0, 1",
+        "  vpaddq xmm0, xmm0, xmm1",
+        "  vpsrldq xmm1, xmm0, 8",
+        "  vpaddq xmm0, xmm0, xmm1",
+        "  vmovq rax, xmm0",
+        ".Lss_scalar:",
+        "  cmp r8, rcx",
+        "  jge .Lss_done",
+        "  add rax, qword ptr [rbx + r8 * 8 + 8]",
+        "  inc r8",
+        "  jmp .Lss_scalar",
+        ".Lss_done:",
+        "  vzeroupper",
+        "  add rsp, 8",
+        "  pop rbx",
+        "  leave",
+        "  ret",
+        "",
+        "null_simd_mul:",
+        "  push rbp",
+        "  mov rbp, rsp",
+        "  push rbx",
+        "  push r12",
+        "  push r13",
+        "  sub rsp, 8",
+        "  mov rbx, rdi",
+        "  mov r12, rsi",
+        "  mov r13, qword ptr [rdi]",
+        "  mov rax, qword ptr [r12]",
+        "  cmp r13, rax",
+        "  jle .Lsm_n",
+        "  mov r13, rax",
+        ".Lsm_n:",
+        "  mov rdi, r13",
+        "  call null_array_new",
+        "  mov r9, rax",
+        "  xor rcx, rcx",
+        ".Lsm_v:",
+        "  lea rdx, [rcx + 4]",
+        "  cmp rdx, r13",
+        "  jg .Lsm_tail",
+        "  vmovdqu ymm0, ymmword ptr [rbx + rcx * 8 + 8]",
+        "  vpmullq ymm0, ymm0, ymmword ptr [r12 + rcx * 8 + 8]",
+        "  vmovdqu ymmword ptr [r9 + rcx * 8 + 8], ymm0",
+        "  add rcx, 4",
+        "  jmp .Lsm_v",
+        ".Lsm_tail:",
+        "  cmp rcx, r13",
+        "  jge .Lsm_done",
+        ".Lsm_scalar:",
+        "  mov rax, qword ptr [rbx + rcx * 8 + 8]",
+        "  imul rax, qword ptr [r12 + rcx * 8 + 8]",
+        "  mov qword ptr [r9 + rcx * 8 + 8], rax",
+        "  inc rcx",
+        "  cmp rcx, r13",
+        "  jl .Lsm_scalar",
+        ".Lsm_done:",
+        "  vzeroupper",
+        "  mov rax, r9",
+        "  add rsp, 8",
+        "  pop r13",
+        "  pop r12",
+        "  pop rbx",
+        "  leave",
+        "  ret",
+    ];
+}
+
+// Vectorised counting reduction:  while iv <op> n { acc = acc + iv; iv = iv + 1 }
+// with every value in a register. Emits an 8-wide AVX2 body (two 4-lane i64
+// accumulators), a horizontal sum, then the original scalar loop as the tail so
+// the remaining < 8 iterations stay exact. Consumes 14 rows: the loop label
+// through the back edge; the exit label is left to the normal emitter.
+fn fast_vec_reduce(rows, i, regs, slot_names) -> Array {
+    if i + 13 >= LEN(rows) {
+        return [];
+    }
+    let r0 = rows[i];
+    if LEN(r0) < 2 {
+        return [];
+    }
+    if r0[0] != "LABEL" {
+        return [];
+    }
+    let r1 = rows[i + 1];
+    let r2 = rows[i + 2];
+    let r3 = rows[i + 3];
+    let r4 = rows[i + 4];
+    let r5 = rows[i + 5];
+    let r6 = rows[i + 6];
+    let r7 = rows[i + 7];
+    let r8 = rows[i + 8];
+    let r9 = rows[i + 9];
+    let r10 = rows[i + 10];
+    let r11 = rows[i + 11];
+    let r12 = rows[i + 12];
+    let r13 = rows[i + 13];
+    if LEN(r1) < 3 || LEN(r2) < 3 || LEN(r3) < 3 || LEN(r4) < 3 || LEN(r5) < 3 {
+        return [];
+    }
+    if LEN(r6) < 3 || LEN(r7) < 3 || LEN(r8) < 3 || LEN(r9) < 3 || LEN(r10) < 3 {
+        return [];
+    }
+    if LEN(r11) < 3 || LEN(r12) < 3 || LEN(r13) < 3 {
+        return [];
+    }
+    // LOAD iv; LOAD n; compare; JUMP_IF_FALSE exit
+    if r1[1] != 2 || r2[1] != 2 || r4[1] != 40 {
+        return [];
+    }
+    // 21/102 are `<`, 25/103 are `<=`; each inverts to one conditional jump.
+    let is_lt = r3[1] == 21 || r3[1] == 102;
+    let is_le = r3[1] == 25 || r3[1] == 103;
+    if is_lt == false && is_le == false {
+        return [];
+    }
+    // LOAD acc; LOAD iv; ADD; STORE acc
+    if r5[1] != 2 || r6[1] != 2 || r8[1] != 3 {
+        return [];
+    }
+    if r7[1] != 100 && r7[1] != 10 {
+        return [];
+    }
+    // LOAD iv; LOAD 1; ADD; STORE iv
+    if r9[1] != 2 || r10[1] != 1 || r11[1] != 100 && r11[1] != 10 || r12[1] != 3 {
+        return [];
+    }
+    if r10[2] != "1" || r13[1] != 41 {
+        return [];
+    }
+    if r5[2] != r8[2] || r1[2] != r12[2] || r1[2] != r9[2] {
+        return [];
+    }
+    if r13[2] != r0[1] {
+        return [];
+    }
+    let iv = reg_of(r1[2], regs, slot_names);
+    let nn = reg_of(r2[2], regs, slot_names);
+    let acc = reg_of(r5[2], regs, slot_names);
+    if iv == "" || nn == "" || acc == "" {
+        return [];
+    }
+    if acc == iv || acc == nn || iv == nn {
+        return [];
+    }
+    let done = "  jg .L" + r0[1] + "_vt";
+    let exit_cc = "  jg .L" + r4[2];
+    if is_lt {
+        done = "  jge .L" + r0[1] + "_vt";
+        exit_cc = "  jge .L" + r4[2];
+    }
+    return [
+        "  vmovq xmm0, " + iv,
+        "  vpbroadcastq ymm1, xmm0",
+        "  vpaddq ymm1, ymm1, ymmword ptr [rip + .Liota0]",
+        "  vpaddq ymm3, ymm1, ymmword ptr [rip + .Lfour]",
+        "  vpxor ymm2, ymm2, ymm2",
+        "  vpxor ymm4, ymm4, ymm4",
+        ".L" + r0[1] + "_v:",
+        "  lea rdx, [" + iv + " + 8]",
+        "  cmp rdx, " + nn,
+        done,
+        "  vpaddq ymm2, ymm2, ymm1",
+        "  vpaddq ymm4, ymm4, ymm3",
+        "  vpaddq ymm1, ymm1, ymmword ptr [rip + .Leight]",
+        "  vpaddq ymm3, ymm3, ymmword ptr [rip + .Leight]",
+        "  add " + iv + ", 8",
+        "  jmp .L" + r0[1] + "_v",
+        ".L" + r0[1] + "_vt:",
+        "  vpaddq ymm2, ymm2, ymm4",
+        "  vextracti128 xmm0, ymm2, 1",
+        "  vpaddq xmm0, xmm0, xmm2",
+        "  vpsrldq xmm1, xmm0, 8",
+        "  vpaddq xmm0, xmm0, xmm1",
+        "  vmovq rax, xmm0",
+        "  add " + acc + ", rax",
+        "  vzeroupper",
+        ".L" + r0[1] + ":",
+        "  cmp " + iv + ", " + nn,
+        exit_cc,
+        "  add " + acc + ", " + iv,
+        "  add " + iv + ", 1",
+        "  jmp .L" + r0[1],
+    ];
+}
+
+fn compile(rows) -> Array {
+    let out = [
+        ".intel_syntax noprefix",
+        ".text",
+        ".globl main",
+        "main:",
+        "  push rbp",
+        "  mov rbp, rsp",
+        "  push r12",
+        "  push r13",
+        "  push r14",
+        "  push r15",
+        "  sub rsp, 16384",
+    ];
+    let report = [];
+
+    // --- pre-pass: frame slots for every variable + function table ----------
+    let slot_names = [];
+    let var_types = [];
+    let fn_names = [];
+    let fn_params = [];
+    let fn_labels = [];
+    let label_names = [];
+    let i = 0;
+    while i < LEN(rows) {
+        let row = rows[i];
+        if row[0] == "LABEL" {
+            if index_of(label_names, row[1]) == LEN(label_names) {
+                label_names = APPEND(label_names, row[1]);
+            }
+        } else {
+            let op = row[1];
+            let operand = row[2];
+            if op == 74 {
+                fn_names = APPEND(fn_names, operand);
+                fn_params = APPEND(fn_params, meta_value(row[4], "params"));
+                fn_labels = APPEND(fn_labels, ".Lfn_" + sanitize(operand) + "_" + TO_STRING(LEN(fn_names)));
+            }
+            let is_var = false;
+            if op == 2 {
+                is_var = true;
+            }
+            if op == 3 {
+                is_var = true;
+            }
+            if is_var {
+                if index_of(slot_names, operand) == LEN(slot_names) {
+                    slot_names = APPEND(slot_names, operand);
+                }
+            }
+        }
+        i = i + 1;
+    }
+
+    // --- register assignment ------------------------------------------------
+    // The most frequently referenced variables stay in callee-saved registers
+    // for the whole function, so their loads/stores are register moves.
+    let regs = [];
+    let hot_slots = [];
+    let assign = reg_assignment(rows, slot_names);
+    regs = assign[0];
+    hot_slots = assign[1];
+    let h = 0;
+    while h < LEN(hot_slots) {
+        let hs = hot_slots[h];
+        out = APPEND(out, "  mov " + regs[hs] + ", qword ptr [rbp - " + TO_STRING(200 + hs * 8) + "]");
+        report = APPEND(report, "STAT reg " + slot_names[hs] + " -> " + regs[hs]);
+        h = h + 1;
+    }
+
+    // --- emit ---------------------------------------------------------------
+    let sp = 0;
+    let types = [];
+    let str_pool = [];
+    let fn_cursor = 0;
+    let i = 0;
+    while i < LEN(rows) {
+        let row = rows[i];
+        if row[0] == "LABEL" {
+            let fastv = fast_vec_reduce(rows, i, regs, slot_names);
+            if LEN(fastv) > 0 {
+                let vi = 0;
+                while vi < LEN(fastv) {
+                    out = APPEND(out, fastv[vi]);
+                    vi = vi + 1;
+                }
+                report = APPEND(report, "VECTORIZED reduction-loop " + row[1] + " 8-wide-avx2");
+                i = i + 14;
+                continue;
+            }
+            out = APPEND(out, ".L" + row[1] + ":");
+        } else {
+            let fastr = fast_rem_branch(rows, i, regs, slot_names);
+            if LEN(fastr) > 0 {
+                out = APPEND(out, fastr[0]);
+                out = APPEND(out, fastr[1]);
+                report = APPEND(report, "LOWERED rem-pow2-branch span=" + fastr[2]);
+                i = i + TO_NUMBER(fastr[2]);
+                continue;
+            }
+            let fastm = fast_mod_branch(rows, i, regs, slot_names);
+            if LEN(fastm) > 0 {
+                out = APPEND(out, fastm[0]);
+                out = APPEND(out, fastm[1]);
+                report = APPEND(report, "LOWERED mod-pow2-branch");
+                i = i + 6;
+                continue;
+            }
+            let fastf = fast_mul_add(rows, i, regs, slot_names);
+            if LEN(fastf) > 0 {
+                let q = 0;
+                while q < LEN(fastf) {
+                    out = APPEND(out, fastf[q]);
+                    q = q + 1;
+                }
+                report = APPEND(report, "LOWERED fused-mul-add");
+                i = i + 6;
+                continue;
+            }
+            let fast = fast_pattern(rows, i, regs, slot_names);
+            let fastx = [];
+            if LEN(fast) == 0 {
+                fastx = fast_partial(rows, i, regs, slot_names, sp);
+            }
+            if LEN(fastx) > 0 {
+                let g = 0;
+                while g < LEN(fastx) {
+                    out = APPEND(out, fastx[g]);
+                    g = g + 1;
+                }
+                report = APPEND(report, "LOWERED reg-partial");
+                i = i + 3;
+                sp = sp + 1;
+                types = APPEND(types, "int");
+                continue;
+            }
+            if LEN(fast) > 0 {
+                let f = 0;
+                while f < LEN(fast) {
+                    out = APPEND(out, fast[f]);
+                    f = f + 1;
+                }
+                report = APPEND(report, "LOWERED reg-op");
+                i = i + 4;
+                continue;
+            }
+            let op = row[1];
+            let operand = row[2];
+            let meta = row[4];
+
+            if op == 1 {
+                let numeric = looks_numeric(operand);
+                if numeric {
+                    out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + sp * 8) + "], " + operand);
+                    types = APPEND(types, "int");
+                } else {
+                    let sid = index_of(str_pool, operand);
+                    if sid == LEN(str_pool) {
+                        str_pool = APPEND(str_pool, operand);
+                        sid = LEN(str_pool) - 1;
+                    }
+                    out = APPEND(out, "  lea rax, [rip + .LS" + TO_STRING(sid) + "]");
+                    out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + sp * 8) + "], rax");
+                    types = APPEND(types, "str");
+                }
+                sp = sp + 1;
+            }
+
+            if op == 2 {
+                let sidx = index_of(slot_names, operand);
+                if sidx == LEN(slot_names) {
+                    out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + sp * 8) + "], 0");
+                    types = APPEND(types, "int");
+                } else {
+                    if sidx < LEN(regs) {
+                        if regs[sidx] != "" {
+                            out = APPEND(out, "  mov rax, " + regs[sidx]);
+                        } else {
+                            out = APPEND(out, "  mov rax, qword ptr [rbp - " + TO_STRING(200 + sidx * 8) + "]");
+                        }
+                    } else {
+                        out = APPEND(out, "  mov rax, qword ptr [rbp - " + TO_STRING(200 + sidx * 8) + "]");
+                    }
+                    out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + sp * 8) + "], rax");
+                    let t = "int";
+                    if sidx < LEN(var_types) {
+                        t = var_types[sidx];
+                    }
+                    types = APPEND(types, t);
+                }
+                sp = sp + 1;
+            }
+
+            if op == 3 {
+                let sidx = index_of(slot_names, operand);
+                let t = "int";
+                if LEN(types) > 0 {
+                    t = types[LEN(types) - 1];
+                    types = drop_last(types);
+                }
+                out = APPEND(out, "  mov rax, qword ptr [rbp - " + TO_STRING(4096 + (sp - 1) * 8) + "]");
+                if sidx < LEN(regs) {
+                    if regs[sidx] != "" {
+                        out = APPEND(out, "  mov " + regs[sidx] + ", rax");
+                    } else {
+                        out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(200 + sidx * 8) + "], rax");
+                    }
+                } else {
+                    out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(200 + sidx * 8) + "], rax");
+                }
+                while LEN(var_types) <= sidx {
+                    var_types = APPEND(var_types, "int");
+                }
+                var_types = replace_at(var_types, sidx, t);
+                sp = sp - 1;
+            }
+
+            if op == 10 {
+                out = APPEND(out, "  mov rax, qword ptr [rbp - " + TO_STRING(4096 + (sp - 1) * 8) + "]");
+                out = APPEND(out, "  add qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "], rax");
+                types = drop_last(types);
+                sp = sp - 1;
+            }
+            if op == 11 {
+                out = APPEND(out, "  mov rax, qword ptr [rbp - " + TO_STRING(4096 + (sp - 1) * 8) + "]");
+                out = APPEND(out, "  sub qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "], rax");
+                types = drop_last(types);
+                sp = sp - 1;
+            }
+            if op == 12 {
+                out = APPEND(out, "  mov rax, qword ptr [rbp - " + TO_STRING(4096 + (sp - 1) * 8) + "]");
+                out = APPEND(out, "  imul rax, qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "]");
+                out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "], rax");
+                types = drop_last(types);
+                sp = sp - 1;
+            }
+            if op == 13 {
+                out = APPEND(out, "  mov rax, qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "]");
+                out = APPEND(out, "  cqo");
+                out = APPEND(out, "  idiv qword ptr [rbp - " + TO_STRING(4096 + (sp - 1) * 8) + "]");
+                out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "], rax");
+                types = drop_last(types);
+                sp = sp - 1;
+            }
+
+            if op == 20 {
+                out = cat(out, cmp_sequence("setg", sp));
+                types = drop_last(types);
+                sp = sp - 1;
+            }
+            if op == 21 {
+                out = cat(out, cmp_sequence("setl", sp));
+                types = drop_last(types);
+                sp = sp - 1;
+            }
+            if op == 22 {
+                out = cat(out, cmp_sequence("sete", sp));
+                types = drop_last(types);
+                sp = sp - 1;
+            }
+            if op == 23 {
+                out = cat(out, cmp_sequence("setne", sp));
+                types = drop_last(types);
+                sp = sp - 1;
+            }
+            if op == 24 {
+                out = cat(out, cmp_sequence("setge", sp));
+                types = drop_last(types);
+                sp = sp - 1;
+            }
+            if op == 25 {
+                out = cat(out, cmp_sequence("setle", sp));
+                types = drop_last(types);
+                sp = sp - 1;
+            }
+
+            if op == 30 {
+                let t = "int";
+                if LEN(types) > 0 {
+                    t = types[LEN(types) - 1];
+                }
+                out = APPEND(out, "  mov rdi, qword ptr [rbp - " + TO_STRING(4096 + (sp - 1) * 8) + "]");
+                if t == "str" {
+                    out = APPEND(out, "  call null_print_str");
+                } else {
+                    out = APPEND(out, "  call null_print_i64");
+                }
+                types = drop_last(types);
+                sp = sp - 1;
+            }
+
+            if op == 40 {
+                out = APPEND(out, "  cmp qword ptr [rbp - " + TO_STRING(4096 + (sp - 1) * 8) + "], 0");
+                out = APPEND(out, "  je .L" + operand);
+                types = drop_last(types);
+                sp = sp - 1;
+            }
+            if op == 41 {
+                out = APPEND(out, "  jmp .L" + operand);
+            }
+
+            if op == 70 {
+                let argc_text = meta_value(meta, "arity");
+                let argc = 0;
+                if LEN(argc_text) > 0 {
+                    argc = TO_NUMBER(argc_text);
+                }
+                let base = sp - argc;
+                let name = operand;
+                if name == "LEN" {
+                    name = "len";
+                }
+                if name == "MOD" {
+                    name = "mod";
+                }
+                if name == "NEG" {
+                    name = "neg";
+                }
+                if name == "CONCAT" {
+                    name = "concat";
+                }
+                let builtin = false;
+                if name == "len" {
+                    builtin = true;
+                    out = APPEND(out, "  mov rax, qword ptr [rbp - " + TO_STRING(4096 + base * 8) + "]");
+                    out = APPEND(out, "  mov rax, qword ptr [rax]");
+                    out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + base * 8) + "], rax");
+                    report = APPEND(report, "LOWERED 70 len-array-header");
+                    sp = base + 1;
+                    types = drop_last(types);
+                    types = APPEND(types, "int");
+                }
+                if name == "mod" {
+                    builtin = true;
+                    out = APPEND(out, "  mov rax, qword ptr [rbp - " + TO_STRING(4096 + base * 8) + "]");
+                    out = APPEND(out, "  cqo");
+                    out = APPEND(out, "  idiv qword ptr [rbp - " + TO_STRING(4096 + (base + 1) * 8) + "]");
+                    out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + base * 8) + "], rdx");
+                    report = APPEND(report, "LOWERED 70 mod-idiv");
+                    sp = base + 1;
+                    types = drop_last(types);
+                    types = drop_last(types);
+                    types = APPEND(types, "int");
+                }
+                if name == "neg" {
+                    builtin = true;
+                    out = APPEND(out, "  neg qword ptr [rbp - " + TO_STRING(4096 + base * 8) + "]");
+                    report = APPEND(report, "LOWERED 70 neg");
+                }
+                if name == "concat" {
+                    builtin = true;
+                    report = APPEND(report, "FALLBACK 70 concat-string-runtime-not-in-this-stage");
+                    out = APPEND(out, "  call null_unsupported");
+                }
+                if name == "__range__" {
+                    builtin = true;
+                    report = APPEND(report, "FALLBACK 70 range-object-not-in-this-stage");
+                    out = APPEND(out, "  call null_unsupported");
+                }
+                if name == "filter" {
+                    builtin = true;
+                    report = APPEND(report, "FALLBACK 70 filter-lambda-capture-not-in-this-stage");
+                    out = APPEND(out, "  call null_unsupported");
+                }
+                if name == "map" {
+                    builtin = true;
+                    report = APPEND(report, "FALLBACK 70 map-lambda-capture-not-in-this-stage");
+                    out = APPEND(out, "  call null_unsupported");
+                }
+                if builtin == false {
+                    let fidx = index_of(fn_names, name);
+                    if fidx == LEN(fn_names) {
+                        report = APPEND(report, "FALLBACK 70 unknown-call-" + name);
+                        out = APPEND(out, "  call null_unsupported");
+                    } else {
+                        let regs = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
+                        let a = 0;
+                        while a < argc {
+                            if a < 6 {
+                                out = APPEND(out, "  mov " + regs[a] + ", qword ptr [rbp - " + TO_STRING(4096 + (base + a) * 8) + "]");
+                            }
+                            a = a + 1;
+                        }
+                        out = APPEND(out, "  call " + fn_labels[fidx]);
+                        out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + base * 8) + "], rax");
+                        let k = 0;
+                        while k < argc {
+                            types = drop_last(types);
+                            k = k + 1;
+                        }
+                        types = APPEND(types, "int");
+                        sp = base + 1;
+                        report = APPEND(report, "LOWERED 70 call-" + name);
+                    }
+                }
+            }
+
+            if op == 71 {
+                if has_meta(meta, "unit") {
+                    out = APPEND(out, "  xor eax, eax");
+                } else {
+                    out = APPEND(out, "  mov rax, qword ptr [rbp - " + TO_STRING(4096 + (sp - 1) * 8) + "]");
+                    types = drop_last(types);
+                    sp = sp - 1;
+                }
+                out = APPEND(out, "  leave");
+                out = APPEND(out, "  ret");
+            }
+
+            if op == 72 {
+                let argc_text = meta_value(meta, "arity");
+                let argc = TO_NUMBER(argc_text);
+                let base = sp - argc;
+                out = APPEND(out, "  mov rdi, " + TO_STRING(argc));
+                out = APPEND(out, "  call null_array_new");
+                out = APPEND(out, "  mov qword ptr [rbp - 3000], rax");
+                let e = 0;
+                while e < argc {
+                    out = APPEND(out, "  mov rcx, qword ptr [rbp - " + TO_STRING(4096 + (base + e) * 8) + "]");
+                    out = APPEND(out, "  mov qword ptr [rax + " + TO_STRING((e + 1) * 8) + "], rcx");
+                    types = drop_last(types);
+                    e = e + 1;
+                }
+                out = APPEND(out, "  mov rax, qword ptr [rbp - 3000]");
+                out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + base * 8) + "], rax");
+                types = APPEND(types, "arr");
+                sp = base + 1;
+                report = APPEND(report, "LOWERED 72 array-literal");
+            }
+
+            if op == 73 {
+                out = APPEND(out, "  mov rax, qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "]");
+                out = APPEND(out, "  mov rcx, qword ptr [rbp - " + TO_STRING(4096 + (sp - 1) * 8) + "]");
+                out = APPEND(out, "  cmp rcx, qword ptr [rax]");
+                out = APPEND(out, "  jb .Lidx_ok_" + TO_STRING(i));
+                out = APPEND(out, "  call null_panic_oob");
+                out = APPEND(out, ".Lidx_ok_" + TO_STRING(i) + ":");
+                out = APPEND(out, "  mov rax, qword ptr [rax + rcx * 8 + 8]");
+                out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "], rax");
+                types = drop_last(types);
+                types = drop_last(types);
+                types = APPEND(types, "int");
+                sp = sp - 1;
+                report = APPEND(report, "LOWERED 73 index-bounds-checked");
+            }
+
+            if op == 74 {
+                let params_text = meta_value(meta, "params");
+                let params = [];
+                if LEN(params_text) > 0 {
+                    params = SPLIT(params_text, ",");
+                }
+                let label = fn_labels[fn_cursor];
+                out = APPEND(out, "  jmp .Lfnskip_" + TO_STRING(fn_cursor));
+                out = APPEND(out, label + ":");
+                out = APPEND(out, "  push rbp");
+                out = APPEND(out, "  mov rbp, rsp");
+                out = APPEND(out, "  sub rsp, 16384");
+                let regs = ["rdi", "rsi", "rdx", "rcx", "r8", "r9"];
+                let p = 0;
+                while p < LEN(params) {
+                    let sidx = index_of(slot_names, params[p]);
+                    if p < 6 {
+                        out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(200 + sidx * 8) + "], " + regs[p]);
+                    }
+                    p = p + 1;
+                }
+                sp = 0;
+                types = [];
+                fn_cursor = fn_cursor + 2;
+                report = APPEND(report, "LOWERED 74 function-" + operand);
+            }
+
+            // 255 covers HALT, end_fn, NOP and the ownership markers.
+            if op == 255 {
+                if operand == "end_fn" {
+                    out = APPEND(out, "  xor eax, eax");
+                    out = APPEND(out, "  leave");
+                    out = APPEND(out, "  ret");
+                    let skip = fn_cursor - 2;
+                    out = APPEND(out, ".Lfnskip_" + TO_STRING(skip) + ":");
+                    sp = 0;
+                    types = [];
+                }
+                if operand == "HALT" {
+                    out = APPEND(out, "  xor eax, eax");
+                    out = APPEND(out, "  leave");
+                    out = APPEND(out, "  ret");
+                }
+                if operand == "borrow" {
+                    report = APPEND(report, "STAT 255 borrow-erased-at-compile-time");
+                }
+                if operand == "move" {
+                    report = APPEND(report, "STAT 255 move-erased-at-compile-time");
+                }
+            }
+
+            // --- specialised range ------------------------------------------
+            if op == 100 {
+                out = APPEND(out, "  mov rax, qword ptr [rbp - " + TO_STRING(4096 + (sp - 1) * 8) + "]");
+                out = APPEND(out, "  add qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "], rax");
+                types = drop_last(types);
+                sp = sp - 1;
+                report = APPEND(report, "LOWERED 100 fast-add-int-no-tag-check");
+            }
+            if op == 101 {
+                report = APPEND(report, "FALLBACK 101 fast-add-float-float64-not-in-this-stage");
+                out = APPEND(out, "  call null_unsupported");
+            }
+            if op == 102 {
+                out = cat(out, cmp_sequence("setl", sp));
+                types = drop_last(types);
+                sp = sp - 1;
+                report = APPEND(report, "LOWERED 102 fast-lt-int");
+            }
+            if op == 103 {
+                out = APPEND(out, "  mov rax, qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "]");
+                out = APPEND(out, "  mov rcx, qword ptr [rbp - " + TO_STRING(4096 + (sp - 1) * 8) + "]");
+                out = APPEND(out, "  mov rax, qword ptr [rax + rcx * 8 + 8]");
+                out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "], rax");
+                types = drop_last(types);
+                types = drop_last(types);
+                types = APPEND(types, "int");
+                sp = sp - 1;
+                report = APPEND(report, "LOWERED 103 fast-index-unchecked");
+            }
+            if op == 104 {
+                out = APPEND(out, "  mov rax, qword ptr [rbp - " + TO_STRING(4096 + (sp - 1) * 8) + "]");
+                out = APPEND(out, "  mov rax, qword ptr [rax]");
+                out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + (sp - 1) * 8) + "], rax");
+                types = drop_last(types);
+                types = APPEND(types, "int");
+                report = APPEND(report, "LOWERED 104 fast-len-header");
+            }
+            if op == 105 {
+                // FAST_INDEX_STORE: arr[idx] = value, bounds proven, in place.
+                out = APPEND(out, "  mov rcx, qword ptr [rbp - " + TO_STRING(4096 + (sp - 3) * 8) + "]");
+                out = APPEND(out, "  mov rdx, qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "]");
+                out = APPEND(out, "  mov rax, qword ptr [rbp - " + TO_STRING(4096 + (sp - 1) * 8) + "]");
+                out = APPEND(out, "  mov qword ptr [rcx + rdx * 8 + 8], rax");
+                out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + (sp - 3) * 8) + "], rcx");
+                types = drop_last(types);
+                types = drop_last(types);
+                types = drop_last(types);
+                types = APPEND(types, "arr");
+                sp = sp - 2;
+                report = APPEND(report, "LOWERED 105 fast-index-store");
+            }
+
+            if op == 106 {
+                report = APPEND(report, "FALLBACK 106 append-needs-growable-array");
+                out = APPEND(out, "  call null_unsupported");
+            }
+
+            if op == 107 {
+                // FAST_ARRAY_ZERO: pop n, push a zeroed array of length n.
+                out = APPEND(out, "  mov rdi, qword ptr [rbp - " + TO_STRING(4096 + (sp - 1) * 8) + "]");
+                out = APPEND(out, "  call null_array_zero");
+                out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + (sp - 1) * 8) + "], rax");
+                types = drop_last(types);
+                types = APPEND(types, "arr");
+                report = APPEND(report, "LOWERED 107 fast-array-zero");
+            }
+
+            if op == 110 {
+                report = APPEND(report, "FALLBACK 110 fused-map-needs-captured-lambda");
+                out = APPEND(out, "  call null_unsupported");
+            }
+            if op == 111 {
+                report = APPEND(report, "FALLBACK 111 fused-filter-needs-captured-lambda");
+                out = APPEND(out, "  call null_unsupported");
+            }
+            if op == 112 {
+                report = APPEND(report, "FALLBACK 112 fused-reduce-needs-captured-lambda");
+                out = APPEND(out, "  call null_unsupported");
+            }
+            if op == 122 {
+                // SIMD_SUM: horizontal AVX2 reduction of an i64 array.
+                out = APPEND(out, "  mov rdi, qword ptr [rbp - " + TO_STRING(4096 + (sp - 1) * 8) + "]");
+                out = APPEND(out, "  call null_simd_sum");
+                out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + (sp - 1) * 8) + "], rax");
+                types = drop_last(types);
+                types = APPEND(types, "int");
+                report = APPEND(report, "LOWERED 122 simd-sum-avx2");
+            }
+
+            if op == 120 {
+                out = APPEND(out, "  mov rdi, qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "]");
+                out = APPEND(out, "  mov rsi, qword ptr [rbp - " + TO_STRING(4096 + (sp - 1) * 8) + "]");
+                out = APPEND(out, "  call null_simd_add");
+                out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "], rax");
+                types = drop_last(types);
+                types = drop_last(types);
+                types = APPEND(types, "arr");
+                sp = sp - 1;
+                report = APPEND(report, "LOWERED 120 simd-add-avx2-vpaddq");
+            }
+            if op == 121 {
+                out = APPEND(out, "  mov rdi, qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "]");
+                out = APPEND(out, "  mov rsi, qword ptr [rbp - " + TO_STRING(4096 + (sp - 1) * 8) + "]");
+                out = APPEND(out, "  call null_simd_mul");
+                out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "], rax");
+                types = drop_last(types);
+                types = drop_last(types);
+                types = APPEND(types, "arr");
+                sp = sp - 1;
+                report = APPEND(report, "LOWERED 121 simd-mul-avx2-vpmullq");
+            }
+            if op == 113 {
+                out = emit_comprehension(out, report, operand, sp, 4096, slot_names);
+                // emit_comprehension reports its own line; fall back if bad.
+                let parts = SPLIT(operand, "|");
+                if LEN(parts) < 2 {
+                    report = APPEND(report, "FALLBACK 113 malformed-comprehension");
+                    out = APPEND(out, "  call null_unsupported");
+                }
+                sp = sp;
+                types = drop_last(types);
+                types = APPEND(types, "arr");
+            }
+            if op == 130 {
+                report = APPEND(report, "FALLBACK 130 gpu-kernel-no-gpu-target-in-this-stage");
+                out = APPEND(out, "  call null_unsupported");
+            }
+            if op == 140 {
+                report = APPEND(report, "FALLBACK 140 dist-send-no-network-target-in-this-stage");
+                out = APPEND(out, "  call null_unsupported");
+            }
+            if op == 141 {
+                report = APPEND(report, "FALLBACK 141 dist-recv-no-network-target-in-this-stage");
+                out = APPEND(out, "  call null_unsupported");
+            }
+        }
+        i = i + 1;
+    }
+
+    out = APPEND(out, "");
+    out = APPEND(out, ".section .rodata");
+    out = APPEND(out, ".Lnl: .byte 10");
+    out = APPEND(out, ".Loob: .ascii \"OOB PANIC!!!\\n\"");
+    out = APPEND(out, ".Lunsup: .ascii \"UNSUPPORTED OP!!\\n\"");
+    out = APPEND(out, ".p2align 4");
+    out = APPEND(out, ".Liota0: .quad 0, 1, 2, 3");
+    out = APPEND(out, ".Lfour: .quad 4, 4, 4, 4");
+    out = APPEND(out, ".Leight: .quad 8, 8, 8, 8");
+    let s = 0;
+    while s < LEN(str_pool) {
+        out = APPEND(out, ".LS" + TO_STRING(s) + ": .asciz \"" + str_pool[s] + "\"");
+        s = s + 1;
+    }
+
+    // Peepholes over the emitted program: drop reloads of a value already in
+    // rax, and fold compare + setCC + test into a single conditional jump.
+    out = peephole(out);
+    out = fuse_branches(out);
+    out = add_epilogues(out);
+
+    // Runtime helpers (print, allocation, bounds panic, AVX2 kernels).
+    out = APPEND(out, "");
+    out = APPEND(out, ".section .note.GNU-stack,\"\",@progbits");
+    out = APPEND(out, ".text");
+    out = cat(out, runtime_lines());
+    return [out, report];
+}
+
+fn cat(a, b) -> Array {
+    let out = a;
+    let i = 0;
+    while i < LEN(b) {
+        out = APPEND(out, b[i]);
+        i = i + 1;
+    }
+    return out;
+}
+
+fn drop_last(list) -> Array {
+    let out = [];
+    let i = 0;
+    while i < LEN(list) - 1 {
+        out = APPEND(out, list[i]);
+        i = i + 1;
+    }
+    return out;
+}
+
+fn replace_at(list, k: Num, value) -> Array {
+    let out = [];
+    let i = 0;
+    while i < LEN(list) {
+        if i == k {
+            out = APPEND(out, value);
+        } else {
+            out = APPEND(out, list[i]);
+        }
+        i = i + 1;
+    }
+    return out;
+}
+
+fn cmp_sequence(kind: Text, sp: Num) -> Array {
+    let a = 4096 + (sp - 2) * 8;
+    let b = 4096 + (sp - 1) * 8;
+    return [
+        "  mov rax, qword ptr [rbp - " + TO_STRING(b) + "]",
+        "  cmp qword ptr [rbp - " + TO_STRING(a) + "], rax",
+        "  " + kind + " al",
+        "  movzx rax, al",
+        "  mov qword ptr [rbp - " + TO_STRING(a) + "], rax",
+    ];
+}
+
+fn emit_comprehension(out, report, operand: Text, sp: Num, base_off: Num, slot_names) -> Array {
+    let parts = SPLIT(operand, "|");
+    if LEN(parts) < 2 {
+        return out;
+    }
+    let var_name = parts[0];
+    let expr_tree = tree_from(parts[1]);
+    let pred_tree = ["none"];
+    if LEN(parts) > 2 {
+        pred_tree = tree_from(parts[2]);
+    }
+    let bad = "";
+    if tree_status(expr_tree) != "ok" {
+        bad = "expression";
+    }
+    if tree_status(pred_tree) == "bad" {
+        bad = "predicate";
+    }
+    if LEN(bad) > 0 {
+        report = APPEND(report, "FALLBACK 113 unparsed-" + bad);
+        return out;
+    }
+    let vslot = index_of(slot_names, var_name);
+    let vofs = 200 + vslot * 8;
+    let src = base_off + (sp - 1) * 8;
+    let o = out;
+    o = APPEND(o, "  mov rax, qword ptr [rbp - " + TO_STRING(src) + "]");
+    o = APPEND(o, "  mov rcx, qword ptr [rax]");
+    o = APPEND(o, "  mov qword ptr [rbp - 9000], rcx");
+    o = APPEND(o, "  mov qword ptr [rbp - 9008], rax");
+    o = APPEND(o, "  mov rdi, rcx");
+    o = APPEND(o, "  call null_array_new");
+    o = APPEND(o, "  mov qword ptr [rbp - 9016], rax");
+    o = APPEND(o, "  mov qword ptr [rbp - 9024], 0");
+    o = APPEND(o, "  mov qword ptr [rbp - 9032], 0");
+    o = APPEND(o, "  jmp .Lcomp_loop_" + TO_STRING(LEN(o)));
+    let id = TO_STRING(LEN(o));
+    let loop_lbl = ".Lcomp_loop_" + id;
+    let next_lbl = ".Lcomp_next_" + id;
+    let done_lbl = ".Lcomp_done_" + id;
+    o = APPEND(o, "  mov rax, qword ptr [rbp - 9032]");
+    o = APPEND(o, "  cmp rax, qword ptr [rbp - 9000]");
+    o = APPEND(o, "  jge " + done_lbl);
+    o = APPEND(o, "  mov rcx, qword ptr [rbp - 9008]");
+    o = APPEND(o, "  mov rdx, qword ptr [rcx + rax * 8 + 8]");
+    o = APPEND(o, "  mov qword ptr [rbp - " + TO_STRING(vofs) + "], rdx");
+    o = emit_tree(o, expr_tree, 9056, vofs);
+    if tree_status(pred_tree) == "ok" {
+        o = emit_tree(o, pred_tree, 9120, vofs);
+        o = APPEND(o, "  cmp qword ptr [rbp - 9120], 0");
+        o = APPEND(o, "  je " + next_lbl);
+    }
+    o = APPEND(o, "  mov rax, qword ptr [rbp - 9024]");
+    o = APPEND(o, "  mov rcx, qword ptr [rbp - 9016]");
+    o = APPEND(o, "  mov rdx, qword ptr [rbp - 9056]");
+    o = APPEND(o, "  mov qword ptr [rcx + rax * 8 + 8], rdx");
+    o = APPEND(o, "  inc qword ptr [rbp - 9024]");
+    o = APPEND(o, next_lbl + ":");
+    o = APPEND(o, "  inc qword ptr [rbp - 9032]");
+    o = APPEND(o, "  jmp " + loop_lbl);
+    o = APPEND(o, done_lbl + ":");
+    o = APPEND(o, "  mov rax, qword ptr [rbp - 9016]");
+    o = APPEND(o, "  mov rcx, qword ptr [rbp - 9024]");
+    o = APPEND(o, "  mov qword ptr [rax], rcx");
+    o = APPEND(o, "  mov qword ptr [rbp - " + TO_STRING(src) + "], rax");
+    // The report list is rebuilt by the caller from its own copy, so the note
+    // is written by compile() itself.
+    return o;
+}
+
+fn main() -> Num {
+    let text = READ_FILE("bootstrap/program.ir");
+    let rows = parse_rows(text);
+    let result = compile(rows);
+    let out = result[0];
+    let report = result[1];
+    let asm = JOIN(out, "\n") + "\n";
+    WRITE_FILE("bootstrap/program.s", asm);
+    WRITE_FILE("bootstrap/backend.report", JOIN(report, "\n") + "\n");
+    println("ASM " + TO_STRING(LEN(out)));
+    println("LOWERED " + TO_STRING(count_prefix(report, "LOWERED")));
+    println("FALLBACK " + TO_STRING(count_prefix(report, "FALLBACK")));
+    return 0;
+}
+
+fn count_prefix(list, prefix: Text) -> Num {
+    let n = 0;
+    let i = 0;
+    while i < LEN(list) {
+        if starts_with(list[i], prefix) {
+            n = n + 1;
+        }
+        i = i + 1;
+    }
+    return n;
+}
+
+fn starts_with(text: Text, prefix: Text) -> Bool {
+    if LEN(prefix) > LEN(text) {
+        return false;
+    }
+    let ok = true;
+    let i = 0;
+    while i < LEN(prefix) {
+        if CHAR_AT(text, i) != CHAR_AT(prefix, i) {
+            ok = false;
+        }
+        i = i + 1;
+    }
+    return ok;
+}

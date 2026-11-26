@@ -249,9 +249,15 @@ Phase 1 is complete! The next phase involves:
 - System library access (strlen, memcpy, etc.)
 
 ### 2c. Error Handling
-- Stack traces on errors
-- Try/catch mechanism
-- Better error messages with source position
+- ~~Stack traces on errors~~ — **done**, with source lines and nested frames
+  (`docs/bootstrap_phase2_runtime_status.md`, `tests/test_stack_traces.py`)
+- Try/catch mechanism — not started; the grammar has no `try`/`catch`
+- ~~Better error messages with source position~~ — **done** for runtime errors;
+  `SuperBitIRToken.source_line` is now populated by the compiler, so the
+  debugger and the trace use the same positions
+
+Phase 2 status as a whole, including why 2a (GC) and 2b (`@extern` FFI) are not
+done and what they need, is in **`docs/bootstrap_phase2_runtime_status.md`**.
 
 ---
 
@@ -267,4 +273,8 @@ Phase 1 is complete! The next phase involves:
 - [ ] Demo project runs on self-hosted Null (Phase 4)
 
 **Phase 1 Progress**: 100% Complete (4/4 tasks)
-**Bootstrap Overall Progress**: 25% Complete (Phase 1/4)
+**Bootstrap Overall Progress**: Phase 1 complete, Phase 2 partial (stack traces
+only), Phase 3 (a single `.null` compiler front-to-back) partial, Phase 4 (self
+compilation) not started. Do not read the 25%-style figure of earlier revisions
+as measured; the line-by-line status is in `bootstrap_phase2_runtime_status.md`
+and `bootstrap_stage5_native_backend.md`.

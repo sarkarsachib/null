@@ -47,6 +47,12 @@ class SuperBitOpCode(IntEnum):
     COMPARE_GT = 20
     COMPARE_LT = 21
     COMPARE_EQ = 22
+    COMPARE_NE = 23
+    COMPARE_GE = 24
+    COMPARE_LE = 25
+
+    LOGICAL_AND = 26
+    LOGICAL_OR = 27
 
     PRINT = 30
     INPUT = 31
@@ -66,6 +72,12 @@ class SuperBitOpCode(IntEnum):
     ELVIS_CHECK = 61
     NOT_NULL_CHECK = 62
     SMART_CAST = 63
+
+    CALL = 70
+    RETURN = 71
+    ARRAY = 72
+    INDEX = 73
+    FUNCTION = 74
 
     NOP = 255
 

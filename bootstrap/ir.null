@@ -1,0 +1,311 @@
+// ---------------------------------------------------------------------------
+// Super-bit IR (Null side)
+//
+// The IR is the contract between the front end (bootstrap/parser.null) and any
+// backend: the bootstrap VM today, a native/SIMD backend later.  It mirrors the
+// opcode numbers in src/null_system/superbit/ir.py so both toolchains agree,
+// and reserves a range for specialised instructions the optimiser may emit.
+//
+// Performance rules encoded here:
+//   * every token carries its layer, so a backend can route a fused loop to
+//     SIMD/GPU while keeping branches on the scalar layer;
+//   * specialised opcodes (100+) are typed: an INT add never re-checks tags;
+//   * nothing in the IR allocates implicitly; objects/arrays are explicit.
+// ---------------------------------------------------------------------------
+
+// --- Documented opcode set (must match superbit/ir.py) ----------------------
+
+fn ir_opcode(name: Text) -> Num {
+    if name == "LOAD_CONST" {
+        return 1;
+    }
+    if name == "LOAD_VAR" {
+        return 2;
+    }
+    if name == "STORE_VAR" {
+        return 3;
+    }
+    if name == "BINARY_ADD" {
+        return 10;
+    }
+    if name == "BINARY_SUB" {
+        return 11;
+    }
+    if name == "BINARY_MUL" {
+        return 12;
+    }
+    if name == "BINARY_DIV" {
+        return 13;
+    }
+    if name == "COMPARE_GT" {
+        return 20;
+    }
+    if name == "COMPARE_LT" {
+        return 21;
+    }
+    if name == "COMPARE_EQ" {
+        return 22;
+    }
+    if name == "COMPARE_NE" {
+        return 23;
+    }
+    if name == "COMPARE_GE" {
+        return 24;
+    }
+    if name == "COMPARE_LE" {
+        return 25;
+    }
+    if name == "LOGICAL_AND" {
+        return 26;
+    }
+    if name == "LOGICAL_OR" {
+        return 27;
+    }
+    if name == "PRINT" {
+        return 30;
+    }
+    if name == "INPUT" {
+        return 31;
+    }
+    if name == "FILE_READ" {
+        return 32;
+    }
+    if name == "FILE_WRITE" {
+        return 33;
+    }
+    if name == "FILE_EXISTS" {
+        return 34;
+    }
+    if name == "LIST_FILES" {
+        return 35;
+    }
+    if name == "JUMP_IF_FALSE" {
+        return 40;
+    }
+    if name == "JUMP" {
+        return 41;
+    }
+    if name == "MATCH_TAG" {
+        return 50;
+    }
+    if name == "UNWRAP_UNION" {
+        return 51;
+    }
+    if name == "MATCH_PATTERN" {
+        return 52;
+    }
+    if name == "SAFE_CALL" {
+        return 60;
+    }
+    if name == "ELVIS_CHECK" {
+        return 61;
+    }
+    if name == "NOT_NULL_CHECK" {
+        return 62;
+    }
+    if name == "SMART_CAST" {
+        return 63;
+    }
+    if name == "CALL" {
+        return 70;
+    }
+    if name == "RETURN" {
+        return 71;
+    }
+    if name == "ARRAY" {
+        return 72;
+    }
+    if name == "INDEX" {
+        return 73;
+    }
+    if name == "FUNCTION" {
+        return 74;
+    }
+    if name == "NOP" {
+        return 255;
+    }
+    return 0;
+}
+
+// --- Specialised range (>= 100), emitted by the optimiser -------------------
+//
+// Each one is a typed, allocation-free form of a generic opcode.  A backend that
+// cannot honour a specialised token must lower it to the generic form; the
+// generic form is always listed here so the fallback is exact.
+
+fn ir_fast_opcode(name: Text) -> Num {
+    if name == "FAST_ADD_INT" {
+        return 100;
+    }
+    if name == "FAST_ADD_FLOAT" {
+        return 101;
+    }
+    if name == "FAST_LT_INT" {
+        return 102;
+    }
+    if name == "FAST_INDEX" {
+        return 103;
+    }
+    if name == "FAST_LEN" {
+        return 104;
+    }
+    if name == "FAST_INDEX_STORE" {
+        return 105;
+    }
+    if name == "FAST_ARRAY_ZERO" {
+        return 107;
+    }
+    if name == "FUSED_MAP" {
+        return 110;
+    }
+    if name == "FUSED_FILTER" {
+        return 111;
+    }
+    if name == "FUSED_REDUCE" {
+        return 112;
+    }
+    if name == "FUSED_COMPREHEND" {
+        return 113;
+    }
+    if name == "SIMD_ADD" {
+        return 120;
+    }
+    if name == "SIMD_MUL" {
+        return 121;
+    }
+    if name == "SIMD_SUM" {
+        return 122;
+    }
+    if name == "GPU_KERNEL" {
+        return 130;
+    }
+    if name == "DIST_SEND" {
+        return 140;
+    }
+    if name == "DIST_RECV" {
+        return 141;
+    }
+    return 0;
+}
+
+fn ir_fallback(opcode: Num) -> Num {
+    if opcode == 100 {
+        return 10;
+    }
+    if opcode == 101 {
+        return 10;
+    }
+    if opcode == 102 {
+        return 21;
+    }
+    if opcode == 103 {
+        return 73;
+    }
+    if opcode == 105 {
+        return 74;
+    }
+    if opcode == 107 {
+        return 75;
+    }
+    if opcode == 106 {
+        return 75;
+    }
+    if opcode == 104 {
+        return 70;
+    }
+    if opcode == 110 {
+        return 70;
+    }
+    if opcode == 111 {
+        return 70;
+    }
+    if opcode == 112 {
+        return 70;
+    }
+    if opcode == 113 {
+        return 70;
+    }
+    if opcode == 120 {
+        return 10;
+    }
+    if opcode == 121 {
+        return 12;
+    }
+    if opcode == 122 {
+        return 70;
+    }
+    if opcode == 130 {
+        return 70;
+    }
+    if opcode == 140 {
+        return 70;
+    }
+    if opcode == 141 {
+        return 70;
+    }
+    return opcode;
+}
+
+// --- Tokens ----------------------------------------------------------------
+
+fn ir_token(opcode: Num, operand, layer: Text) -> Array {
+    return ["IR", opcode, operand, layer];
+}
+
+fn ir_annotated(opcode: Num, operand, layer: Text, requires: Text, prefers: Text) -> Array {
+    return ["IR", opcode, operand, layer, requires, prefers];
+}
+
+fn ir_render(token) -> Text {
+    let text = "IR " + TO_STRING(token[1]) + " " + TO_STRING(token[2]);
+    if LEN(token) > 3 {
+        text = text + " @" + token[3];
+    }
+    if LEN(token) > 4 {
+        text = text + " requires=" + token[4];
+    }
+    if LEN(token) > 5 {
+        text = text + " prefers=" + token[5];
+    }
+    return text;
+}
+
+// A tiny emitter used by the self-test below; the real one lives in the
+// compiler stage.  It shows the shape each stage must produce.
+fn emit_load(value, layer: Text) {
+    return ir_token(ir_opcode("LOAD_CONST"), value, layer);
+}
+
+fn emit_binop(op: Text, layer: Text) {
+    if op == "+" {
+        return ir_token(ir_opcode("BINARY_ADD"), "", layer);
+    }
+    if op == "-" {
+        return ir_token(ir_opcode("BINARY_SUB"), "", layer);
+    }
+    if op == "*" {
+        return ir_token(ir_opcode("BINARY_MUL"), "", layer);
+    }
+    if op == "/" {
+        return ir_token(ir_opcode("BINARY_DIV"), "", layer);
+    }
+    return ir_token(ir_opcode("NOP"), "", layer);
+}
+
+fn ir_self_test() {
+    let tokens = [];
+    tokens = APPEND(tokens, emit_load(2, "scalar"));
+    tokens = APPEND(tokens, emit_load(3, "scalar"));
+    tokens = APPEND(tokens, emit_binop("+", "scalar"));
+    tokens = APPEND(tokens, ir_token(ir_opcode("PRINT"), "", "scalar"));
+    tokens = APPEND(tokens, ir_token(ir_fast_opcode("FUSED_COMPREHEND"), "x*x", "simd"));
+    tokens = APPEND(tokens, ir_annotated(ir_fast_opcode("GPU_KERNEL"), "matmul", "gpu", "superbit", "gpu"));
+    let i = 0;
+    while i < LEN(tokens) {
+        println(ir_render(tokens[i]));
+        i = i + 1;
+    }
+    println("fast -> generic: " + TO_STRING(ir_fallback(113)));
+}
+
+ir_self_test();

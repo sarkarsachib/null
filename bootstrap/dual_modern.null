@@ -1,0 +1,31 @@
+module demo
+
+fn add(a: Num, b: Num) {
+    return a + b;
+}
+
+let total = add(2, 3);
+println(total);
+
+let doubled = [x * 2 for x in 0..3 if x % 2 == 0];
+println(doubled);
+
+if total > 3 {
+    println("big");
+} else {
+    println("small");
+}
+
+let config = { name: "null", version: 2 };
+println(config.name);
+
+let result = numbers |> filter(x => x > 0) |> map(x => x * 2);
+println(result);
+
+let name = user?.name ?: "anonymous";
+println(name);
+
+match total {
+    Ok(value) => println(value),
+    _ => println("none")
+}

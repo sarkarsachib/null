@@ -19,6 +19,8 @@ class ExecutionResult:
     output: List[str] = field(default_factory=list)
     error: str = ""
     final_state: Dict[str, Any] = field(default_factory=dict)
+    # Innermost-first call frames for a runtime error, empty on success.
+    trace: List[str] = field(default_factory=list)
 
 
 class NullVM:
@@ -43,6 +45,11 @@ class NullVM:
         self.current_module = "__main__"
         self.output = []
         self.pc = 0
+        self.frames: List[Any] = []
+        self.call_sites: List[Dict[str, Any]] = []
+        self.current_function = "main"
+        self.token_count = len(superbit_stream.tokens)
+        self.function_table = self._index_functions(superbit_stream.tokens)
 
         started = time.perf_counter()
         executed = 0
@@ -98,13 +105,125 @@ class NullVM:
                 )
                 obs.capture_exception(e, component="vm", error_type=type(e).__name__)
 
+                fault_line = None
+                if 0 <= self.pc < self.token_count:
+                    fault_line = superbit_stream.tokens[self.pc].source_line
+                trace = self._format_trace(fault_line)
+                message = str(e)
+                if trace:
+                    message += "\nstack trace (innermost first):\n" + "\n".join(trace)
+
                 return ExecutionResult(
                     success=False,
                     output=self.output,
-                    error=str(e),
+                    error=message,
                     final_state=self.variables.copy(),
+                    trace=trace,
                 )
     
+    def _format_trace(self, fault_line: Optional[int]) -> List[str]:
+        """Render the Null-level call stack, innermost frame first.
+
+        `call_sites` records one entry per entered function: its name plus the
+        line of the call that entered it. The innermost function is the one
+        currently executing, which is not in `call_sites`.
+        """
+        where = f" at line {fault_line}" if fault_line else ""
+        lines = [f"  in {self.current_function}{where}"]
+        for index in range(len(self.call_sites) - 1, -1, -1):
+            site = self.call_sites[index]
+            caller = "main" if index == 0 else self.call_sites[index - 1]["name"]
+            call_line = site.get("line")
+            caller_where = f" at line {call_line}" if call_line else ""
+            lines.append(f"  in {caller}{caller_where}")
+        return lines
+
+    def _index_functions(self, tokens) -> Dict[str, Any]:
+        """Map user function name -> (body start, body end, parameters)."""
+        table: Dict[str, Any] = {}
+        i = 0
+        while i < len(tokens):
+            token = tokens[i]
+            if token.opcode == SuperBitOpCode.FUNCTION:
+                end = i + 1
+                while end < len(tokens):
+                    probe = tokens[end]
+                    if probe.opcode == SuperBitOpCode.NOP and probe.operand == "end_fn":
+                        break
+                    end += 1
+                params = list(token.metadata.get("params", []) or [])
+                table[str(token.operand)] = (i + 1, end, params)
+            i += 1
+        return table
+
+    @staticmethod
+    def _truthy(value: Any) -> bool:
+        checker = getattr(value, "as_bool", None)
+        if callable(checker):
+            return bool(checker())
+        return bool(value)
+
+    @staticmethod
+    def _format_value(value: Any) -> str:
+        if isinstance(value, bool):
+            return "true" if value else "false"
+        if isinstance(value, float) and value.is_integer():
+            return str(int(value))
+        if value is None:
+            return "NOTHING"
+        return str(value)
+
+    def _call_builtin(self, name: str, args: List[Any]) -> Any:
+        """Execute a standard-library call on plain Python values."""
+        import os
+
+        key = name.upper()
+        if key in ("LEN", "LENGTH"):
+            return float(len(args[0]))
+        if key == "APPEND":
+            return list(args[0]) + [args[1]]
+        if key == "SPLIT":
+            return str(args[0]).split(str(args[1]))
+        if key == "JOIN":
+            return str(args[1]).join(str(x) for x in args[0])
+        if key == "CHAR_AT":
+            return str(args[0])[int(args[1])]
+        if key == "SUBSTR":
+            start = int(args[1])
+            end = int(args[2]) if len(args) > 2 else len(str(args[0]))
+            return str(args[0])[start:end]
+        if key == "SLICE":
+            return args[0][int(args[1]):int(args[2])]
+        if key == "TO_STRING":
+            return self._format_value(args[0])
+        if key == "TO_NUMBER":
+            text = str(args[0])
+            try:
+                return float(text)
+            except ValueError:
+                return 0.0
+        if key == "CONTAINS":
+            return args[1] in args[0]
+        if key == "ORD":
+            return float(ord(str(args[0])[0]))
+        if key == "CHR":
+            return chr(int(args[0]))
+        if key == "READ_FILE":
+            with open(str(args[0]), "r", encoding="utf-8") as handle:
+                return handle.read()
+        if key == "WRITE_FILE":
+            with open(str(args[0]), "w", encoding="utf-8") as handle:
+                handle.write(str(args[1]))
+            return None
+        if key == "FILE_EXISTS":
+            return os.path.exists(str(args[0]))
+        if key == "LIST_FILES":
+            return sorted(os.listdir(str(args[0])))
+        if key == "RANGE":
+            start, stop = int(args[0]), int(args[1])
+            return [float(x) for x in range(start, stop)]
+        raise RuntimeError(f"Unknown function '{name}'")
+
     def _resolve_variable_name(self, name: str, token: SuperBitToken) -> tuple[str, str]:
         """Resolve variable name to (module, local_name).
         
@@ -132,10 +251,11 @@ class NullVM:
         elif token.opcode == SuperBitOpCode.LOAD_VAR:
             module, local_name = self._resolve_variable_name(token.operand, token)
             
-            if module in self.module_namespaces and local_name in self.module_namespaces[module]:
-                self.stack.append(self.module_namespaces[module][local_name])
-            elif token.operand in self.variables:
+            # Locals of the active frame shadow module globals.
+            if token.operand in self.variables:
                 self.stack.append(self.variables[token.operand])
+            elif module in self.module_namespaces and local_name in self.module_namespaces[module]:
+                self.stack.append(self.module_namespaces[module][local_name])
             else:
                 raise RuntimeError(f"Undefined variable: {token.operand}")
         
@@ -146,10 +266,13 @@ class NullVM:
             
             module, local_name = self._resolve_variable_name(token.operand, token)
             
-            if module not in self.module_namespaces:
-                self.module_namespaces[module] = {}
-            self.module_namespaces[module][local_name] = value
-            
+            # Inside a function call `variables` holds the frame's locals; those
+            # must not leak into the module namespace of the caller.
+            if not self.frames:
+                if module not in self.module_namespaces:
+                    self.module_namespaces[module] = {}
+                self.module_namespaces[module][local_name] = value
+
             self.variables[token.operand] = value
         
         elif token.opcode == SuperBitOpCode.BINARY_ADD:
@@ -188,11 +311,35 @@ class NullVM:
             right = self.stack.pop()
             left = self.stack.pop()
             self.stack.append(left == right)
+
+        elif token.opcode == SuperBitOpCode.COMPARE_NE:
+            right = self.stack.pop()
+            left = self.stack.pop()
+            self.stack.append(left != right)
+
+        elif token.opcode == SuperBitOpCode.COMPARE_GE:
+            right = self.stack.pop()
+            left = self.stack.pop()
+            self.stack.append(left >= right)
+
+        elif token.opcode == SuperBitOpCode.COMPARE_LE:
+            right = self.stack.pop()
+            left = self.stack.pop()
+            self.stack.append(left <= right)
+
+        elif token.opcode == SuperBitOpCode.LOGICAL_AND:
+            right = self.stack.pop()
+            left = self.stack.pop()
+            self.stack.append(self._truthy(left) and self._truthy(right))
+
+        elif token.opcode == SuperBitOpCode.LOGICAL_OR:
+            right = self.stack.pop()
+            left = self.stack.pop()
+            self.stack.append(self._truthy(left) or self._truthy(right))
         
         elif token.opcode == SuperBitOpCode.PRINT:
             value = self.stack.pop()
-            output_str = str(value)
-            self.output.append(output_str)
+            self.output.append(self._format_value(value))
 
         elif token.opcode == SuperBitOpCode.INPUT:
             import sys
@@ -275,6 +422,59 @@ class NullVM:
                 self.stack.append(True)
             else:
                 self.stack.append(False)
+
+        elif token.opcode == SuperBitOpCode.FUNCTION:
+            # Body is skipped by the compiler's jump; the pre-pass indexed it.
+            pass
+
+        elif token.opcode == SuperBitOpCode.CALL:
+            argc = int(token.metadata.get("argc", token.metadata.get("arity", 0)) or 0)
+            args = [self.stack.pop() for _ in range(argc)][::-1]
+            name = str(token.operand)
+            if name in self.function_table:
+                start, _end, params = self.function_table[name]
+                self.frames.append(
+                    (self.pc + 1, self.variables, self.current_function)
+                )
+                # The implicit entry call to `main` is not a source-level frame.
+                if not token.metadata.get("entry"):
+                    self.call_sites.append({"name": name, "line": token.source_line})
+                self.current_function = name
+                self.variables = {
+                    param: (args[i] if i < len(args) else None)
+                    for i, param in enumerate(params)
+                }
+                self.pc = start - 1
+            else:
+                self.stack.append(self._call_builtin(name, args))
+
+        elif token.opcode == SuperBitOpCode.RETURN:
+            unit = bool(token.metadata.get("unit"))
+            value = None if unit else (self.stack.pop() if self.stack else None)
+            if self.frames:
+                return_pc, saved_variables, caller = self.frames.pop()
+                self.variables = saved_variables
+                self.current_function = caller
+                if self.call_sites:
+                    self.call_sites.pop()
+                if not unit:
+                    self.stack.append(value)
+                self.pc = return_pc - 1
+            else:
+                self.pc = self.token_count
+
+        elif token.opcode == SuperBitOpCode.ARRAY:
+            arity = int(token.metadata.get("arity", 0) or 0)
+            items = [self.stack.pop() for _ in range(arity)][::-1] if arity else []
+            self.stack.append(items)
+
+        elif token.opcode == SuperBitOpCode.INDEX:
+            index = self.stack.pop()
+            container = self.stack.pop()
+            try:
+                self.stack.append(container[int(index)])
+            except (IndexError, TypeError, ValueError) as exc:
+                raise RuntimeError(f"Invalid index {index!r}: {exc}") from exc
 
         elif token.opcode == SuperBitOpCode.NOP:
             pass

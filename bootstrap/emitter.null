@@ -1,0 +1,2761 @@
+// bootstrap/parser.null
+// Second self-hosted compiler stage: a Null parser written in Null.
+//
+// The lexer collects tokens into an array, then a recursive-descent parser
+// walks that array and prints an AST outline, one line per node:
+//
+//   PROGRAM
+//     FN_DEF add
+//       PARAM a Num
+//       ...
+//
+// It accepts both syntaxes, because the token stream already normalizes them.
+// Written in Modern (v2) syntax and executed on the Null VM.
+
+fn is_digit(code: Num) -> Bool {
+    if code >= 48 {
+        if code <= 57 {
+            return true;
+        }
+    }
+    return false;
+}
+
+fn is_upper(code: Num) -> Bool {
+    if code >= 65 {
+        if code <= 90 {
+            return true;
+        }
+    }
+    return false;
+}
+
+fn is_lower(code: Num) -> Bool {
+    if code >= 97 {
+        if code <= 122 {
+            return true;
+        }
+    }
+    return false;
+}
+
+fn is_alpha(code: Num) -> Bool {
+    if code == 95 {
+        return true;
+    }
+    if is_upper(code) {
+        return true;
+    }
+    return is_lower(code);
+}
+
+fn is_ident(code: Num) -> Bool {
+    if is_alpha(code) {
+        return true;
+    }
+    return is_digit(code);
+}
+
+fn is_space(code: Num) -> Bool {
+    if code == 32 {
+        return true;
+    }
+    if code == 9 {
+        return true;
+    }
+    if code == 10 {
+        return true;
+    }
+    if code == 13 {
+        return true;
+    }
+    return false;
+}
+
+fn is_punct(ch: Text) -> Bool {
+    let puncts = ["(", ")", "[", "]", "{", "}", ",", ";", ":", ".", "?", "%",
+                  "+", "-", "*", "/", "=", "<", ">", "!", "&", "|"];
+    let i = 0;
+    while i < LEN(puncts) {
+        if puncts[i] == ch {
+            return true;
+        }
+        i = i + 1;
+    }
+    return false;
+}
+
+fn is_two_char_op(text: Text) -> Bool {
+    let ops = ["->", "<=", ">=", "==", "!=", "&&", "||", "..",
+               "+=", "-=", "*=", "/=", "=>", "|>", "?.", "?:", "!!", "::"];
+    let i = 0;
+    while i < LEN(ops) {
+        if ops[i] == text {
+            return true;
+        }
+        i = i + 1;
+    }
+    return false;
+}
+
+fn is_keyword(word: Text) -> Bool {
+    let words = ["fn", "let", "mut", "if", "else", "while", "for", "in",
+                 "return", "match", "true", "false", "async", "break",
+                 "continue", "print", "println", "import", "module", "data",
+                 "class", "sealed", "trait", "own", "borrow", "borrow_mut",
+                 "move", "as", "type", "await", "null", "NOTHING",
+                 "SET", "TO", "ADD", "AND", "OR", "NOT", "SHOW", "DEFINE",
+                 "WITH", "END", "IF", "THEN", "ELSE", "REPEAT", "TIMES",
+                 "WHILE", "INPUT", "CALL", "READ_FILE", "WRITE_FILE", "RETURN",
+                 "MATCH", "CASE", "DEFAULT", "COMPREHEND", "WHERE", "PIPE",
+                 "MODULO", "EQUALS", "IS", "GREATER", "LESS", "THAN", "EQUAL",
+                 "CREATE", "OWNED", "AS", "FROM", "MOVE", "FOR", "IN"];
+    let i = 0;
+    while i < LEN(words) {
+        if words[i] == word {
+            return true;
+        }
+        i = i + 1;
+    }
+    return false;
+}
+
+fn skip_comment(src: Text, start: Num) -> Num {
+    let i = start;
+    let n = LEN(src);
+    while i < n {
+        if ORD(CHAR_AT(src, i)) == 10 {
+            return i;
+        }
+        i = i + 1;
+    }
+    return i;
+}
+
+fn scan_ident(src: Text, start: Num) {
+    let i = start;
+    let n = LEN(src);
+    let text = "";
+    while i < n {
+        let ch = CHAR_AT(src, i);
+        if is_ident(ORD(ch)) {
+            text = text + ch;
+            i = i + 1;
+        } else {
+            return [text, i];
+        }
+    }
+    return [text, i];
+}
+
+fn scan_number(src: Text, start: Num) {
+    let i = start;
+    let n = LEN(src);
+    let text = "";
+    while i < n {
+        let ch = CHAR_AT(src, i);
+        if is_digit(ORD(ch)) {
+            text = text + ch;
+            i = i + 1;
+        } else {
+            return [text, i];
+        }
+    }
+    return [text, i];
+}
+
+fn scan_string(src: Text, start: Num, quote: Text) {
+    let i = start;
+    let n = LEN(src);
+    let text = "";
+    let done = false;
+    while done == false {
+        if i >= n {
+            done = true;
+        } else {
+            let ch = CHAR_AT(src, i);
+            if ch == quote {
+                done = true;
+                i = i + 1;
+            } else {
+                if ch == "\\" {
+                    i = i + 1;
+                    if i < n {
+                        text = text + CHAR_AT(src, i);
+                        i = i + 1;
+                    }
+                } else {
+                    text = text + ch;
+                    i = i + 1;
+                }
+            }
+        }
+    }
+    return [text, i];
+}
+
+fn tokenize(src: Text) {
+    let out = [];
+    let i = 0;
+    let n = LEN(src);
+    while i < n {
+        let ch = CHAR_AT(src, i);
+        let code = ORD(ch);
+        if code == 35 {
+            i = skip_comment(src, i);
+        } else {
+            if is_space(code) {
+                i = i + 1;
+            } else {
+                if is_alpha(code) {
+                    let ident = scan_ident(src, i);
+                    let word = ident[0];
+                    i = ident[1];
+                    if is_keyword(word) {
+                        out = APPEND(out, "KEYWORD " + word);
+                    } else {
+                        out = APPEND(out, "IDENT " + word);
+                    }
+                } else {
+                    if is_digit(code) {
+                        let number = scan_number(src, i);
+                        out = APPEND(out, "NUMBER " + number[0]);
+                        i = number[1];
+                    } else {
+                        if code == 34 {
+                            let text = scan_string(src, i + 1, "\"");
+                            out = APPEND(out, "STRING " + text[0]);
+                            i = text[1];
+                        } else {
+                            if code == 39 {
+                                let text = scan_string(src, i + 1, "'");
+                                out = APPEND(out, "STRING " + text[0]);
+                                i = text[1];
+                            } else {
+                                if is_punct(ch) {
+                                    let two = "";
+                                    if i + 1 < n {
+                                        two = ch + CHAR_AT(src, i + 1);
+                                    }
+                                    if two == "//" {
+                                        i = skip_comment(src, i);
+                                    } else {
+                                        let op = ch;
+                                        if is_two_char_op(two) {
+                                            op = two;
+                                            i = i + 1;
+                                        }
+                                        out = APPEND(out, "PUNCT " + op);
+                                        i = i + 1;
+                                    }
+                                } else {
+                                    out = APPEND(out, "UNKNOWN " + ch);
+                                    i = i + 1;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return out;
+}
+
+// ---------------------------------------------------------------------------
+// Stage 2 of the self-hosted toolchain: dual-syntax front end.
+//
+// Null has two surface syntaxes (English v1 and Modern v2) that must produce
+// the SAME AST.  This stage therefore normalises both forms into one node set.
+// The syntax a construct came from is recorded in __mode_log (diagnostics), not
+// in the AST itself, so equivalence can be checked node by node.
+//
+// Unified nodes:
+//   ["num", n] ["str", s] ["bool", b] ["null"] ["interp", [parts]]
+//   ["ident", name] ["array", [e]] ["object", [names], [values]]
+//   ["binary", op, l, r] ["unary", op, e]
+//   ["call", name, [args]] ["call_value", fn, [args]]
+//   ["method", obj, name, [args]] ["safe_method", obj, name, [args]]
+//   ["member", obj, name] ["safe_member", obj, name] ["index", obj, i]
+//   ["range", lo, hi] ["elvis", a, b] ["notnull", e]
+//   ["lambda", [params], body] ["pipeline", value, [steps]]
+//   ["comprehension", expr, var, iterable, cond]
+//   ["match", subject, [arms]]
+//   ["await", e] ["borrow", bool, target] ["move", e]
+//   ["program", [stmts]] ["fn", name, [params], body, ret, flag]
+//   ["let", name, expr] ["set", target, expr] ["set_op", target, op, expr]
+//   ["println", e] ["print", e] ["return", e] ["if", c, then, else]
+//   ["while", c, body] ["for", name, iter, body] ["repeat", n, body]
+//   ["break"] ["continue"] ["expr", e]
+//   ["data_class", name, [[field, type]]] ["sealed", name, [variants]]
+//   ["type_alias", name, type] ["module", name] ["import", path, alias]
+//   ["trait", name, [methods]]
+// ---------------------------------------------------------------------------
+
+fn token_kind(tok: Text) -> Text {
+    let parts = SPLIT(tok, " ");
+    return parts[0];
+}
+
+fn token_value(tok: Text) -> Text {
+    let parts = SPLIT(tok, " ");
+    if LEN(parts) <= 1 {
+        return "";
+    }
+    return JOIN(SLICE(parts, 1, LEN(parts)), " ");
+}
+
+fn tok_is(tokens, pos: Num, kind: Text, value: Text) -> Bool {
+    if pos >= LEN(tokens) {
+        return false;
+    }
+    if token_kind(tokens[pos]) != kind {
+        return false;
+    }
+    return token_value(tokens[pos]) == value;
+}
+
+fn punct(tokens, pos: Num, ch: Text) -> Bool {
+    return tok_is(tokens, pos, "PUNCT", ch);
+}
+
+fn kw(tokens, pos: Num, word: Text) -> Bool {
+    return tok_is(tokens, pos, "KEYWORD", word);
+}
+
+fn ident_at(tokens, pos: Num) -> Bool {
+    if pos >= LEN(tokens) {
+        return false;
+    }
+    return token_kind(tokens[pos]) == "IDENT";
+}
+
+fn number_at(tokens, pos: Num) -> Bool {
+    if pos >= LEN(tokens) {
+        return false;
+    }
+    return token_kind(tokens[pos]) == "NUMBER";
+}
+
+fn skip(tokens, pos: Num, ch: Text) -> Num {
+    if punct(tokens, pos, ch) {
+        return pos + 1;
+    }
+    return pos;
+}
+
+fn at_end(tokens, pos: Num) -> Bool {
+    return pos >= LEN(tokens);
+}
+
+// --- Declarations ----------------------------------------------------------
+
+fn parse_type(tokens, pos: Num) {
+    // Types are kept as plain names: Num, Text, Bool, Nothing, Result<T>,
+    // Option<Text>, User defined names, and qualified module types.
+    let n = LEN(tokens);
+    let text = "";
+    if at_end(tokens, pos) {
+        return ["", pos];
+    }
+    if ident_at(tokens, pos) {
+        text = token_value(tokens[pos]);
+        pos = pos + 1;
+        if punct(tokens, pos, "<") {
+            text = text + "<";
+            pos = pos + 1;
+            while pos < n {
+                if punct(tokens, pos, ">") {
+                    pos = pos + 1;
+                    break;
+                }
+                text = text + token_value(tokens[pos]);
+                pos = pos + 1;
+            }
+            text = text + ">";
+        }
+    }
+    return [text, pos];
+}
+
+fn parse_params(tokens, pos: Num) {
+    // Returns [names, types, pos]; types parallel to names.
+    let names = [];
+    let types = [];
+    let n = LEN(tokens);
+    pos = skip(tokens, pos, "(");
+    while pos < n {
+        if punct(tokens, pos, ")") {
+            break;
+        }
+        if ident_at(tokens, pos) {
+            names = APPEND(names, token_value(tokens[pos]));
+            pos = pos + 1;
+            let t = "";
+            if punct(tokens, pos, ":") {
+                let r = parse_type(tokens, pos + 1);
+                t = r[0];
+                pos = r[1];
+            }
+            types = APPEND(types, t);
+        } else {
+            pos = pos + 1;
+        }
+        if punct(tokens, pos, ",") {
+            pos = pos + 1;
+        }
+    }
+    pos = skip(tokens, pos, ")");
+    return [names, types, pos];
+}
+
+fn parse_block(tokens, pos: Num) {
+    let stmts = [];
+    let n = LEN(tokens);
+    pos = skip(tokens, pos, "{");
+    while pos < n {
+        if punct(tokens, pos, "}") {
+            break;
+        }
+        let r = parse_stmt(tokens, pos);
+        stmts = APPEND(stmts, r[0]);
+        if r[1] <= pos {
+            pos = pos + 1;
+        } else {
+            pos = r[1];
+        }
+    }
+    pos = skip(tokens, pos, "}");
+    return [stmts, pos];
+}
+
+fn parse_fn(tokens, pos: Num) {
+    // fn name(params) -> Ret { }      plus  async fn,  fn with generics <T>
+    let n = LEN(tokens);
+    let flag = "";
+    if kw(tokens, pos, "async") {
+        flag = "async";
+        pos = pos + 1;
+    }
+    pos = pos + 1;
+    let name = "";
+    if pos < n {
+        name = token_value(tokens[pos]);
+        pos = pos + 1;
+    }
+    if punct(tokens, pos, "<") {
+        while pos < n {
+            if punct(tokens, pos, ">") {
+                pos = pos + 1;
+                break;
+            }
+            pos = pos + 1;
+        }
+    }
+    let r = parse_params(tokens, pos);
+    let params = r[0];
+    pos = r[2];
+    let ret = "";
+    if punct(tokens, pos, "->") {
+        let t = parse_type(tokens, pos + 1);
+        ret = t[0];
+        pos = t[1];
+    }
+    let b = parse_block(tokens, pos);
+    return [["fn", name, params, b[0], ret, flag], b[1]];
+}
+
+fn parse_define(tokens, pos: Num) {
+    // DEFINE name WITH a, b  ... END DEFINE
+    let n = LEN(tokens);
+    pos = pos + 1;
+    let name = "";
+    if pos < n {
+        name = token_value(tokens[pos]);
+        pos = pos + 1;
+    }
+    let params = [];
+    if kw(tokens, pos, "WITH") {
+        pos = pos + 1;
+        while pos < n {
+            if ident_at(tokens, pos) {
+                params = APPEND(params, token_value(tokens[pos]));
+                pos = pos + 1;
+            } else {
+                break;
+            }
+            if punct(tokens, pos, ",") {
+                pos = pos + 1;
+            } else {
+                break;
+            }
+        }
+    }
+    let body = [];
+    while pos < n {
+        if kw(tokens, pos, "END") {
+            pos = pos + 1;
+            if kw(tokens, pos, "DEFINE") {
+                pos = pos + 1;
+            }
+            break;
+        }
+        let s = parse_stmt(tokens, pos);
+        body = APPEND(body, s[0]);
+        pos = s[1];
+    }
+    return [["fn", name, params, body, "", ""], pos];
+}
+
+fn parse_let(tokens, pos: Num) {
+    // let [mut] [own|borrow|borrow_mut] name[: Type] = expr
+    let n = LEN(tokens);
+    pos = pos + 1;
+    if kw(tokens, pos, "mut") {
+        pos = pos + 1;
+    }
+    if kw(tokens, pos, "own") {
+        pos = pos + 1;
+    }
+    if kw(tokens, pos, "borrow") {
+        pos = pos + 1;
+    }
+    if kw(tokens, pos, "borrow_mut") {
+        pos = pos + 1;
+    }
+    let name = "";
+    if ident_at(tokens, pos) {
+        name = token_value(tokens[pos]);
+        pos = pos + 1;
+    }
+    if punct(tokens, pos, ":") {
+        let t = parse_type(tokens, pos + 1);
+        pos = t[1];
+    }
+    let value = ["null"];
+    if punct(tokens, pos, "=") {
+        let r = parse_expr(tokens, pos + 1);
+        value = r[0];
+        pos = r[1];
+    }
+    pos = skip(tokens, pos, ";");
+    return [["let", name, value], pos];
+}
+
+fn parse_set(tokens, pos: Num) {
+    // English: SET target TO expr [PIPE TO f WITH args ...]
+    //          ADD expr TO array  /  ADD a AND b
+    let r = parse_target(tokens, pos + 1);
+    let target = r[0];
+    let at = r[1];
+    if kw(tokens, at, "TO") {
+        let v = parse_expr(tokens, at + 1);
+        let value = v[0];
+        let next = v[1];
+        let steps = [];
+        while kw(tokens, next, "PIPE") {
+            let s = parse_pipe_step(tokens, next);
+            steps = APPEND(steps, s[0]);
+            next = s[1];
+        }
+        if LEN(steps) > 0 {
+            value = ["pipeline", value, steps];
+        }
+        if target[0] == "ident" {
+            return [["let", target[1], value], next];
+        }
+        return [["set", target, value], next];
+    }
+    if kw(tokens, at, "TO") == false {
+        if kw(tokens, at, "AND") {
+            let v = parse_expr(tokens, at + 1);
+            return [["expr", ["binary", "+", target, v[0]]], v[1]];
+        }
+        return [["expr", target], at];
+    }
+    return [["expr", target], at];
+}
+
+fn parse_add(tokens, pos: Num) {
+    // ADD expr TO array   |   ADD a AND b
+    let r = parse_expr(tokens, pos + 1);
+    let value = r[0];
+    let at = r[1];
+    if kw(tokens, at, "TO") {
+        let t = parse_target(tokens, at + 1);
+        return [["append", t[0], value], t[1]];
+    }
+    if kw(tokens, at, "AND") {
+        let r2 = parse_expr(tokens, at + 1);
+        return [["expr", ["binary", "+", value, r2[0]]], r2[1]];
+    }
+    return [["expr", value], at];
+}
+
+fn parse_type_alias(tokens, pos: Num) {
+    // type Name = Type        (Modern)
+    let n = LEN(tokens);
+    pos = pos + 1;
+    let name = "";
+    if pos < n {
+        name = token_value(tokens[pos]);
+        pos = pos + 1;
+    }
+    pos = skip(tokens, pos, "=");
+    let t = parse_type(tokens, pos);
+    pos = skip(tokens, t[1], ";");
+    return [["type_alias", name, t[0]], pos];
+}
+
+fn parse_data_class(tokens, pos: Num) {
+    // data class Person(name: Text, age: Num)
+    let n = LEN(tokens);
+    pos = pos + 1;
+    if kw(tokens, pos, "class") {
+        pos = pos + 1;
+    }
+    let name = "";
+    if pos < n {
+        name = token_value(tokens[pos]);
+        pos = pos + 1;
+    }
+    let fields = [];
+    if punct(tokens, pos, "(") {
+        let r = parse_params(tokens, pos);
+        let names = r[0];
+        let types = r[1];
+        let i = 0;
+        while i < LEN(names) {
+            fields = APPEND(fields, [names[i], types[i]]);
+            i = i + 1;
+        }
+        pos = r[2];
+    }
+    pos = skip(tokens, pos, ";");
+    return [["data_class", name, fields], pos];
+}
+
+fn parse_sealed(tokens, pos: Num) {
+    // sealed class Result<T> { Ok(value), Err(error) }
+    let n = LEN(tokens);
+    pos = pos + 1;
+    if kw(tokens, pos, "class") {
+        pos = pos + 1;
+    }
+    if kw(tokens, pos, "trait") {
+        pos = pos + 1;
+    }
+    let name = "";
+    if pos < n {
+        name = token_value(tokens[pos]);
+        pos = pos + 1;
+    }
+    let variants = [];
+    if punct(tokens, pos, "{") {
+        pos = pos + 1;
+        while pos < n {
+            if punct(tokens, pos, "}") {
+                pos = pos + 1;
+                break;
+            }
+            if ident_at(tokens, pos) {
+                let vname = token_value(tokens[pos]);
+                pos = pos + 1;
+                let fields = [];
+                if punct(tokens, pos, "(") {
+                    let r = parse_params(tokens, pos);
+                    fields = r[0];
+                    pos = r[2];
+                }
+                variants = APPEND(variants, [vname, fields]);
+            } else {
+                pos = pos + 1;
+            }
+            pos = skip(tokens, pos, ",");
+        }
+    }
+    pos = skip(tokens, pos, ";");
+    return [["sealed", name, variants], pos];
+}
+
+fn parse_trait(tokens, pos: Num) {
+    // trait Show { fn show(self) -> Text }
+    let n = LEN(tokens);
+    pos = pos + 1;
+    let name = "";
+    if pos < n {
+        name = token_value(tokens[pos]);
+        pos = pos + 1;
+    }
+    let methods = [];
+    let depth = 0;
+    if punct(tokens, pos, "{") {
+        depth = 1;
+        pos = pos + 1;
+    }
+    while pos < n {
+        if depth > 0 {
+            if punct(tokens, pos, "}") {
+                pos = pos + 1;
+                break;
+            }
+        }
+        if kw(tokens, pos, "fn") {
+            if pos + 1 < n {
+                methods = APPEND(methods, token_value(tokens[pos + 1]));
+            }
+            pos = pos + 2;
+        } else {
+            pos = pos + 1;
+        }
+    }
+    return [["trait", name, methods], pos];
+}
+
+fn parse_module(tokens, pos: Num) {
+    // module std::math   |   module math
+    let n = LEN(tokens);
+    pos = pos + 1;
+    let name = "";
+    while pos < n {
+        if ident_at(tokens, pos) {
+            name = name + token_value(tokens[pos]);
+            pos = pos + 1;
+        } else {
+            if punct(tokens, pos, "::") {
+                name = name + "::";
+                pos = pos + 1;
+            } else {
+                break;
+            }
+        }
+    }
+    pos = skip(tokens, pos, ";");
+    return [["module", name], pos];
+}
+
+fn parse_import(tokens, pos: Num) {
+    // import std::math as math   |   import math
+    let n = LEN(tokens);
+    pos = pos + 1;
+    let path = "";
+    while pos < n {
+        if ident_at(tokens, pos) {
+            path = path + token_value(tokens[pos]);
+            pos = pos + 1;
+        } else {
+            if punct(tokens, pos, "::") {
+                path = path + "::";
+                pos = pos + 1;
+            } else {
+                break;
+            }
+        }
+    }
+    let alias = "";
+    if kw(tokens, pos, "as") {
+        if pos + 1 < n {
+            alias = token_value(tokens[pos + 1]);
+            pos = pos + 2;
+        }
+    }
+    pos = skip(tokens, pos, ";");
+    return [["import", path, alias], pos];
+}
+
+// --- Patterns --------------------------------------------------------------
+
+fn parse_pattern(tokens, pos: Num) {
+    let n = LEN(tokens);
+    if punct(tokens, pos, "_") {
+        return [["pat_wild"], pos + 1];
+    }
+    if kw(tokens, pos, "_") {
+        return [["pat_wild"], pos + 1];
+    }
+    if kind_is(tokens, pos, "PUNCT") {
+        if token_value(tokens[pos]) == "_" {
+            return [["pat_wild"], pos + 1];
+        }
+    }
+    if kind_is(tokens, pos, "IDENT") {
+        let name = token_value(tokens[pos]);
+        if name == "_" {
+            return [["pat_wild"], pos + 1];
+        }
+        // Variant pattern: Name(sub1, sub2)
+        if punct(tokens, pos + 1, "(") {
+            let subs = [];
+            let at = pos + 2;
+            while at < n {
+                if punct(tokens, at, ")") {
+                    at = at + 1;
+                    break;
+                }
+                let sub = parse_pattern(tokens, at);
+                subs = APPEND(subs, sub[0]);
+                at = sub[1];
+                if punct(tokens, at, ",") {
+                    at = at + 1;
+                }
+            }
+            return [["pat_variant", name, subs], at];
+        }
+        // Bare constructor (None, NotFound) stays a variant; lowercase is a bind.
+        let first = CHAR_AT(name, 0);
+        let code = ORD(first);
+        if code >= 65 {
+            if code <= 90 {
+                return [["pat_variant", name, []], pos + 1];
+            }
+        }
+        return [["pat_bind", name], pos + 1];
+    }
+    if kind_is(tokens, pos, "NUMBER") {
+        return [["pat_lit", ["num", TO_NUMBER(token_value(tokens[pos]))]], pos + 1];
+    }
+    if kind_is(tokens, pos, "STRING") {
+        return [["pat_lit", ["str", token_value(tokens[pos])]], pos + 1];
+    }
+    if kw(tokens, pos, "true") {
+        return [["pat_lit", ["bool", true]], pos + 1];
+    }
+    if kw(tokens, pos, "false") {
+        return [["pat_lit", ["bool", false]], pos + 1];
+    }
+    if kw(tokens, pos, "null") {
+        return [["pat_lit", ["null"]], pos + 1];
+    }
+    return [["pat_wild"], pos + 1];
+}
+
+fn kind_is(tokens, pos: Num, kind: Text) -> Bool {
+    if pos >= LEN(tokens) {
+        return false;
+    }
+    return token_kind(tokens[pos]) == kind;
+}
+
+fn parse_match(tokens, pos: Num) {
+    // Modern: match subject { Pat if guard => body, ... }
+    // English: MATCH subject WITH CASE Pat WITH binds THEN body DEFAULT body END MATCH
+    let r = parse_expr(tokens, pos + 1);
+    let subject = r[0];
+    let at = r[1];
+    let arms = [];
+    let n = LEN(tokens);
+    if punct(tokens, at, "{") {
+        at = at + 1;
+        while at < n {
+            if punct(tokens, at, "}") {
+                at = at + 1;
+                break;
+            }
+            let arm_start = at;
+            let p = parse_pattern(tokens, at);
+            let pattern = p[0];
+            at = p[1];
+            let guard = ["null"];
+            if kw(tokens, at, "if") {
+                let g = parse_expr(tokens, at + 1);
+                guard = g[0];
+                at = g[1];
+            }
+            if punct(tokens, at, "=>") {
+                at = at + 1;
+            }
+            let body = [];
+            if punct(tokens, at, "{") {
+                let b = parse_block(tokens, at);
+                body = b[0];
+                at = b[1];
+            } else {
+                let e = parse_expr(tokens, at);
+                if e[0][0] == "call" {
+                    if e[0][1] == "println" {
+                        body = [["println", e[0][2][0]]];
+                    } else {
+                        if e[0][1] == "print" {
+                            body = [["print", e[0][2][0]]];
+                        } else {
+                            body = [["expr", e[0]]];
+                        }
+                    }
+                } else {
+                    body = [["expr", e[0]]];
+                }
+                at = e[1];
+            }
+            arms = APPEND(arms, ["arm", pattern, guard, body]);
+            if punct(tokens, at, ",") {
+                at = at + 1;
+            }
+            if punct(tokens, at, ";") {
+                at = at + 1;
+            }
+            if at <= arm_start {
+                at = at + 1;
+            }
+        }
+        return [["match", subject, arms], at];
+    }
+    // English form.
+    if kw(tokens, at, "WITH") {
+        at = at + 1;
+    }
+    while at < n {
+        if kw(tokens, at, "END") {
+            at = at + 1;
+            if kw(tokens, at, "MATCH") {
+                at = at + 1;
+            }
+            break;
+        }
+        if kw(tokens, at, "DEFAULT") {
+            at = at + 1;
+            let body = [];
+            while at < n {
+                if kw(tokens, at, "END") {
+                    break;
+                }
+                let s = parse_stmt(tokens, at);
+                body = APPEND(body, s[0]);
+                if s[1] <= at {
+                    at = at + 1;
+                } else {
+                    at = s[1];
+                }
+            }
+            arms = APPEND(arms, ["arm", ["pat_wild"], ["null"], body]);
+        } else {
+            if kw(tokens, at, "CASE") {
+                at = at + 1;
+            }
+            let p = parse_pattern(tokens, at);
+            let pattern = p[0];
+            at = p[1];
+            if kw(tokens, at, "WITH") {
+                at = at + 1;
+                // CASE Ok WITH data  -> bind the payload if a name follows.
+                if ident_at(tokens, at) {
+                    let bind = token_value(tokens[at]);
+                    if pattern[0] == "pat_variant" {
+                        pattern = ["pat_variant", pattern[1], [["pat_bind", bind]]];
+                    }
+                    at = at + 1;
+                }
+            }
+            let guard = ["null"];
+            if kw(tokens, at, "IF") {
+                let g = parse_expr(tokens, at + 1);
+                guard = g[0];
+                at = g[1];
+            }
+            if kw(tokens, at, "THEN") {
+                at = at + 1;
+            }
+            let body = [];
+            while at < n {
+                if kw(tokens, at, "CASE") {
+                    break;
+                }
+                if kw(tokens, at, "DEFAULT") {
+                    break;
+                }
+                if kw(tokens, at, "END") {
+                    break;
+                }
+                let s = parse_stmt(tokens, at);
+                body = APPEND(body, s[0]);
+                if s[1] <= at {
+                    at = at + 1;
+                } else {
+                    at = s[1];
+                }
+            }
+            arms = APPEND(arms, ["arm", pattern, guard, body]);
+        }
+    }
+    return [["match", subject, arms], at];
+}
+
+fn parse_pipe_step(tokens, pos: Num) {
+    // PIPE TO name WITH args   |   |> name(args)
+    let at = pos + 1;
+    if kw(tokens, at, "TO") {
+        at = at + 1;
+    }
+    let name = "";
+    if at < LEN(tokens) {
+        name = token_value(tokens[at]);
+        at = at + 1;
+    }
+    let args = [];
+    if punct(tokens, at, "(") {
+        let parsed = parse_arguments(tokens, at);
+        args = parsed[0];
+        at = parsed[1];
+    } else {
+        if kw(tokens, at, "WITH") {
+            at = at + 1;
+            while at < LEN(tokens) {
+            let r = parse_expr(tokens, at);
+            args = APPEND(args, r[0]);
+            at = r[1];
+                if punct(tokens, at, ",") {
+                    at = at + 1;
+                } else {
+                    break;
+                }
+            }
+        }
+    }
+    return [[name, args], at];
+}
+
+// --- Expressions -----------------------------------------------------------
+
+fn is_type_name(name: Text) -> Bool {
+    if LEN(name) == 0 {
+        return false;
+    }
+    let c = CHAR_AT(name, 0);
+    return c >= "A" && c <= "Z";
+}
+
+fn parse_primary(tokens, pos: Num) {
+    let n = LEN(tokens);
+    if pos >= n {
+        return [["eof"], pos];
+    }
+    let kind = token_kind(tokens[pos]);
+    let val = token_value(tokens[pos]);
+    let node = ["eof"];
+    if kind == "NUMBER" {
+        node = ["num", TO_NUMBER(val)];
+        pos = pos + 1;
+    } else {
+        if kind == "STRING" {
+            node = string_node(val);
+            pos = pos + 1;
+        } else {
+            if kind == "IDENT" {
+                node = ["ident", val];
+                pos = pos + 1;
+                // lambda: x => expr
+                if punct(tokens, pos, "=>") {
+                    let body = parse_expr(tokens, pos + 1);
+                    node = ["lambda", [val], body[0]];
+                    pos = body[1];
+                }
+            } else {
+                if kind == "KEYWORD" {
+                    if val == "println" {
+                        let a = parse_arguments(tokens, pos + 1);
+                        node = ["call", "println", a[0]];
+                        pos = a[1];
+                    } else {
+                    if val == "print" {
+                        let a = parse_arguments(tokens, pos + 1);
+                        node = ["call", "print", a[0]];
+                        pos = a[1];
+                    } else {
+                    if val == "true" {
+                        node = ["bool", true];
+                        pos = pos + 1;
+                    } else {
+                        if val == "false" {
+                            node = ["bool", false];
+                            pos = pos + 1;
+                        } else {
+                            if val == "null" {
+                                node = ["null"];
+                                pos = pos + 1;
+                            } else {
+                                if val == "NOTHING" {
+                                    node = ["null"];
+                                    pos = pos + 1;
+                                } else {
+                                    if val == "NOT" {
+                                        let r = parse_unary(tokens, pos + 1);
+                                        node = ["unary", "!", r[0]];
+                                        pos = r[1];
+                                    } else {
+                                        if val == "COMPREHEND" {
+                                            let c = parse_comprehension(tokens, pos);
+                                            node = c[0];
+                                            pos = c[1];
+                                        } else {
+                                            if val == "MATCH" {
+                                                let m = parse_match(tokens, pos);
+                                                node = m[0];
+                                                pos = m[1];
+                                            } else {
+                                                if val == "await" {
+                                                    let r = parse_unary(tokens, pos + 1);
+                                                    node = ["await", r[0]];
+                                                    pos = r[1];
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    }
+                    }
+                } else {
+                    if punct(tokens, pos, "(") {
+                        // Parenthesised expression or lambda parameter list.
+                        let save = pos;
+                        let names = [];
+                        let at = pos + 1;
+                        let is_lambda = false;
+                        while at < n {
+                            if punct(tokens, at, ")") {
+                                at = at + 1;
+                                if punct(tokens, at, "=>") {
+                                    is_lambda = true;
+                                }
+                                break;
+                            }
+                            if ident_at(tokens, at) {
+                                names = APPEND(names, token_value(tokens[at]));
+                                at = at + 1;
+                            } else {
+                                break;
+                            }
+                            if punct(tokens, at, ",") {
+                                at = at + 1;
+                            } else {
+                                break;
+                            }
+                        }
+                        if is_lambda {
+                            let body = parse_expr(tokens, at + 1);
+                            node = ["lambda", names, body[0]];
+                            pos = body[1];
+                        } else {
+                            let r = parse_expr(tokens, save + 1);
+                            node = r[0];
+                            pos = skip(tokens, r[1], ")");
+                        }
+                    } else {
+                        if punct(tokens, pos, "[") {
+                            let arr = parse_array(tokens, pos);
+                            node = arr[0];
+                            pos = arr[1];
+                        } else {
+                            if punct(tokens, pos, "{") {
+                                let obj = parse_object(tokens, pos);
+                                node = obj[0];
+                                pos = obj[1];
+                            } else {
+                                if punct(tokens, pos, "&") {
+                                    let mutable = false;
+                                    let at = pos + 1;
+                                    if kw(tokens, at, "mut") {
+                                        mutable = true;
+                                        at = at + 1;
+                                    }
+                                    let r = parse_primary(tokens, at);
+                                    node = ["borrow", mutable, r[0]];
+                                    pos = r[1];
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // Struct literal: `Type { field: value }` (only Type-cased names, so that
+    // `if flag { ... }` and other keyword-led blocks stay unambiguous).
+    let is_lit = false;
+    if node[0] == "ident" {
+        if is_type_name(node[1]) {
+            if punct(tokens, pos, "{") {
+                is_lit = true;
+            }
+        }
+    }
+    if is_lit {
+        let obj = parse_object(tokens, pos);
+        node = ["construct", node[1], obj[0][1], obj[0][2]];
+        pos = obj[1];
+    }
+    // Postfix chain: call, index, member, safe member, method, safe method.
+    let done = false;
+    while done == false {
+        if pos >= n {
+            done = true;
+        } else {
+            if punct(tokens, pos, "(") {
+                let args = parse_arguments(tokens, pos);
+                if node[0] == "ident" {
+                    node = ["call", node[1], args[0]];
+                } else {
+                    node = ["call_value", node, args[0]];
+                }
+                pos = args[1];
+            } else {
+                if punct(tokens, pos, "[") {
+                    let r = parse_expr(tokens, pos + 1);
+                    node = ["index", node, r[0]];
+                    pos = skip(tokens, r[1], "]");
+                } else {
+                    if punct(tokens, pos, ".") {
+                        let name = "";
+                        if pos + 1 < n {
+                            name = token_value(tokens[pos + 1]);
+                            pos = pos + 2;
+                        }
+                        if punct(tokens, pos, "(") {
+                            let args = parse_arguments(tokens, pos);
+                            node = ["method", node, name, args[0]];
+                            pos = args[1];
+                        } else {
+                            node = ["member", node, name];
+                        }
+                    } else {
+                        if punct(tokens, pos, "?.") {
+                            let name = "";
+                            if pos + 1 < n {
+                                name = token_value(tokens[pos + 1]);
+                                pos = pos + 2;
+                            }
+                            if punct(tokens, pos, "(") {
+                                let args = parse_arguments(tokens, pos);
+                                node = ["safe_method", node, name, args[0]];
+                                pos = args[1];
+                            } else {
+                                node = ["safe_member", node, name];
+                            }
+                        } else {
+                            if punct(tokens, pos, "!!") {
+                                node = ["notnull", node];
+                                pos = pos + 1;
+                            } else {
+                                done = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return [node, pos];
+}
+
+fn parse_arguments(tokens, pos: Num) {
+    let args = [];
+    let n = LEN(tokens);
+    pos = pos + 1;
+    while pos < n {
+        if punct(tokens, pos, ")") {
+            pos = pos + 1;
+            break;
+        }
+        let r = parse_expr(tokens, pos);
+        args = APPEND(args, r[0]);
+        pos = r[1];
+        if punct(tokens, pos, ",") {
+            pos = pos + 1;
+        }
+    }
+    return [args, pos];
+}
+
+fn parse_array(tokens, pos: Num) {
+    let elems = [];
+    let n = LEN(tokens);
+    pos = pos + 1;
+    while pos < n {
+        if punct(tokens, pos, "]") {
+            pos = pos + 1;
+            break;
+        }
+        let r = parse_expr(tokens, pos);
+        elems = APPEND(elems, r[0]);
+        pos = r[1];
+        // comprehension: [expr for x in iter if cond]
+        if kw(tokens, pos, "for") {
+            pos = pos + 1;
+            let var = "";
+            if pos < n {
+                var = token_value(tokens[pos]);
+                pos = pos + 1;
+            }
+            if kw(tokens, pos, "in") {
+                pos = pos + 1;
+            }
+            let it = parse_expr(tokens, pos);
+            pos = it[1];
+            let cond = ["bool", true];
+            if kw(tokens, pos, "if") {
+                let c = parse_expr(tokens, pos + 1);
+                cond = c[0];
+                pos = c[1];
+            }
+            if punct(tokens, pos, "]") {
+                pos = pos + 1;
+            }
+            return [["comprehension", elems[0], var, it[0], cond], pos];
+        }
+        if punct(tokens, pos, ",") {
+            pos = pos + 1;
+        }
+    }
+    return [["array", elems], pos];
+}
+
+fn parse_object(tokens, pos: Num) {
+    let names = [];
+    let values = [];
+    let n = LEN(tokens);
+    pos = pos + 1;
+    while pos < n {
+        if punct(tokens, pos, "}") {
+            pos = pos + 1;
+            break;
+        }
+        let key = "";
+        if ident_at(tokens, pos) {
+            key = token_value(tokens[pos]);
+            pos = pos + 1;
+        } else {
+            if kind_is(tokens, pos, "STRING") {
+                key = token_value(tokens[pos]);
+                pos = pos + 1;
+            }
+        }
+        if punct(tokens, pos, ":") {
+            pos = pos + 1;
+        }
+        let r = parse_expr(tokens, pos);
+        names = APPEND(names, key);
+        values = APPEND(values, r[0]);
+        pos = r[1];
+        if punct(tokens, pos, ",") {
+            pos = pos + 1;
+        }
+    }
+    return [["object", names, values], pos];
+}
+
+fn parse_comprehension(tokens, pos: Num) {
+    // COMPREHEND expr FOR x IN iter [WHERE cond]
+    let r = parse_expr(tokens, pos + 1);
+    let expr = r[0];
+    let at = r[1];
+    if kw(tokens, at, "FOR") {
+        at = at + 1;
+    }
+    let var = "";
+    if at < LEN(tokens) {
+        var = token_value(tokens[at]);
+        at = at + 1;
+    }
+    if kw(tokens, at, "IN") {
+        at = at + 1;
+    }
+    let it = parse_expr(tokens, at);
+    at = it[1];
+    let cond = ["bool", true];
+    if kw(tokens, at, "WHERE") {
+        let c = parse_expr(tokens, at + 1);
+        cond = c[0];
+        at = c[1];
+    }
+    return [["comprehension", expr, var, it[0], cond], at];
+}
+
+fn string_node(val: Text) -> Array {
+    if CONTAINS(val, "{") == false {
+        return ["str", val];
+    }
+    let parts = [];
+    let buffer = "";
+    let i = 0;
+    let n = LEN(val);
+    while i < n {
+        let ch = CHAR_AT(val, i);
+        if ch == "{" {
+            if LEN(buffer) > 0 {
+                parts = APPEND(parts, ["str", buffer]);
+                buffer = "";
+            }
+            let inner = "";
+            i = i + 1;
+            while i < n {
+                if CHAR_AT(val, i) == "}" {
+                    i = i + 1;
+                    break;
+                }
+                inner = inner + CHAR_AT(val, i);
+                i = i + 1;
+            }
+            let sub = parse_expr(tokenize(inner), 0);
+            parts = APPEND(parts, sub[0]);
+        } else {
+            buffer = buffer + ch;
+            i = i + 1;
+        }
+    }
+    if LEN(buffer) > 0 {
+        parts = APPEND(parts, ["str", buffer]);
+    }
+    return ["interp", parts];
+}
+
+fn parse_unary(tokens, pos: Num) {
+    if punct(tokens, pos, "-") {
+        let r = parse_unary(tokens, pos + 1);
+        return [["unary", "-", r[0]], r[1]];
+    }
+    if punct(tokens, pos, "!") {
+        let r = parse_unary(tokens, pos + 1);
+        return [["unary", "!", r[0]], r[1]];
+    }
+    if kw(tokens, pos, "move") {
+        let r = parse_unary(tokens, pos + 1);
+        return [["move", r[0]], r[1]];
+    }
+    return parse_primary(tokens, pos);
+}
+
+fn level_next(tokens, pos: Num, level: Num) {
+    if level == 0 {
+        return parse_unary(tokens, pos);
+    }
+    if level == 1 {
+        return parse_mul(tokens, pos);
+    }
+    if level == 2 {
+        return parse_add_expr(tokens, pos);
+    }
+    if level == 3 {
+        return parse_rel(tokens, pos);
+    }
+    if level == 4 {
+        return parse_eq(tokens, pos);
+    }
+    if level == 5 {
+        return parse_chain(tokens, pos);
+    }
+    return parse_or(tokens, pos);
+}
+
+fn level_ops(tokens, pos: Num, level: Num, ops: Text, keywords: Text) {
+    let allowed = SPLIT(ops, ",");
+    let words = SPLIT(keywords, ",");
+    let r = level_next(tokens, pos, level);
+    let node = r[0];
+    pos = r[1];
+    let n = LEN(tokens);
+    let go = true;
+    while go {
+        let matched = false;
+        if pos < n {
+            if token_kind(tokens[pos]) == "PUNCT" {
+                let op = token_value(tokens[pos]);
+                let i = 0;
+                while i < LEN(allowed) {
+                    if allowed[i] == op {
+                        matched = true;
+                        let r2 = level_next(tokens, pos + 1, level);
+                        node = ["binary", op, node, r2[0]];
+                        pos = r2[1];
+                    }
+                    i = i + 1;
+                }
+            } else {
+                if token_kind(tokens[pos]) == "KEYWORD" {
+                    let word = token_value(tokens[pos]);
+                    let i = 0;
+                    while i < LEN(words) {
+                        if words[i] == word {
+                            matched = true;
+                            if word == "MODULO" {
+                                let r2 = level_next(tokens, pos + 1, level);
+                                node = ["binary", "%", node, r2[0]];
+                                pos = r2[1];
+                            } else {
+                                if word == "EQUALS" {
+                                    let r2 = level_next(tokens, pos + 1, level);
+                                    node = ["binary", "==", node, r2[0]];
+                                    pos = r2[1];
+                                } else {
+                                    if word == "IS" {
+                                        let op = "==";
+                                        let at = pos + 1;
+                                        if kw(tokens, at, "GREATER") {
+                                            op = ">";
+                                            at = at + 2;
+                                        } else {
+                                            if kw(tokens, at, "LESS") {
+                                                op = "<";
+                                                at = at + 2;
+                                            } else {
+                                                if kw(tokens, at, "EQUAL") {
+                                                    op = "==";
+                                                    at = at + 2;
+                                                } else {
+                                                    at = at + 1;
+                                                }
+                                            }
+                                        }
+                                        let r2 = level_next(tokens, at, level);
+                                        node = ["binary", op, node, r2[0]];
+                                        pos = r2[1];
+                                    }
+                                }
+                            }
+                        }
+                        i = i + 1;
+                    }
+                }
+            }
+        }
+        if matched == false {
+            go = false;
+        }
+    }
+    return [node, pos];
+}
+
+fn parse_mul(tokens, pos: Num) {
+    return level_ops(tokens, pos, 0, "*,/,%", "MODULO");
+}
+
+fn parse_add_expr(tokens, pos: Num) {
+    return level_ops(tokens, pos, 1, "+,-", "");
+}
+
+fn parse_rel(tokens, pos: Num) {
+    return level_ops(tokens, pos, 2, "<,>,<=,>=", "IS");
+}
+
+fn parse_eq(tokens, pos: Num) {
+    return level_ops(tokens, pos, 3, "==,!=", "EQUALS");
+}
+
+fn parse_chain(tokens, pos: Num) {
+    return level_ops(tokens, pos, 4, "&&,AND", "AND");
+}
+
+fn parse_or(tokens, pos: Num) {
+    return level_ops(tokens, pos, 5, "||", "OR");
+}
+
+fn parse_pipeline(tokens, pos: Num) {
+    let r = parse_or(tokens, pos);
+    let value = r[0];
+    let at = r[1];
+    let steps = [];
+    while punct(tokens, at, "|>") {
+        let s = parse_pipe_step(tokens, at);
+        steps = APPEND(steps, s[0]);
+        at = s[1];
+    }
+    if LEN(steps) == 0 {
+        return [value, at];
+    }
+    return [["pipeline", value, steps], at];
+}
+
+fn parse_elvis(tokens, pos: Num) {
+    let r = parse_pipeline(tokens, pos);
+    let node = r[0];
+    let at = r[1];
+    while punct(tokens, at, "?:") {
+        let r2 = parse_pipeline(tokens, at + 1);
+        node = ["elvis", node, r2[0]];
+        at = r2[1];
+    }
+    return [node, at];
+}
+
+fn parse_range(tokens, pos: Num) {
+    let r = parse_elvis(tokens, pos);
+    let node = r[0];
+    let at = r[1];
+    if punct(tokens, at, "..") {
+        let r2 = parse_elvis(tokens, at + 1);
+        return [["range", node, r2[0]], r2[1]];
+    }
+    return [node, at];
+}
+
+fn parse_expr(tokens, pos: Num) {
+    return parse_range(tokens, pos);
+}
+
+fn parse_target(tokens, pos: Num) {
+    return parse_primary(tokens, pos);
+}
+
+// --- Statements ------------------------------------------------------------
+
+fn parse_if(tokens, pos: Num) {
+    let r = parse_expr(tokens, pos + 1);
+    let cond = r[0];
+    let at = r[1];
+    let then_block = [];
+    let else_block = [];
+    if punct(tokens, at, "{") {
+        let b = parse_block(tokens, at);
+        then_block = b[0];
+        at = b[1];
+        if kw(tokens, at, "else") {
+            at = at + 1;
+            if kw(tokens, at, "if") {
+                let inner = parse_if(tokens, at);
+                else_block = [inner[0]];
+                at = inner[1];
+            } else {
+                let b2 = parse_block(tokens, at);
+                else_block = b2[0];
+                at = b2[1];
+            }
+        }
+        return [["if", cond, then_block, else_block], at];
+    }
+    // English: IF cond THEN ... [ELSE ...] END IF
+    if kw(tokens, at, "THEN") {
+        at = at + 1;
+    }
+    let n = LEN(tokens);
+    let in_else = false;
+    while at < n {
+        if kw(tokens, at, "END") {
+            at = at + 1;
+            if kw(tokens, at, "IF") {
+                at = at + 1;
+            }
+            break;
+        }
+        if kw(tokens, at, "ELSE") {
+            in_else = true;
+            at = at + 1;
+        } else {
+            let s = parse_stmt(tokens, at);
+            if in_else {
+                else_block = APPEND(else_block, s[0]);
+            } else {
+                then_block = APPEND(then_block, s[0]);
+            }
+            if s[1] <= at {
+                at = at + 1;
+            } else {
+                at = s[1];
+            }
+        }
+    }
+    return [["if", cond, then_block, else_block], at];
+}
+
+fn parse_while(tokens, pos: Num) {
+    let r = parse_expr(tokens, pos + 1);
+    let cond = r[0];
+    let at = r[1];
+    if punct(tokens, at, "{") {
+        let b = parse_block(tokens, at);
+        return [["while", cond, b[0]], b[1]];
+    }
+    let body = [];
+    let n = LEN(tokens);
+    while at < n {
+        if kw(tokens, at, "END") {
+            at = at + 1;
+            if kw(tokens, at, "WHILE") {
+                at = at + 1;
+            }
+            break;
+        }
+        let s = parse_stmt(tokens, at);
+        body = APPEND(body, s[0]);
+        if s[1] <= at {
+            at = at + 1;
+        } else {
+            at = s[1];
+        }
+    }
+    return [["while", cond, body], at];
+}
+
+fn parse_for(tokens, pos: Num) {
+    let n = LEN(tokens);
+    let at = pos + 1;
+    let name = "";
+    if at < n {
+        name = token_value(tokens[at]);
+        at = at + 1;
+    }
+    if kw(tokens, at, "in") {
+        at = at + 1;
+    }
+    let r = parse_expr(tokens, at);
+    at = r[1];
+    let b = parse_block(tokens, at);
+    return [["for", name, r[0], b[0]], b[1]];
+}
+
+fn parse_repeat(tokens, pos: Num) {
+    let r = parse_expr(tokens, pos + 1);
+    let count = r[0];
+    let at = r[1];
+    if kw(tokens, at, "TIMES") {
+        at = at + 1;
+    }
+    let body = [];
+    let n = LEN(tokens);
+    while at < n {
+        if kw(tokens, at, "END") {
+            at = at + 1;
+            if kw(tokens, at, "REPEAT") {
+                at = at + 1;
+            }
+            break;
+        }
+        let s = parse_stmt(tokens, at);
+        body = APPEND(body, s[0]);
+        if s[1] <= at {
+            at = at + 1;
+        } else {
+            at = s[1];
+        }
+    }
+    return [["repeat", count, body], at];
+}
+
+fn parse_return(tokens, pos: Num) {
+    let n = LEN(tokens);
+    let value = ["null"];
+    let at = pos + 1;
+    if at < n {
+        if punct(tokens, at, ";") == false {
+            if punct(tokens, at, "}") == false {
+                let r = parse_expr(tokens, at);
+                value = r[0];
+                at = r[1];
+            }
+        }
+    }
+    at = skip(tokens, at, ";");
+    return [["return", value], at];
+}
+
+fn parse_print(tokens, pos: Num) {
+    let label = "println";
+    let word = token_value(tokens[pos]);
+    if word == "print" {
+        label = "print";
+    }
+    if word == "SHOW" {
+        label = "println";
+    }
+    let at = pos + 1;
+    let value = ["null"];
+    if punct(tokens, at, "(") {
+        let r = parse_expr(tokens, at + 1);
+        value = r[0];
+        at = skip(tokens, r[1], ")");
+    } else {
+        let r = parse_expr(tokens, at);
+        value = r[0];
+        at = r[1];
+    }
+    at = skip(tokens, at, ";");
+    return [[label, value], at];
+}
+
+fn parse_call_stmt(tokens, pos: Num) {
+    let n = LEN(tokens);
+    let at = pos + 1;
+    let name = "";
+    if at < n {
+        name = token_value(tokens[at]);
+        at = at + 1;
+    }
+    let args = [];
+    if kw(tokens, at, "WITH") {
+        at = at + 1;
+        while at < n {
+            let r = parse_expr(tokens, at);
+            args = APPEND(args, r[0]);
+            at = r[1];
+            if punct(tokens, at, ",") {
+                at = at + 1;
+            } else {
+                break;
+            }
+        }
+    }
+    return [["expr", ["call", name, args]], at];
+}
+
+fn parse_assignment(tokens, pos: Num) {
+    let r = parse_target(tokens, pos);
+    let target = r[0];
+    let at = r[1];
+    if punct(tokens, at, "=") {
+        let v = parse_expr(tokens, at + 1);
+        at = skip(tokens, v[1], ";");
+        return [["set", target, v[0]], at];
+    }
+    if punct(tokens, at, "+=") {
+        let v = parse_expr(tokens, at + 1);
+        return [["set_op", target, "+", v[0]], skip(tokens, v[1], ";")];
+    }
+    if punct(tokens, at, "-=") {
+        let v = parse_expr(tokens, at + 1);
+        return [["set_op", target, "-", v[0]], skip(tokens, v[1], ";")];
+    }
+    if punct(tokens, at, "*=") {
+        let v = parse_expr(tokens, at + 1);
+        return [["set_op", target, "*", v[0]], skip(tokens, v[1], ";")];
+    }
+    if punct(tokens, at, "/=") {
+        let v = parse_expr(tokens, at + 1);
+        return [["set_op", target, "/", v[0]], skip(tokens, v[1], ";")];
+    }
+    at = skip(tokens, at, ";");
+    return [["expr", target], at];
+}
+
+fn parse_stmt(tokens, pos: Num) {
+    let n = LEN(tokens);
+    if pos >= n {
+        return [["expr", ["null"]], pos];
+    }
+    if punct(tokens, pos, ";") {
+        return parse_stmt(tokens, pos + 1);
+    }
+    if kind_is(tokens, pos, "KEYWORD") {
+        let word = token_value(tokens[pos]);
+        if word == "fn" {
+            return parse_fn(tokens, pos);
+        }
+        if word == "async" {
+            return parse_fn(tokens, pos);
+        }
+        if word == "let" {
+            return parse_let(tokens, pos);
+        }
+        if word == "SET" {
+            return parse_set(tokens, pos);
+        }
+        if word == "ADD" {
+            return parse_add(tokens, pos);
+        }
+        if word == "SHOW" {
+            return parse_print(tokens, pos);
+        }
+        if word == "print" {
+            return parse_print(tokens, pos);
+        }
+        if word == "println" {
+            return parse_print(tokens, pos);
+        }
+        if word == "if" {
+            return parse_if(tokens, pos);
+        }
+        if word == "IF" {
+            return parse_if(tokens, pos);
+        }
+        if word == "while" {
+            return parse_while(tokens, pos);
+        }
+        if word == "WHILE" {
+            return parse_while(tokens, pos);
+        }
+        if word == "for" {
+            return parse_for(tokens, pos);
+        }
+        if word == "REPEAT" {
+            return parse_repeat(tokens, pos);
+        }
+        if word == "return" {
+            return parse_return(tokens, pos);
+        }
+        if word == "RETURN" {
+            return parse_return(tokens, pos);
+        }
+        if word == "break" {
+            return [["break"], pos + 1];
+        }
+        if word == "continue" {
+            return [["continue"], pos + 1];
+        }
+        if word == "DEFINE" {
+            return parse_define(tokens, pos);
+        }
+        if word == "CALL" {
+            return parse_call_stmt(tokens, pos);
+        }
+        if word == "MATCH" {
+            return parse_match(tokens, pos);
+        }
+        if word == "match" {
+            return parse_match(tokens, pos);
+        }
+        if word == "type" {
+            return parse_type_alias(tokens, pos);
+        }
+        if word == "data" {
+            return parse_data_class(tokens, pos);
+        }
+        if word == "sealed" {
+            return parse_sealed(tokens, pos);
+        }
+        if word == "trait" {
+            return parse_trait(tokens, pos);
+        }
+        if word == "module" {
+            return parse_module(tokens, pos);
+        }
+        if word == "import" {
+            return parse_import(tokens, pos);
+        }
+        if word == "PIPE" {
+            return parse_assignment(tokens, pos);
+        }
+    }
+    return parse_assignment(tokens, pos);
+}
+
+fn parse_program(tokens) {
+    let stmts = [];
+    let pos = 0;
+    let n = LEN(tokens);
+    while pos < n {
+        let r = parse_stmt(tokens, pos);
+        stmts = APPEND(stmts, r[0]);
+        if r[1] <= pos {
+            pos = pos + 1;
+        } else {
+            pos = r[1];
+        }
+    }
+    return ["program", stmts];
+}
+
+// --- Canonical renderer (syntax independent) -------------------------------
+
+fn render_expr(node) {
+    let tag = node[0];
+    if tag == "num" {
+        return "NUM " + TO_STRING(node[1]);
+    }
+    if tag == "str" {
+        return "STR " + node[1];
+    }
+    if tag == "bool" {
+        return "BOOL " + TO_STRING(node[1]);
+    }
+    if tag == "null" {
+        return "NULL";
+    }
+    if tag == "eof" {
+        return "<eof>";
+    }
+    if tag == "ident" {
+        return "IDENT " + node[1];
+    }
+    if tag == "interp" {
+        let parts = node[1];
+        let out = [];
+        let i = 0;
+        while i < LEN(parts) {
+            out = APPEND(out, render_expr(parts[i]));
+            i = i + 1;
+        }
+        return "INTERP [" + JOIN(out, ", ") + "]";
+    }
+    if tag == "binary" {
+        return "BINARY " + node[1] + " " + render_expr(node[2]) + " " + render_expr(node[3]);
+    }
+    if tag == "unary" {
+        return "UNARY " + node[1] + " " + render_expr(node[2]);
+    }
+    if tag == "index" {
+        return "INDEX " + render_expr(node[1]) + "[" + render_expr(node[2]) + "]";
+    }
+    if tag == "member" {
+        return "MEMBER " + render_expr(node[1]) + "." + node[2];
+    }
+    if tag == "safe_member" {
+        return "SAFE_MEMBER " + render_expr(node[1]) + "?." + node[2];
+    }
+    if tag == "elvis" {
+        return "ELVIS " + render_expr(node[1]) + " " + render_expr(node[2]);
+    }
+    if tag == "notnull" {
+        return "NOTNULL " + render_expr(node[1]);
+    }
+    if tag == "lambda" {
+        let params = node[1];
+        let out = [];
+        let i = 0;
+        while i < LEN(params) {
+            out = APPEND(out, params[i]);
+            i = i + 1;
+        }
+        return "LAMBDA (" + JOIN(out, ", ") + ") -> " + render_expr(node[2]);
+    }
+    if tag == "call" {
+        return "CALL " + node[1] + "(" + render_args(node[2]) + ")";
+    }
+    if tag == "call_value" {
+        return "CALLV " + render_expr(node[1]) + "(" + render_args(node[2]) + ")";
+    }
+    if tag == "method" {
+        return "METHOD " + render_expr(node[1]) + "." + node[2] + "(" + render_args(node[3]) + ")";
+    }
+    if tag == "safe_method" {
+        return "SAFE_METHOD " + render_expr(node[1]) + "?." + node[2] + "(" + render_args(node[3]) + ")";
+    }
+    if tag == "array" {
+        return "ARRAY [" + render_args(node[1]) + "]";
+    }
+    if tag == "object" {
+        let names = node[1];
+        let values = node[2];
+        let out = [];
+        let i = 0;
+        while i < LEN(names) {
+            out = APPEND(out, names[i] + ": " + render_expr(values[i]));
+            i = i + 1;
+        }
+        return "OBJECT {" + JOIN(out, ", ") + "}";
+    }
+    if tag == "range" {
+        return "RANGE " + render_expr(node[1]) + " " + render_expr(node[2]);
+    }
+    if tag == "pipeline" {
+        let steps = node[2];
+        let out = [];
+        let i = 0;
+        while i < LEN(steps) {
+            out = APPEND(out, steps[i][0] + "(" + render_args(steps[i][1]) + ")");
+            i = i + 1;
+        }
+        return "PIPELINE " + render_expr(node[1]) + " |> " + JOIN(out, " |> ");
+    }
+    if tag == "comprehension" {
+        return "COMPREHEND " + render_expr(node[1]) + " FOR " + node[2] + " IN " + render_expr(node[3]) + " WHERE " + render_expr(node[4]);
+    }
+    if tag == "await" {
+        return "AWAIT " + render_expr(node[1]);
+    }
+    if tag == "construct" {
+        let parts = [];
+        let i = 0;
+        while i < LEN(node[2]) {
+            parts = APPEND(parts, node[2][i] + ": " + render_expr(node[3][i]));
+            i = i + 1;
+        }
+        return "CONSTRUCT " + node[1] + " {" + JOIN(parts, ", ") + "}";
+    }
+    if tag == "borrow" {
+        return "BORROW " + TO_STRING(node[1]) + " " + render_expr(node[2]);
+    }
+    if tag == "move" {
+        return "MOVE " + render_expr(node[1]);
+    }
+    if tag == "match" {
+        return "MATCH " + render_expr(node[1]);
+    }
+    return "<" + tag + ">";
+}
+
+fn render_args(args) {
+    let out = [];
+    let i = 0;
+    while i < LEN(args) {
+        out = APPEND(out, render_expr(args[i]));
+        i = i + 1;
+    }
+    return JOIN(out, ", ");
+}
+
+fn render_pattern(pattern) {
+    let tag = pattern[0];
+    if tag == "pat_wild" {
+        return "_";
+    }
+    if tag == "pat_lit" {
+        return render_expr(pattern[1]);
+    }
+    if tag == "pat_bind" {
+        return "bind " + pattern[1];
+    }
+    if tag == "pat_variant" {
+        let subs = pattern[2];
+        if LEN(subs) == 0 {
+            return pattern[1];
+        }
+        let out = [];
+        let i = 0;
+        while i < LEN(subs) {
+            out = APPEND(out, render_pattern(subs[i]));
+            i = i + 1;
+        }
+        return pattern[1] + "(" + JOIN(out, ", ") + ")";
+    }
+    return "<pat>";
+}
+
+fn render_block(stmts, indent: Text) {
+    let i = 0;
+    while i < LEN(stmts) {
+        render(stmts[i], indent);
+        i = i + 1;
+    }
+}
+
+fn render(node, indent: Text) {
+    let tag = node[0];
+    if tag == "program" {
+        println(indent + "PROGRAM");
+        render_block(node[1], indent + "  ");
+        return;
+    }
+    if tag == "fn" {
+        let flag = "";
+        if node[5] == "async" {
+            flag = "ASYNC ";
+        }
+        let head = indent + flag + "FN " + node[1];
+        if node[4] != "" {
+            head = head + " -> " + node[4];
+        }
+        println(head);
+        let params = node[2];
+        let i = 0;
+        while i < LEN(params) {
+            println(indent + "  PARAM " + params[i]);
+            i = i + 1;
+        }
+        render_block(node[3], indent + "  ");
+        return;
+    }
+    if tag == "let" {
+        println(indent + "LET " + node[1]);
+        println(indent + "  " + render_expr(node[2]));
+        return;
+    }
+    if tag == "set" {
+        println(indent + "SET " + render_expr(node[1]));
+        println(indent + "  " + render_expr(node[2]));
+        return;
+    }
+    if tag == "set_op" {
+        println(indent + "SET_OP " + render_expr(node[1]) + " " + node[2]);
+        println(indent + "  " + render_expr(node[3]));
+        return;
+    }
+    if tag == "append" {
+        println(indent + "APPEND " + render_expr(node[1]));
+        println(indent + "  " + render_expr(node[2]));
+        return;
+    }
+    if tag == "println" {
+        println(indent + "PRINTLN");
+        println(indent + "  " + render_expr(node[1]));
+        return;
+    }
+    if tag == "print" {
+        println(indent + "PRINT");
+        println(indent + "  " + render_expr(node[1]));
+        return;
+    }
+    if tag == "return" {
+        println(indent + "RETURN");
+        println(indent + "  " + render_expr(node[1]));
+        return;
+    }
+    if tag == "if" {
+        println(indent + "IF");
+        println(indent + "  " + render_expr(node[1]));
+        println(indent + "  THEN");
+        render_block(node[2], indent + "    ");
+        if LEN(node[3]) > 0 {
+            println(indent + "  ELSE");
+            render_block(node[3], indent + "    ");
+        }
+        return;
+    }
+    if tag == "while" {
+        println(indent + "WHILE");
+        println(indent + "  " + render_expr(node[1]));
+        render_block(node[2], indent + "  ");
+        return;
+    }
+    if tag == "for" {
+        println(indent + "FOR " + node[1]);
+        println(indent + "  " + render_expr(node[2]));
+        render_block(node[3], indent + "  ");
+        return;
+    }
+    if tag == "repeat" {
+        println(indent + "REPEAT");
+        println(indent + "  " + render_expr(node[1]));
+        render_block(node[2], indent + "  ");
+        return;
+    }
+    if tag == "match" {
+        println(indent + "MATCH");
+        println(indent + "  " + render_expr(node[1]));
+        let arms = node[2];
+        let i = 0;
+        while i < LEN(arms) {
+            let arm = arms[i];
+            let guard = "";
+            if arm[2][0] != "null" {
+                guard = " IF " + render_expr(arm[2]);
+            }
+            println(indent + "  ARM " + render_pattern(arm[1]) + guard);
+            render_block(arm[3], indent + "    ");
+            i = i + 1;
+        }
+        return;
+    }
+    if tag == "data_class" {
+        println(indent + "DATA " + node[1]);
+        let fields = node[2];
+        let i = 0;
+        while i < LEN(fields) {
+            println(indent + "  FIELD " + fields[i][0] + " " + fields[i][1]);
+            i = i + 1;
+        }
+        return;
+    }
+    if tag == "sealed" {
+        println(indent + "SEALED " + node[1]);
+        let variants = node[2];
+        let i = 0;
+        while i < LEN(variants) {
+            println(indent + "  VARIANT " + variants[i][0]);
+            i = i + 1;
+        }
+        return;
+    }
+    if tag == "type_alias" {
+        println(indent + "TYPE " + node[1] + " = " + node[2]);
+        return;
+    }
+    if tag == "module" {
+        println(indent + "MODULE " + node[1]);
+        return;
+    }
+    if tag == "import" {
+        println(indent + "IMPORT " + node[1] + " AS " + node[2]);
+        return;
+    }
+    if tag == "trait" {
+        println(indent + "TRAIT " + node[1]);
+        return;
+    }
+    if tag == "break" {
+        println(indent + "BREAK");
+        return;
+    }
+    if tag == "continue" {
+        println(indent + "CONTINUE");
+        return;
+    }
+    if tag == "expr" {
+        println(indent + "EXPR");
+        println(indent + "  " + render_expr(node[1]));
+        return;
+    }
+    println(indent + "<" + tag + ">");
+}
+
+
+// ---------------------------------------------------------------------------
+// Stage 3: unified AST -> super-bit IR.
+//
+// Tokens are ["IR", opcode, operand, layer, meta?] or ["LABEL", name].
+// Opcode numbers come from src/null_system/superbit/ir.py; the specialised
+// range (100+) is reserved for the optimiser and is emitted only by
+// bootstrap/ir.null for now.
+//
+// This file is generated: front end (bootstrap/parser.null) + this pass.
+// ---------------------------------------------------------------------------
+
+fn ir(op: Num, operand, layer: Text) -> Array {
+    return ["IR", op, operand, layer];
+}
+
+fn irx(op: Num, operand, layer: Text, meta: Text) -> Array {
+    return ["IR", op, operand, layer, meta];
+}
+
+fn label(name: Text) -> Array {
+    return ["LABEL", name];
+}
+
+fn ir_row(token) -> Text {
+    if token[0] == "LABEL" {
+        return "LABEL\t" + token[1];
+    }
+    let row = "IR\t" + TO_STRING(token[1]) + "\t" + TO_STRING(token[2]) + "\t" + token[3];
+    if LEN(token) > 4 {
+        row = row + "\t" + token[4];
+    }
+    return row;
+}
+
+fn ir_text(token) -> Text {
+    if token[0] == "LABEL" {
+        return "LABEL " + token[1];
+    }
+    let out = "IR " + TO_STRING(token[1]) + " " + TO_STRING(token[2]) + " @" + token[3];
+    if LEN(token) > 4 {
+        out = out + " " + token[4];
+    }
+    return out;
+}
+
+fn cat(a, b) -> Array {
+    let out = [];
+    let i = 0;
+    while i < LEN(a) {
+        out = APPEND(out, a[i]);
+        i = i + 1;
+    }
+    i = 0;
+    while i < LEN(b) {
+        out = APPEND(out, b[i]);
+        i = i + 1;
+    }
+    return out;
+}
+
+fn bin_op(op: Text) -> Num {
+    if op == "+" {
+        return 10;
+    }
+    if op == "-" {
+        return 11;
+    }
+    if op == "*" {
+        return 12;
+    }
+    if op == "/" {
+        return 13;
+    }
+    return 0;
+}
+
+fn cmp_op(op: Text) -> Num {
+    if op == ">" {
+        return 20;
+    }
+    if op == "<" {
+        return 21;
+    }
+    if op == "==" {
+        return 22;
+    }
+    if op == "!=" {
+        return 23;
+    }
+    if op == ">=" {
+        return 24;
+    }
+    if op == "<=" {
+        return 25;
+    }
+    return 22;
+}
+
+fn emit_args(args, path: Text) -> Array {
+    let out = [];
+    let i = 0;
+    while i < LEN(args) {
+        out = cat(out, emit_expr(args[i], path + "_a" + TO_STRING(i)));
+        i = i + 1;
+    }
+    return out;
+}
+
+fn pattern_text(pattern) -> Text {
+    return render_pattern(pattern);
+}
+
+fn emit_expr(node, path: Text) -> Array {
+    let tag = node[0];
+
+    if tag == "num" {
+        return [ir(1, node[1], "scalar")];
+    }
+    if tag == "str" {
+        return [ir(1, node[1], "scalar")];
+    }
+    if tag == "bool" {
+        return [ir(1, node[1], "scalar")];
+    }
+    if tag == "null" {
+        return [ir(1, "NOTHING", "scalar")];
+    }
+    if tag == "ident" {
+        return [ir(2, node[1], "scalar")];
+    }
+    if tag == "interp" {
+        let parts = node[1];
+        if LEN(parts) == 1 {
+            return emit_expr(parts[0], path + ".i0");
+        }
+        let out = emit_args(parts, path + ".i");
+        return cat(out, [irx(70, "concat", "scalar", "arity=" + TO_STRING(LEN(parts)))]);
+    }
+    if tag == "array" {
+        let out = emit_args(node[1], path + ".e");
+        return cat(out, [irx(72, "", "scalar", "arity=" + TO_STRING(LEN(node[1])))]);
+    }
+    if tag == "object" {
+        let out = emit_args(node[2], path + ".o");
+        return cat(out, [irx(70, "object", "scalar", "arity=" + TO_STRING(LEN(node[1])))]);
+    }
+    if tag == "binary" {
+        let out = emit_expr(node[2], path + ".l");
+        out = cat(out, emit_expr(node[3], path + ".r"));
+        if node[1] == "%" {
+            return cat(out, [irx(70, "mod", "scalar", "arity=2")]);
+        }
+        let code = bin_op(node[1]);
+        if code == 0 {
+            code = cmp_op(node[1]);
+        }
+        return cat(out, [ir(code, "", "scalar")]);
+    }
+    if tag == "range" {
+        let out = emit_expr(node[1], path + ".lo");
+        out = cat(out, emit_expr(node[2], path + ".hi"));
+        return cat(out, [irx(70, "__range__", "scalar", "arity=2")]);
+    }
+    if tag == "unary" {
+        let out = emit_expr(node[2], path + ".u");
+        if node[1] == "-" {
+            return cat(out, [irx(70, "neg", "scalar", "arity=1")]);
+        }
+        out = cat(out, [ir(1, false, "scalar")]);
+        return cat(out, [ir(22, "", "scalar")]);
+    }
+    if tag == "compare" {
+        let out = emit_expr(node[2], path + ".l");
+        out = cat(out, emit_expr(node[3], path + ".r"));
+        return cat(out, [ir(cmp_op(node[1]), "", "scalar")]);
+    }
+    if tag == "elvis" {
+        let out = emit_expr(node[1], path + ".l");
+        out = cat(out, emit_expr(node[2], path + ".r"));
+        return cat(out, [ir(61, "", "scalar")]);
+    }
+    if tag == "notnull" {
+        let out = emit_expr(node[1], path + ".n");
+        return cat(out, [irx(62, "", "scalar", "unwrap")]);
+    }
+    if tag == "member" {
+        let out = emit_expr(node[1], path + ".m");
+        return cat(out, [irx(70, "get_member", "scalar", "field=" + node[2])]);
+    }
+    if tag == "safe_member" {
+        let out = emit_expr(node[1], path + ".m");
+        return cat(out, [ir(60, node[2], "scalar")]);
+    }
+    if tag == "index" {
+        let out = emit_expr(node[1], path + ".i");
+        out = cat(out, emit_expr(node[2], path + ".k"));
+        return cat(out, [ir(73, "", "scalar")]);
+    }
+    if tag == "method" {
+        let out = emit_expr(node[1], path + ".m");
+        out = cat(out, emit_args(node[3], path + ".a"));
+        return cat(out, [irx(70, node[2], "scalar", "method arity=" + TO_STRING(LEN(node[3]) + 1))]);
+    }
+    if tag == "safe_method" {
+        let out = emit_expr(node[1], path + ".m");
+        out = cat(out, emit_args(node[3], path + ".a"));
+        return cat(out, [ir(60, node[2], "scalar")]);
+    }
+    if tag == "call" {
+        let out = emit_args(node[2], path + ".a");
+        return cat(out, [irx(70, node[1], "scalar", "arity=" + TO_STRING(LEN(node[2])))]);
+    }
+    if tag == "call_value" {
+        let out = emit_expr(node[1], path + ".f");
+        out = cat(out, emit_args(node[2], path + ".a"));
+        return cat(out, [irx(70, "__call__", "scalar", "arity=" + TO_STRING(LEN(node[2]) + 1))]);
+    }
+    if tag == "construct" {
+        let out = emit_args(node[3], path + ".f");
+        return cat(out, [irx(70, "construct", "scalar", "type=" + node[1] + " arity=" + TO_STRING(LEN(node[2])))]);
+    }
+    if tag == "lambda" {
+        let out = [irx(74, "<lambda>", "lang", "arity=" + TO_STRING(LEN(node[1])))];
+        out = cat(out, emit_expr(node[2], path + ".b"));
+        return cat(out, [ir(71, "", "scalar")]);
+    }
+    if tag == "await" {
+        let out = emit_expr(node[1], path + ".w");
+        return cat(out, [irx(70, "__await__", "async", "arity=1")]);
+    }
+    if tag == "borrow" {
+        let kind = "borrow";
+        if node[1] == true {
+            kind = "borrow_mut";
+        }
+        return cat([irx(255, kind, "ownership", "ref")], emit_expr(node[2], path + ".b"));
+    }
+    if tag == "move" {
+        return cat([irx(255, "move", "ownership", "move")], emit_expr(node[1], path + ".m"));
+    }
+    if tag == "pipeline" {
+        let out = emit_expr(node[1], path + ".p0");
+        let steps = node[2];
+        let i = 0;
+        while i < LEN(steps) {
+            let name = steps[i][0];
+            let args = steps[i][1];
+            out = cat(out, emit_args(args, path + ".p" + TO_STRING(i) + "_"));
+            out = cat(out, [irx(70, name, "simd", "fused arity=" + TO_STRING(LEN(args) + 1))]);
+            i = i + 1;
+        }
+        return out;
+    }
+    if tag == "comprehension" {
+        let pred = "";
+        if node[4][0] != "null" {
+            pred = render_expr(node[4]);
+        }
+        let operand = node[2] + "|" + render_expr(node[1]) + "|" + pred;
+        return cat(emit_expr(node[3], path + ".src"), [irx(113, operand, "simd", "fused")]);
+    }
+    if tag == "match" {
+        return emit_match(node, path);
+    }
+    return [irx(255, "unsupported:" + tag, "lang", "todo")];
+}
+
+fn emit_match(node, path: Text) -> Array {
+    let out = emit_expr(node[1], path + ".subj");
+    let arms = node[2];
+    let end_label = "L_" + path + "_end";
+    let i = 0;
+    while i < LEN(arms) {
+        let arm = arms[i];
+        let next_label = "L_" + path + "_a" + TO_STRING(i);
+        out = cat(out, [ir(50, pattern_text(arm[1]), "match")]);
+        if arm[2][0] != "null" {
+            out = cat(out, emit_expr(arm[2], path + ".g" + TO_STRING(i)));
+            out = cat(out, [ir(40, next_label, "control")]);
+        }
+        out = cat(out, emit_stmts(arm[3], path + ".b" + TO_STRING(i)));
+        out = cat(out, [ir(41, end_label, "control")]);
+        out = cat(out, [label(next_label)]);
+        i = i + 1;
+    }
+    out = cat(out, [ir(52, "no_match", "match")]);
+    return cat(out, [label(end_label)]);
+}
+
+fn emit_stmts(list, path: Text) -> Array {
+    let out = [];
+    let i = 0;
+    while i < LEN(list) {
+        out = cat(out, emit_stmt(list[i], path + "." + TO_STRING(i)));
+        i = i + 1;
+    }
+    return out;
+}
+
+fn emit_stmt(node, path: Text) -> Array {
+    let tag = node[0];
+
+    if tag == "let" {
+        return cat(emit_expr(node[2], path + ".v"), [ir(3, node[1], "scalar")]);
+    }
+    if tag == "set" {
+        let target = node[1];
+        if target[0] == "ident" {
+            return cat(emit_expr(node[2], path + ".v"), [ir(3, target[1], "scalar")]);
+        }
+        if target[0] == "member" {
+            let out = emit_expr(target[1], path + ".o");
+            out = cat(out, emit_expr(node[2], path + ".v"));
+            return cat(out, [irx(70, "set_member", "scalar", "field=" + target[2])]);
+        }
+        let out = emit_expr(target[1], path + ".o");
+        out = cat(out, emit_expr(target[2], path + ".k"));
+        out = cat(out, emit_expr(node[2], path + ".v"));
+        return cat(out, [irx(70, "set_index", "scalar", "arity=3")]);
+    }
+    if tag == "set_op" {
+        let out = emit_expr(node[1], path + ".o");
+        out = cat(out, emit_expr(node[3], path + ".v"));
+        out = cat(out, [ir(bin_op(node[2]), "", "scalar")]);
+        return cat(out, [ir(3, node[1][1], "scalar")]);
+    }
+    if tag == "println" {
+        return cat(emit_expr(node[1], path + ".v"), [ir(30, "", "scalar")]);
+    }
+    if tag == "print" {
+        return cat(emit_expr(node[1], path + ".v"), [irx(30, "", "scalar", "inline")]);
+    }
+    if tag == "return" {
+        if node[1][0] == "null" {
+            return [irx(71, "", "scalar", "unit")];
+        }
+        return cat(emit_expr(node[1], path + ".v"), [ir(71, "", "scalar")]);
+    }
+    if tag == "expr" {
+        return emit_expr(node[1], path + ".x");
+    }
+    if tag == "match" {
+        return emit_match(node, path);
+    }
+    if tag == "if" {
+        let else_label = "L_" + path + "_else";
+        let end_label = "L_" + path + "_end";
+        let out = emit_expr(node[1], path + ".c");
+        out = cat(out, [ir(40, else_label, "control")]);
+        out = cat(out, emit_stmts(node[2], path + ".t"));
+        out = cat(out, [ir(41, end_label, "control")]);
+        out = cat(out, [label(else_label)]);
+        out = cat(out, emit_stmts(node[3], path + ".e"));
+        return cat(out, [label(end_label)]);
+    }
+    if tag == "while" {
+        let start_label = "L_" + path + "_start";
+        let end_label = "L_" + path + "_end";
+        let out = [label(start_label)];
+        out = cat(out, emit_expr(node[1], path + ".c"));
+        out = cat(out, [ir(40, end_label, "control")]);
+        out = cat(out, emit_stmts(node[2], path + ".b"));
+        out = cat(out, [ir(41, start_label, "control")]);
+        return cat(out, [label(end_label)]);
+    }
+    if tag == "for" {
+        let var = node[1];
+        let it = "__it_" + path;
+        let idx = "__i_" + path;
+        let start_label = "L_" + path + "_start";
+        let end_label = "L_" + path + "_end";
+        let out = emit_expr(node[2], path + ".x");
+        out = cat(out, [ir(3, it, "scalar")]);
+        out = cat(out, [ir(1, 0, "scalar"), ir(3, idx, "scalar")]);
+        out = cat(out, [label(start_label)]);
+        out = cat(out, [ir(2, idx, "scalar"), ir(2, it, "scalar"), irx(70, "len", "scalar", "arity=1"), ir(21, "", "scalar")]);
+        out = cat(out, [ir(40, end_label, "control")]);
+        out = cat(out, [ir(2, it, "scalar"), ir(2, idx, "scalar"), ir(73, "", "scalar"), ir(3, var, "scalar")]);
+        out = cat(out, emit_stmts(node[3], path + ".b"));
+        out = cat(out, [ir(2, idx, "scalar"), ir(1, 1, "scalar"), ir(10, "", "scalar"), ir(3, idx, "scalar")]);
+        out = cat(out, [ir(41, start_label, "control")]);
+        return cat(out, [label(end_label)]);
+    }
+    if tag == "repeat" {
+        let count = "__n_" + path;
+        let i = "__i_" + path;
+        let start_label = "L_" + path + "_start";
+        let end_label = "L_" + path + "_end";
+        let out = emit_expr(node[1], path + ".n");
+        out = cat(out, [ir(3, count, "scalar")]);
+        out = cat(out, [ir(1, 0, "scalar"), ir(3, i, "scalar")]);
+        out = cat(out, [label(start_label)]);
+        out = cat(out, [ir(2, i, "scalar"), ir(2, count, "scalar"), ir(21, "", "scalar")]);
+        out = cat(out, [ir(40, end_label, "control")]);
+        out = cat(out, emit_stmts(node[2], path + ".b"));
+        out = cat(out, [ir(2, i, "scalar"), ir(1, 1, "scalar"), ir(10, "", "scalar"), ir(3, i, "scalar")]);
+        out = cat(out, [ir(41, start_label, "control")]);
+        return cat(out, [label(end_label)]);
+    }
+    if tag == "fn" {
+        let arity = LEN(node[2]);
+        let params = [];
+        let pi = 0;
+        while pi < LEN(node[2]) {
+            params = APPEND(params, node[2][pi]);
+            pi = pi + 1;
+        }
+        let out = [irx(74, node[1], "lang", "arity=" + TO_STRING(arity) + " params=" + JOIN(params, ","))];
+        if node[5] == "async" {
+            out = cat(out, [irx(255, "async", "async", "decl")]);
+        }
+        out = cat(out, emit_stmts(node[3], path + ".b"));
+        let needs_unit = true;
+        let body = node[3];
+        if LEN(body) > 0 {
+            if body[LEN(body) - 1][0] == "return" {
+                needs_unit = false;
+            }
+        }
+        if needs_unit {
+            out = cat(out, [irx(71, "", "scalar", "unit")]);
+        }
+        return cat(out, [irx(255, "end_fn", "lang", "decl")]);
+    }
+    if tag == "data_class" {
+        return [irx(255, "data " + node[1], "lang", "decl")];
+    }
+    if tag == "sealed" {
+        return [irx(255, "sealed " + node[1], "lang", "decl")];
+    }
+    if tag == "type_alias" {
+        return [irx(255, "type " + node[1], "lang", "decl")];
+    }
+    if tag == "module" {
+        return [irx(255, "module " + node[1], "lang", "decl")];
+    }
+    if tag == "import" {
+        return [irx(255, "import " + node[1], "lang", "decl")];
+    }
+    if tag == "trait" {
+        return [irx(255, "trait " + node[1], "lang", "decl")];
+    }
+    if tag == "break" {
+        return [irx(41, "__break__", "control", "unresolved")];
+    }
+    if tag == "continue" {
+        return [irx(41, "__continue__", "control", "unresolved")];
+    }
+    return [irx(255, "unsupported:" + tag, "lang", "todo")];
+}
+
+fn emit_program(program) -> Array {
+    let stmts = program[1];
+    let out = [];
+    let i = 0;
+    while i < LEN(stmts) {
+        out = cat(out, emit_stmt(stmts[i], "s" + TO_STRING(i)));
+        i = i + 1;
+    }
+    return cat(out, [irx(255, "HALT", "scalar", "end")]);
+}
+
+fn emit_main(source: Text) -> Array {
+    return emit_program(parse_program(tokenize(source)));
+}
+
+let program = parse_program(tokenize(READ_FILE("bootstrap/input.null")));
+let ir_tokens = emit_program(program);
+let lines = [];
+let rows = [];
+let k = 0;
+while k < LEN(ir_tokens) {
+    lines = APPEND(lines, ir_text(ir_tokens[k]));
+    rows = APPEND(rows, ir_row(ir_tokens[k]));
+    k = k + 1;
+}
+let i = 0;
+while i < LEN(lines) {
+    println(lines[i]);
+    i = i + 1;
+}
+println("TOKENS " + TO_STRING(LEN(ir_tokens)));
+WRITE_FILE("bootstrap/program.ir", JOIN(rows, "\n"));

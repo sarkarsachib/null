@@ -76,6 +76,9 @@ class NullLangCompiler:
         self.current_module: str = "__main__"
         self.imported_modules: Dict[str, str] = {}
         self.current_syntax_mode: Optional[str] = None
+        self.current_line: Optional[int] = None
+        self._loop_stack: List[Dict[str, Any]] = []
+        self._has_main = False
 
     def compile(self, ast: ASTNode) -> SuperBitStream:
         """Compile an AST node to a Super-Bit IR stream.
@@ -88,9 +91,20 @@ class NullLangCompiler:
         """
         self.tokens = []
         self.current_metadata = {}
+        self._loop_stack = []
         self.current_module = "__main__"
         self.imported_modules = {}
+        self.current_line = None
+        self._has_main = False
         self._visit(ast)
+        if self._has_main:
+            # The program entry point is `main`, as in Rust/C: the top level
+            # only contains definitions, so the stream calls it explicitly.
+            self._emit(
+                SuperBitOpCode.CALL,
+                "main",
+                {"argc": 0, "arity": 0, "entry": True},
+            )
         return SuperBitStream(tokens=self.tokens)
 
     def _emit(
@@ -108,20 +122,32 @@ class NullLangCompiler:
         if metadata:
             token_metadata.update(metadata)
 
-        token = SuperBitIRToken(opcode=opcode, operand=operand, metadata=token_metadata)
+        token = SuperBitIRToken(
+            opcode=opcode,
+            operand=operand,
+            source_line=self.current_line,
+            metadata=token_metadata,
+        )
         self.tokens.append(token)
 
     def _visit(self, node: ASTNode) -> None:
         """Visit a node and emit appropriate tokens."""
         old_mode = self.current_syntax_mode
+        old_line = self.current_line
         if hasattr(node, "syntax_mode") and node.syntax_mode:
             self.current_syntax_mode = node.syntax_mode.value
+        # Carry the statement's source line onto every token it emits, so the VM
+        # can report where a runtime error happened.
+        span = getattr(node, "span", None)
+        if span is not None and getattr(span, "start_line", None) is not None:
+            self.current_line = span.start_line
 
         method_name = f"_visit_{node.__class__.__name__}"
         method = getattr(self, method_name, self._visit_generic)
         method(node)
 
         self.current_syntax_mode = old_mode
+        self.current_line = old_line
 
     def _visit_generic(self, node: ASTNode) -> None:
         """Generic visitor for unknown nodes."""
@@ -245,8 +271,30 @@ class NullLangCompiler:
         self._emit(SuperBitOpCode.JUMP, loop_start)
 
     def _visit_DefineCommand(self, node: DefineCommand) -> None:
-        """Emit tokens for DEFINE command."""
+        """Emit tokens for DEFINE command.
+
+        The body is emitted inline after a jump, so the enclosing top-level
+        program never falls into a definition; the FUNCTION/RETURN pair gives
+        the VM everything it needs to call it.
+        """
         self._apply_annotations(node)
+        if node.name == "main":
+            self._has_main = True
+        jump_idx = len(self.tokens)
+        self._emit(SuperBitOpCode.JUMP, 0)
+        self._emit(
+            SuperBitOpCode.FUNCTION,
+            node.name,
+            {"arity": len(node.parameters), "params": list(node.parameters)},
+        )
+        for stmt in node.body:
+            self._visit(stmt)
+        self._emit(SuperBitOpCode.RETURN, None, {"unit": True})
+        self._emit(SuperBitOpCode.NOP, "end_fn")
+        end = len(self.tokens)
+        self.tokens[jump_idx] = SuperBitIRToken(
+            opcode=SuperBitOpCode.JUMP, operand=end, metadata={"arity": "jump"}
+        )
 
     def _visit_BinaryExpression(self, node: BinaryExpression) -> None:
         """Emit tokens for binary expression."""
@@ -259,11 +307,13 @@ class NullLangCompiler:
             BinaryOperator.MULTIPLY: SuperBitOpCode.BINARY_MUL,
             BinaryOperator.DIVIDE: SuperBitOpCode.BINARY_DIV,
             BinaryOperator.EQUALS: SuperBitOpCode.COMPARE_EQ,
-            BinaryOperator.NOT_EQUALS: SuperBitOpCode.COMPARE_EQ,
+            BinaryOperator.NOT_EQUALS: SuperBitOpCode.COMPARE_NE,
             BinaryOperator.GREATER_THAN: SuperBitOpCode.COMPARE_GT,
             BinaryOperator.LESS_THAN: SuperBitOpCode.COMPARE_LT,
-            BinaryOperator.GREATER_EQUAL: SuperBitOpCode.COMPARE_GT,
-            BinaryOperator.LESS_EQUAL: SuperBitOpCode.COMPARE_LT,
+            BinaryOperator.GREATER_EQUAL: SuperBitOpCode.COMPARE_GE,
+            BinaryOperator.LESS_EQUAL: SuperBitOpCode.COMPARE_LE,
+            BinaryOperator.AND: SuperBitOpCode.LOGICAL_AND,
+            BinaryOperator.OR: SuperBitOpCode.LOGICAL_OR,
         }
 
         if node.operator in opcode_map:
@@ -298,6 +348,7 @@ class NullLangCompiler:
         """Emit tokens for array literal."""
         for element in node.elements:
             self._visit(element)
+        self._emit(SuperBitOpCode.ARRAY, None, {"arity": len(node.elements)})
 
     def _visit_ObjectLiteral(self, node: ObjectLiteral) -> None:
         """Emit tokens for object literal."""
@@ -307,11 +358,19 @@ class NullLangCompiler:
     def _visit_MemberAccess(self, node: MemberAccess) -> None:
         """Emit tokens for member access."""
         self._visit(node.object)
+        if node.is_index:
+            self._visit(node.member)
+            self._emit(SuperBitOpCode.INDEX)
 
     def _visit_FunctionCall(self, node: FunctionCall) -> None:
         """Emit tokens for function call."""
         for arg in node.arguments:
             self._visit(arg)
+        self._emit(
+            SuperBitOpCode.CALL,
+            node.name,
+            {"argc": len(node.arguments), "arity": len(node.arguments)},
+        )
 
     def _visit_NullLibAnnotation(self, node: NullLibAnnotation) -> None:
         """Emit tokens for null-lib annotation."""
@@ -330,38 +389,49 @@ class NullLangCompiler:
         self._emit(SuperBitOpCode.JUMP, loop_start)
 
     def _visit_WhileCommand(self, node: WhileCommand) -> None:
-        """Emit tokens for while loop."""
+        """Emit tokens for while loop, patching break/continue targets."""
         self._apply_annotations(node)
         loop_start = len(self.tokens)
         self._visit(node.condition)
         jump_false_idx = len(self.tokens)
         self._emit(SuperBitOpCode.JUMP_IF_FALSE, 0)
 
+        self._loop_stack.append({"continue": loop_start, "breaks": []})
         for stmt in node.body:
             self._visit(stmt)
+        loop_ctx = self._loop_stack.pop()
 
         self._emit(SuperBitOpCode.JUMP, loop_start)
         end_idx = len(self.tokens)
         self.tokens[jump_false_idx] = SuperBitIRToken(
             opcode=SuperBitOpCode.JUMP_IF_FALSE, operand=end_idx
         )
+        for break_idx in loop_ctx["breaks"]:
+            self.tokens[break_idx] = SuperBitIRToken(
+                opcode=SuperBitOpCode.JUMP, operand=end_idx
+            )
 
     def _visit_ReturnCommand(self, node: ReturnCommand) -> None:
         """Emit tokens for return statement."""
         self._apply_annotations(node)
+        unit = not bool(node.value)
         if node.value:
             self._visit(node.value)
-        self._emit(SuperBitOpCode.PRINT)
+        self._emit(SuperBitOpCode.RETURN, None, {"unit": unit})
 
     def _visit_BreakCommand(self, node: BreakCommand) -> None:
-        """Emit tokens for break statement."""
+        """Emit tokens for break statement (patched to the loop exit)."""
         self._apply_annotations(node)
+        break_idx = len(self.tokens)
         self._emit(SuperBitOpCode.JUMP, 0)
+        if self._loop_stack:
+            self._loop_stack[-1]["breaks"].append(break_idx)
 
     def _visit_ContinueCommand(self, node: ContinueCommand) -> None:
         """Emit tokens for continue statement."""
         self._apply_annotations(node)
-        self._emit(SuperBitOpCode.JUMP, 0)
+        target = self._loop_stack[-1]["continue"] if self._loop_stack else 0
+        self._emit(SuperBitOpCode.JUMP, target)
 
     def _visit_MatchExpression(self, node: MatchExpression) -> None:
         """Emit tokens for match expression."""

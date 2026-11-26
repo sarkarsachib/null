@@ -29,6 +29,14 @@ class NullValue:
             actual=self.type_name(),
         )
 
+    def as_bool(self) -> bool:
+        raise NullTypeError(
+            f"Expected boolean, got {self.type_name()}",
+            code="NULL_TYPE_ERROR",
+            expected="boolean",
+            actual=self.type_name(),
+        )
+
     def as_array(self) -> "NullArray":
         raise NullTypeError(
             f"Expected array, got {self.type_name()}",
@@ -76,6 +84,20 @@ class NullNumber(NullValue):
         if self.value.is_integer():
             return str(int(self.value))
         return str(self.value)
+
+
+@dataclass
+class NullBoolean(NullValue):
+    value: bool
+
+    def type_name(self) -> str:
+        return "boolean"
+
+    def as_bool(self) -> bool:
+        return self.value
+
+    def __str__(self) -> str:
+        return "true" if self.value else "false"
 
 
 @dataclass

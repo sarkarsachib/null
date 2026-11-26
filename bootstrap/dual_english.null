@@ -1,0 +1,35 @@
+module demo
+
+DEFINE add WITH a, b
+    RETURN a + b
+END DEFINE
+
+SET total TO add(2, 3)
+SHOW total
+
+SET doubled TO COMPREHEND x * 2 FOR x IN 0..3 WHERE x MODULO 2 EQUALS 0
+SHOW doubled
+
+IF total IS GREATER THAN 3 THEN
+    SHOW "big"
+ELSE
+    SHOW "small"
+END IF
+
+SET config TO { name: "null", version: 2 }
+SHOW config.name
+
+SET result TO numbers
+    PIPE TO filter WITH x => x > 0
+    PIPE TO map WITH x => x * 2
+SHOW result
+
+SET name TO user?.name ?: "anonymous"
+SHOW name
+
+MATCH total WITH
+    CASE Ok WITH value THEN
+        SHOW value
+    DEFAULT
+        SHOW "none"
+END MATCH

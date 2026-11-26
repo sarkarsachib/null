@@ -1,0 +1,31 @@
+module app::net
+
+type UserId = Num
+
+data class User(name: Text, id: UserId)
+
+sealed trait Shape
+
+fn load(id: UserId) -> User {
+    let u = User { name: "null", id: id };
+    let n = u!!.name;
+    println("user {n} loaded {id}");
+    return u;
+}
+
+async fn fetch_all(ids) {
+    let out = [];
+    for id in ids {
+        out = out + [load(id)];
+    }
+    return await out;
+}
+
+fn apply(own value: Num) -> Num {
+    let borrowed = &value;
+    return borrowed * 2;
+}
+
+let counter = 0;
+counter += 1;
+println(counter);

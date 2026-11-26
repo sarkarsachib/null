@@ -1,0 +1,63 @@
+IR	1	8000000	scalar
+IR	3	n	scalar
+IR	1	0	scalar
+IR	3	total	scalar
+IR	1	0	scalar
+IR	3	i	scalar
+IR	2	n	scalar
+IR	107		scalar
+IR	3	a	scalar
+IR	2	n	scalar
+IR	107		scalar
+IR	3	b	scalar
+LABEL	while_fill_cond
+IR	2	i	scalar
+IR	2	n	scalar
+IR	21		scalar
+IR	40	while_fill_end	scalar
+IR	2	a	scalar
+IR	2	i	scalar
+IR	2	i	scalar
+IR	105		scalar
+IR	3	a	scalar
+IR	2	b	scalar
+IR	2	i	scalar
+IR	2	i	scalar
+IR	1	2	scalar
+IR	12		scalar
+IR	105		scalar
+IR	3	b	scalar
+IR	2	i	scalar
+IR	1	1	scalar
+IR	100		scalar
+IR	3	i	scalar
+IR	41	while_fill_cond	scalar
+LABEL	while_fill_end
+IR	1	0	scalar
+IR	3	i	scalar
+LABEL	while_sum_cond
+IR	2	i	scalar
+IR	2	n	scalar
+IR	21		scalar
+IR	40	while_sum_end	scalar
+IR	2	total	scalar
+IR	2	a	scalar
+IR	2	i	scalar
+IR	103		scalar
+IR	1	3	scalar
+IR	12		scalar
+IR	2	b	scalar
+IR	2	i	scalar
+IR	103		scalar
+IR	100		scalar
+IR	100		scalar
+IR	3	total	scalar
+IR	2	i	scalar
+IR	1	1	scalar
+IR	100		scalar
+IR	3	i	scalar
+IR	41	while_sum_cond	scalar
+LABEL	while_sum_end
+IR	2	total	scalar
+IR	30		scalar
+IR	255	HALT	scalar

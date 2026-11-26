@@ -1,0 +1,10 @@
+// Scalar-loop workload: 1 + 2 + ... + n, n = 100_000_000.
+// Baseline: bench/c/sum_loop.c (cc -O3 -march=native).
+let n = 100000000;
+let total = 0;
+let i = 1;
+while i <= n {
+    total = total + i;
+    i = i + 1;
+}
+println(total);

@@ -1,0 +1,39 @@
+IR	1	20000000	scalar
+IR	3	n	scalar
+IR	1	0	scalar
+IR	3	total	scalar
+IR	1	1	scalar
+IR	3	x	scalar
+LABEL	L_s3_start
+IR	2	x	scalar
+IR	2	n	scalar
+IR	25		scalar
+IR	40	L_s3_end	control
+IR	2	x	scalar
+IR	2	x	scalar
+IR	1	2	scalar
+IR	13		scalar
+IR	1	2	scalar
+IR	12		scalar
+IR	11		scalar
+IR	1	0	scalar
+IR	22		scalar
+IR	40	L_s3.b.0_else	control
+IR	2	total	scalar
+IR	2	x	scalar
+IR	2	x	scalar
+IR	12		scalar
+IR	10		scalar
+IR	3	total	scalar
+IR	41	L_s3.b.0_end	control
+LABEL	L_s3.b.0_else
+LABEL	L_s3.b.0_end
+IR	2	x	scalar
+IR	1	1	scalar
+IR	10		scalar
+IR	3	x	scalar
+IR	41	L_s3_start	control
+LABEL	L_s3_end
+IR	2	total	scalar
+IR	30		scalar
+IR	255	HALT	scalar	end

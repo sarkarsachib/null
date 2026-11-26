@@ -22,12 +22,38 @@ from ..ast_nodes import (
 from ..errors import SyntaxError, LexerError
 
 
+def _flatten_block(item):
+    """Flatten a parsed block (possibly nested lists) into statements."""
+    if item is None:
+        return []
+    if isinstance(item, list):
+        flat = []
+        for entry in item:
+            flat.extend(_flatten_block(entry))
+        return flat
+    return [item]
+
+
 class ModernRustTransformer(Transformer):
     """Transforms Rust-like parse tree into Null-Lang AST."""
 
     def __init__(self, source: str):
         super().__init__()
         self.source = source
+
+    def _call_userfunc(self, tree, new_children=None):
+        """Attach the parse-tree span to every node the rule built.
+
+        The rule methods construct AST nodes by hand, so without this the spans
+        Lark already computed (propagate_positions is on) are thrown away and
+        runtime errors cannot name a source line.
+        """
+        node = super()._call_userfunc(tree, new_children)
+        if isinstance(node, ASTNode) and getattr(node, "span", None) is None:
+            meta = getattr(tree, "meta", None)
+            if meta is not None and not getattr(meta, "empty", True):
+                node.span = self._get_span(meta)
+        return node
 
     def _get_span(self, meta) -> SourceSpan:
         """Extract source span from Lark meta information."""
@@ -132,12 +158,13 @@ class ModernRustTransformer(Transformer):
     # Control Flow
     def if_stmt(self, items):
         condition = items[0]
-        then_block = items[1] if isinstance(items[1], list) else [items[1]]
+        then_block = []
         else_block = None
-
-        idx = 2
-        if idx < len(items) and items[idx] is not None:
-            else_block = items[idx] if isinstance(items[idx], list) else [items[idx]]
+        for item in items[1:]:
+            if isinstance(item, list):
+                else_block = self._block(item)
+            elif item is not None:
+                then_block.append(item)
 
         cmd = IfCommand(condition=condition, then_block=then_block, else_block=else_block)
         return cmd
@@ -145,9 +172,15 @@ class ModernRustTransformer(Transformer):
     def else_block(self, items):
         return items
 
+    def _block(self, item):
+        """Flatten a block into a list of statements."""
+        return _flatten_block(item)
+
     def while_stmt(self, items):
         condition = items[0]
-        body = items[1] if isinstance(items[1], list) else [items[1]]
+        body = []
+        for item in items[1:]:
+            body.extend(self._block(item))
         cmd = WhileCommand(condition=condition, body=body)
         return cmd
 
@@ -169,12 +202,23 @@ class ModernRustTransformer(Transformer):
             params = items[idx]
             idx += 1
 
-        body = items[idx] if idx < len(items) else []
-        if not isinstance(body, list):
-            body = [body]
+        body = []
+        while idx < len(items):
+            item = items[idx]
+            if isinstance(item, list):
+                body.extend(item)
+            elif isinstance(item, Token):
+                # return type annotation ("-> Type")
+                pass
+            else:
+                body.append(item)
+            idx += 1
 
         cmd = DefineCommand(name=name, parameters=params, body=body)
         return cmd
+
+    def param(self, items):
+        return str(items[0])
 
     def param_list(self, items):
         return [str(item) for item in items]
@@ -267,6 +311,10 @@ class ModernRustTransformer(Transformer):
 
     def negate_expr(self, items):
         return UnaryExpression(operator=UnaryOperator.NEGATE, operand=items[0])
+
+    def index_expr(self, items):
+        from ..ast_nodes import MemberAccess
+        return MemberAccess(object=items[0], member=items[1], is_index=True)
 
     def property_access(self, items):
         obj = items[0]

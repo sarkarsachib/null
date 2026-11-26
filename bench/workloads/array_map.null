@@ -1,0 +1,21 @@
+// Element-wise array workload: total = sum(a[i] * 3 + b[i]) over 8M elements.
+// Baseline: bench/c/array_map.c (cc -O3 -march=native).
+// hand-authored-ir: the emitter cannot lower APPEND (no growable-array opcode
+// yet), so this workload's IR is maintained by hand in bench/ir/array_map.ir and
+// uses the pre-sized array opcodes 107/105 instead.
+let n = 8000000;
+let a = [];
+let b = [];
+let i = 0;
+while i < n {
+    a = APPEND(a, i);
+    b = APPEND(b, i * 2);
+    i = i + 1;
+}
+let total = 0;
+let j = 0;
+while j < n {
+    total = total + a[j] * 3 + b[j];
+    j = j + 1;
+}
+println(total);
