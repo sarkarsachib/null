@@ -195,6 +195,50 @@ def test_source_function_call_survives_an_intervening_print(tmp_path, monkeypatc
     assert run.stdout.split() == ["45", "52"]
 
 
+def test_source_string_runtime_matches_the_vm(tmp_path, monkeypatch):
+    # Literals, print, LEN, ==/!=, +, CHAR_AT, ORD and READ_FILE all lower to the
+    # byte-oriented string runtime instead of trapping.
+    program = (
+        'let s = "abc";\n'
+        "println(s);\n"
+        "println(LEN(s));\n"
+        "println(CHAR_AT(s, 1));\n"
+        'println(s + "def");\n'
+        'println(CHAR_AT(s, 1) == "b");\n'
+        'println(CHAR_AT(s, 1) != "b");\n'
+        'println(ORD("A"));\n'
+        'let t = READ_FILE("bootstrap/notes.txt");\n'
+        "println(t);\n"
+        "println(LEN(t));\n"
+    )
+    workdir, _ = _run_pipeline(tmp_path, monkeypatch, program)
+    (workdir / "bootstrap" / "notes.txt").write_text("hello\n")
+
+    report = (workdir / "bootstrap" / "backend.report").read_text()
+    assert "LOWERED 70 len-string" in report
+    assert "LOWERED 10 str-concat" in report
+    assert "LOWERED 70 char_at" in report
+    assert "LOWERED 70 read_file" in report
+    assert "FALLBACK" not in report
+
+    exe = _build(workdir, "strings")
+    run = subprocess.run(
+        [str(exe)], capture_output=True, text=True, check=True, cwd=workdir
+    )
+    assert run.stdout.splitlines() == [
+        "abc",
+        "3",
+        "b",
+        "abcdef",
+        "1",
+        "0",
+        "65",
+        "hello",
+        "",
+        "6",
+    ]
+
+
 def test_source_append_grows_the_array(tmp_path, monkeypatch):
     # 106 doubles the capacity from 0 to 4, 8 and 16 while ten values are pushed.
     program = (

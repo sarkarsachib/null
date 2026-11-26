@@ -779,6 +779,31 @@ fn peephole(lines) -> Array {
     return kept;
 }
 
+fn str_pair(types) -> Bool {
+    // The two operands of a binary op are strings: `==`/`!=`/`+` then need the
+    // string runtime instead of integer instructions.
+    if LEN(types) < 2 {
+        return false;
+    }
+    if types[LEN(types) - 2] != "str" {
+        return false;
+    }
+    if types[LEN(types) - 1] != "str" {
+        return false;
+    }
+    return true;
+}
+
+fn type_at(types, idx: Num) -> Text {
+    if idx < 0 {
+        return "";
+    }
+    if idx >= LEN(types) {
+        return "";
+    }
+    return types[idx];
+}
+
 fn cc_jump_inverse(cc: Text) -> Text {
     if cc == "l" {
         return "jge";
@@ -951,6 +976,63 @@ fn reg_assignment(rows, slot_names) -> Array {
 // these helpers aimed at the length word. So arr[0] is the length, the elements
 // stay at arr + idx*8 + 8 (unchanged), and the capacity lives at arr - 8, where
 // nothing else looks. FAST_ARRAY_PUSH grows the capacity and may move the array.
+// Strings are NUL-terminated char* (literals live in .rodata). The IR carries
+// literals escaped (emitter.null's ir_escape); decode on the way into the pool.
+fn ir_unescape(text: Text) -> Text {
+    let out = "";
+    let i = 0;
+    while i < LEN(text) {
+        let ch = CHAR_AT(text, i);
+        if ch == "\\" {
+            i = i + 1;
+            if i < LEN(text) {
+                let esc = CHAR_AT(text, i);
+                if esc == "n" {
+                    out = out + "\n";
+                } else {
+                    if esc == "t" {
+                        out = out + "\t";
+                    } else {
+                        out = out + esc;
+                    }
+                }
+            }
+        } else {
+            out = out + ch;
+        }
+        i = i + 1;
+    }
+    return out;
+}
+
+// Escape a decoded literal for a GNU as `.asciz` directive.
+fn gas_literal(text: Text) -> Text {
+    let out = "";
+    let i = 0;
+    while i < LEN(text) {
+        let ch = CHAR_AT(text, i);
+        if ch == "\\" {
+            out = out + "\\\\";
+        } else {
+            if ch == "\"" {
+                out = out + "\\\"";
+            } else {
+                if ch == "\n" {
+                    out = out + "\\n";
+                } else {
+                    if ch == "\t" {
+                        out = out + "\\t";
+                    } else {
+                        out = out + ch;
+                    }
+                }
+            }
+        }
+        i = i + 1;
+    }
+    return out;
+}
+
 fn runtime_lines() -> Array {
     return [
         "",
@@ -1092,6 +1174,143 @@ fn runtime_lines() -> Array {
         "  mov rax, 60",
         "  mov rdi, 4",
         "  syscall",
+        "",
+        "null_str_len:",
+        "  xor eax, eax",
+        ".Lsls_loop:",
+        "  cmp byte ptr [rdi + rax], 0",
+        "  je .Lsls_done",
+        "  add rax, 1",
+        "  jmp .Lsls_loop",
+        ".Lsls_done:",
+        "  ret",
+        "",
+        "null_str_eq:",
+        "  xor rcx, rcx",
+        ".Lseq_loop:",
+        "  mov al, byte ptr [rdi + rcx]",
+        "  mov dl, byte ptr [rsi + rcx]",
+        "  cmp al, dl",
+        "  jne .Lseq_no",
+        "  cmp al, 0",
+        "  je .Lseq_yes",
+        "  add rcx, 1",
+        "  jmp .Lseq_loop",
+        ".Lseq_yes:",
+        "  mov rax, 1",
+        "  ret",
+        ".Lseq_no:",
+        "  xor eax, eax",
+        "  ret",
+        "",
+        "null_str_ord:",
+        "  movzx eax, byte ptr [rdi]",
+        "  ret",
+        "",
+        "null_str_char_at:",
+        "  push rbp",
+        "  mov rbp, rsp",
+        "  push rbx",
+        "  push r12",
+        "  mov rbx, rdi",
+        "  mov r12, rsi",
+        "  mov rdi, 2",
+        "  call malloc@PLT",
+        "  movzx ecx, byte ptr [rbx + r12]",
+        "  mov byte ptr [rax], cl",
+        "  mov byte ptr [rax + 1], 0",
+        "  pop r12",
+        "  pop rbx",
+        "  leave",
+        "  ret",
+        "",
+        "null_str_concat:",
+        "  push rbp",
+        "  mov rbp, rsp",
+        "  push rbx",
+        "  push r12",
+        "  push r13",
+        "  push r14",
+        "  push r15",
+        "  sub rsp, 8",
+        "  mov rbx, rdi",
+        "  mov r12, rsi",
+        "  call null_str_len",
+        "  mov r13, rax",
+        "  mov rdi, r12",
+        "  call null_str_len",
+        "  mov r14, rax",
+        "  lea rdi, [r13 + r14 + 1]",
+        "  call malloc@PLT",
+        "  mov r15, rax",
+        "  mov rdi, r15",
+        "  mov rsi, rbx",
+        "  mov rcx, r13",
+        "  rep movsb",
+        "  mov rsi, r12",
+        "  mov rcx, r14",
+        "  rep movsb",
+        "  mov byte ptr [rdi], 0",
+        "  mov rax, r15",
+        "  add rsp, 8",
+        "  pop r15",
+        "  pop r14",
+        "  pop r13",
+        "  pop r12",
+        "  pop rbx",
+        "  leave",
+        "  ret",
+        "",
+        "null_read_file:",
+        "  push rbp",
+        "  mov rbp, rsp",
+        "  push rbx",
+        "  push r12",
+        "  push r13",
+        "  push r14",
+        "  mov eax, 2",
+        "  xor esi, esi",
+        "  xor edx, edx",
+        "  syscall",
+        "  cmp rax, 0",
+        "  jl .Lrf_fail",
+        "  mov rbx, rax",
+        "  mov r13, 65536",
+        "  mov rdi, r13",
+        "  call malloc@PLT",
+        "  mov r12, rax",
+        "  xor r14d, r14d",
+        ".Lrf_loop:",
+        "  mov rdi, rbx",
+        "  lea rsi, [r12 + r14]",
+        "  mov rdx, r13",
+        "  sub rdx, r14",
+        "  xor eax, eax",
+        "  syscall",
+        "  cmp rax, 0",
+        "  jle .Lrf_done",
+        "  add r14, rax",
+        "  cmp r14, r13",
+        "  jl .Lrf_loop",
+        "  shl r13, 1",
+        "  mov rdi, r12",
+        "  mov rsi, r13",
+        "  call realloc@PLT",
+        "  mov r12, rax",
+        "  jmp .Lrf_loop",
+        ".Lrf_done:",
+        "  mov byte ptr [r12 + r14], 0",
+        "  mov rax, r12",
+        "  jmp .Lrf_out",
+        ".Lrf_fail:",
+        "  lea rax, [rip + .Lempty]",
+        ".Lrf_out:",
+        "  pop r14",
+        "  pop r13",
+        "  pop r12",
+        "  pop rbx",
+        "  leave",
+        "  ret",
         "",
         "null_simd_add:",
         "  push rbp",
@@ -2091,9 +2310,10 @@ fn compile(rows) -> Array {
                     out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + sp * 8) + "], " + operand);
                     types = APPEND(types, "int");
                 } else {
-                    let sid = index_of(str_pool, operand);
+                    let literal = ir_unescape(operand);
+                    let sid = index_of(str_pool, literal);
                     if sid == LEN(str_pool) {
-                        str_pool = APPEND(str_pool, operand);
+                        str_pool = APPEND(str_pool, literal);
                         sid = LEN(str_pool) - 1;
                     }
                     out = APPEND(out, "  lea rax, [rip + .LS" + TO_STRING(sid) + "]");
@@ -2153,10 +2373,30 @@ fn compile(rows) -> Array {
             }
 
             if op == 10 {
-                out = APPEND(out, "  mov rax, qword ptr [rbp - " + TO_STRING(4096 + (sp - 1) * 8) + "]");
-                out = APPEND(out, "  add qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "], rax");
-                types = drop_last(types);
-                sp = sp - 1;
+                let add_str = false;
+                if LEN(types) >= 2 {
+                    if types[LEN(types) - 2] == "str" {
+                        if types[LEN(types) - 1] == "str" {
+                            add_str = true;
+                        }
+                    }
+                }
+                if add_str {
+                    out = APPEND(out, "  mov rdi, qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "]");
+                    out = APPEND(out, "  mov rsi, qword ptr [rbp - " + TO_STRING(4096 + (sp - 1) * 8) + "]");
+                    out = APPEND(out, "  call null_str_concat");
+                    out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "], rax");
+                    types = drop_last(types);
+                    types = drop_last(types);
+                    types = APPEND(types, "str");
+                    sp = sp - 1;
+                    report = APPEND(report, "LOWERED 10 str-concat");
+                } else {
+                    out = APPEND(out, "  mov rax, qword ptr [rbp - " + TO_STRING(4096 + (sp - 1) * 8) + "]");
+                    out = APPEND(out, "  add qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "], rax");
+                    types = drop_last(types);
+                    sp = sp - 1;
+                }
             }
             if op == 11 {
                 out = APPEND(out, "  mov rax, qword ptr [rbp - " + TO_STRING(4096 + (sp - 1) * 8) + "]");
@@ -2191,14 +2431,39 @@ fn compile(rows) -> Array {
                 sp = sp - 1;
             }
             if op == 22 {
-                out = cat(out, cmp_sequence("sete", sp));
-                types = drop_last(types);
-                sp = sp - 1;
+                if str_pair(types) {
+                    out = APPEND(out, "  mov rdi, qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "]");
+                    out = APPEND(out, "  mov rsi, qword ptr [rbp - " + TO_STRING(4096 + (sp - 1) * 8) + "]");
+                    out = APPEND(out, "  call null_str_eq");
+                    out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "], rax");
+                    types = drop_last(types);
+                    types = drop_last(types);
+                    types = APPEND(types, "int");
+                    sp = sp - 1;
+                    report = APPEND(report, "LOWERED 22 str-eq");
+                } else {
+                    out = cat(out, cmp_sequence("sete", sp));
+                    types = drop_last(types);
+                    sp = sp - 1;
+                }
             }
             if op == 23 {
-                out = cat(out, cmp_sequence("setne", sp));
-                types = drop_last(types);
-                sp = sp - 1;
+                if str_pair(types) {
+                    out = APPEND(out, "  mov rdi, qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "]");
+                    out = APPEND(out, "  mov rsi, qword ptr [rbp - " + TO_STRING(4096 + (sp - 1) * 8) + "]");
+                    out = APPEND(out, "  call null_str_eq");
+                    out = APPEND(out, "  xor rax, 1");
+                    out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "], rax");
+                    types = drop_last(types);
+                    types = drop_last(types);
+                    types = APPEND(types, "int");
+                    sp = sp - 1;
+                    report = APPEND(report, "LOWERED 23 str-ne");
+                } else {
+                    out = cat(out, cmp_sequence("setne", sp));
+                    types = drop_last(types);
+                    sp = sp - 1;
+                }
             }
             if op == 24 {
                 out = cat(out, cmp_sequence("setge", sp));
@@ -2256,16 +2521,64 @@ fn compile(rows) -> Array {
                 if name == "CONCAT" {
                     name = "concat";
                 }
+                if name == "CHAR_AT" {
+                    name = "char_at";
+                }
+                if name == "ORD" {
+                    name = "ord";
+                }
+                if name == "READ_FILE" {
+                    name = "read_file";
+                }
                 let builtin = false;
                 if name == "len" {
                     builtin = true;
-                    out = APPEND(out, "  mov rax, qword ptr [rbp - " + TO_STRING(4096 + base * 8) + "]");
-                    out = APPEND(out, "  mov rax, qword ptr [rax]");
-                    out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + base * 8) + "], rax");
-                    report = APPEND(report, "LOWERED 70 len-array-header");
+                    if type_at(types, base) == "str" {
+                        out = APPEND(out, "  mov rdi, qword ptr [rbp - " + TO_STRING(4096 + base * 8) + "]");
+                        out = APPEND(out, "  call null_str_len");
+                        out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + base * 8) + "], rax");
+                        report = APPEND(report, "LOWERED 70 len-string");
+                    } else {
+                        out = APPEND(out, "  mov rax, qword ptr [rbp - " + TO_STRING(4096 + base * 8) + "]");
+                        out = APPEND(out, "  mov rax, qword ptr [rax]");
+                        out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + base * 8) + "], rax");
+                        report = APPEND(report, "LOWERED 70 len-array-header");
+                    }
                     sp = base + 1;
                     types = drop_last(types);
                     types = APPEND(types, "int");
+                }
+                if name == "char_at" {
+                    builtin = true;
+                    out = APPEND(out, "  mov rdi, qword ptr [rbp - " + TO_STRING(4096 + base * 8) + "]");
+                    out = APPEND(out, "  mov rsi, qword ptr [rbp - " + TO_STRING(4096 + (base + 1) * 8) + "]");
+                    out = APPEND(out, "  call null_str_char_at");
+                    out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + base * 8) + "], rax");
+                    report = APPEND(report, "LOWERED 70 char_at");
+                    types = drop_last(types);
+                    types = drop_last(types);
+                    types = APPEND(types, "str");
+                    sp = base + 1;
+                }
+                if name == "ord" {
+                    builtin = true;
+                    out = APPEND(out, "  mov rdi, qword ptr [rbp - " + TO_STRING(4096 + base * 8) + "]");
+                    out = APPEND(out, "  call null_str_ord");
+                    out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + base * 8) + "], rax");
+                    report = APPEND(report, "LOWERED 70 ord");
+                    types = drop_last(types);
+                    types = APPEND(types, "int");
+                    sp = base + 1;
+                }
+                if name == "read_file" {
+                    builtin = true;
+                    out = APPEND(out, "  mov rdi, qword ptr [rbp - " + TO_STRING(4096 + base * 8) + "]");
+                    out = APPEND(out, "  call null_read_file");
+                    out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + base * 8) + "], rax");
+                    report = APPEND(report, "LOWERED 70 read_file");
+                    types = drop_last(types);
+                    types = APPEND(types, "str");
+                    sp = base + 1;
                 }
                 if name == "mod" {
                     builtin = true;
@@ -2620,13 +2933,14 @@ fn compile(rows) -> Array {
     out = APPEND(out, ".Lnl: .byte 10");
     out = APPEND(out, ".Loob: .ascii \"OOB PANIC!!!\\n\"");
     out = APPEND(out, ".Lunsup: .ascii \"UNSUPPORTED OP!!\\n\"");
+    out = APPEND(out, ".Lempty: .asciz \"\"");
     out = APPEND(out, ".p2align 4");
     out = APPEND(out, ".Liota0: .quad 0, 1, 2, 3");
     out = APPEND(out, ".Lfour: .quad 4, 4, 4, 4");
     out = APPEND(out, ".Leight: .quad 8, 8, 8, 8");
     let s = 0;
     while s < LEN(str_pool) {
-        out = APPEND(out, ".LS" + TO_STRING(s) + ": .asciz \"" + str_pool[s] + "\"");
+        out = APPEND(out, ".LS" + TO_STRING(s) + ": .asciz \"" + gas_literal(str_pool[s]) + "\"");
         s = s + 1;
     }
 

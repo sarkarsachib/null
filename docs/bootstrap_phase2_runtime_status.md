@@ -86,7 +86,8 @@ from `nullc.null` and from `emitter.null` is byte-identical (12,854 rows,
 260,961 bytes). The stage-1 lexer moved to `bootstrap/lexer.null`.
 
 What is still missing for "zero Python in the pipeline" is a native `nullc`
-binary: `native.null` does not yet lower strings, recursion-safe calls or the
-array runtime the compiler itself uses (see `bootstrap_stage5_native_backend.md`).
-Until that lands the fixed point is real, but both compilers execute on the host
-VM.
+binary. `native.null` now has string literals, `LEN`, `+`, `==`/`!=`, `CHAR_AT`,
+`ORD` and `READ_FILE`, but no aggregate typing (an index load and a call result
+are still `int`), so stage 1's `[text, pos]` returns cannot be compiled yet; see
+`bootstrap_stage5_native_backend.md`. Until that lands the fixed point is real,
+but both compilers execute on the host VM.

@@ -39,6 +39,31 @@ def _compile_emitter():
     return NullLangCompiler().compile(ModernRustParser().parse(source))
 
 
+def test_break_semicolons_and_literal_braces_do_not_derail_the_parser(tmp_path, monkeypatch):
+    # `break;` used to leave the `;` unconsumed, so the block's closing `}` was
+    # parsed as an expression statement; and a `"{"` element in a table was read
+    # as string interpolation, swallowing the rest of the file to EOF.
+    program = (
+        "fn f(n: Num) -> Num {\n"
+        "    let i = 0;\n"
+        "    while i < n {\n"
+        "        if i == 2 {\n"
+        "            break;\n"
+        "        }\n"
+        "        i = i + 1;\n"
+        "    }\n"
+        "    return i;\n"
+        "}\n"
+        'let puncts = ["(", ")", "[", "]", "{", "}", ",", ";"];\n'
+        "println(f(9));\n"
+    )
+    lines = _emit(tmp_path, monkeypatch, program)
+
+    assert not [line for line in lines if "unsupported:" in line]
+    assert "IR 1 { @scalar" in lines
+    assert "IR 72  @scalar arity=8" in lines
+
+
 def _emit(tmp_path, monkeypatch, program: str) -> list[str]:
     stream = _compile_emitter()
     workdir = tmp_path / "run"

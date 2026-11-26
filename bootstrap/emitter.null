@@ -1026,7 +1026,7 @@ fn is_type_name(name: Text) -> Bool {
 fn parse_primary(tokens, pos: Num) {
     let n = LEN(tokens);
     if pos >= n {
-        return [["eof"], pos];
+        return [["eof", "end-of-input"], pos];
     }
     let kind = token_kind(tokens[pos]);
     let val = token_value(tokens[pos]);
@@ -1058,6 +1058,18 @@ fn parse_primary(tokens, pos: Num) {
                     if val == "print" {
                         let a = parse_arguments(tokens, pos + 1);
                         node = ["call", "print", a[0]];
+                        pos = a[1];
+                    } else {
+                    // READ_FILE and WRITE_FILE are keywords (legacy SET..TO syntax)
+                    // but the stages call them as functions; parse them that way.
+                    if val == "READ_FILE" {
+                        let a = parse_arguments(tokens, pos + 1);
+                        node = ["call", "READ_FILE", a[0]];
+                        pos = a[1];
+                    } else {
+                    if val == "WRITE_FILE" {
+                        let a = parse_arguments(tokens, pos + 1);
+                        node = ["call", "WRITE_FILE", a[0]];
                         pos = a[1];
                     } else {
                     if val == "true" {
@@ -1102,6 +1114,8 @@ fn parse_primary(tokens, pos: Num) {
                                 }
                             }
                         }
+                    }
+                    }
                     }
                     }
                     }
@@ -1245,6 +1259,10 @@ fn parse_primary(tokens, pos: Num) {
             }
         }
     }
+    if node[0] == "eof" {
+        // Unconsumed token: name it, so emit_expr's unsupported marker is useful.
+        node = ["eof", kind + ":" + TO_STRING(val)];
+    }
     return [node, pos];
 }
 
@@ -1382,22 +1400,33 @@ fn string_node(val: Text) -> Array {
     while i < n {
         let ch = CHAR_AT(val, i);
         if ch == "{" {
-            if LEN(buffer) > 0 {
-                parts = APPEND(parts, ["str", buffer]);
-                buffer = "";
-            }
+            // Only a closed brace pair interpolates. `"{"` (the lexer's punctuation
+            // table, for one) would otherwise swallow the rest of the file looking
+            // for a `}`, so an unmatched `{` stays literal.
             let inner = "";
-            i = i + 1;
-            while i < n {
-                if CHAR_AT(val, i) == "}" {
-                    i = i + 1;
+            let at = i + 1;
+            let closed = false;
+            while at < n {
+                if CHAR_AT(val, at) == "}" {
+                    closed = true;
+                    at = at + 1;
                     break;
                 }
-                inner = inner + CHAR_AT(val, i);
+                inner = inner + CHAR_AT(val, at);
+                at = at + 1;
+            }
+            if closed {
+                if LEN(buffer) > 0 {
+                    parts = APPEND(parts, ["str", buffer]);
+                    buffer = "";
+                }
+                let sub = parse_expr(tokenize(inner), 0);
+                parts = APPEND(parts, sub[0]);
+                i = at;
+            } else {
+                buffer = buffer + "{";
                 i = i + 1;
             }
-            let sub = parse_expr(tokenize(inner), 0);
-            parts = APPEND(parts, sub[0]);
         } else {
             buffer = buffer + ch;
             i = i + 1;
@@ -1405,6 +1434,11 @@ fn string_node(val: Text) -> Array {
     }
     if LEN(buffer) > 0 {
         parts = APPEND(parts, ["str", buffer]);
+    }
+    if LEN(parts) == 1 {
+        if parts[0][0] == "str" {
+            return parts[0];
+        }
     }
     return ["interp", parts];
 }
@@ -1831,7 +1865,9 @@ fn parse_stmt(tokens, pos: Num) {
         return [["expr", ["null"]], pos];
     }
     if punct(tokens, pos, ";") {
-        return parse_stmt(tokens, pos + 1);
+        // An empty statement is consumed as itself. (Recursing here would swallow
+        // the token after a `break;`/`continue;` and emit it as an expression.)
+        return [["empty"], pos + 1];
     }
     if kind_is(tokens, pos, "KEYWORD") {
         let word = token_value(tokens[pos]);
@@ -2388,6 +2424,36 @@ fn pattern_text(pattern) -> Text {
     return render_pattern(pattern);
 }
 
+// String literals travel through the IR as escaped text (\\, \", \n, \t), so a
+// literal can carry tabs or newlines without breaking a row. The consumers
+// decode it (vm.null and native.null both have ir_unescape).
+fn ir_escape(text: Text) -> Text {
+    let out = "";
+    let i = 0;
+    while i < LEN(text) {
+        let ch = CHAR_AT(text, i);
+        if ch == "\\" {
+            out = out + "\\\\";
+        } else {
+            if ch == "\"" {
+                out = out + "\\\"";
+            } else {
+                if ch == "\n" {
+                    out = out + "\\n";
+                } else {
+                    if ch == "\t" {
+                        out = out + "\\t";
+                    } else {
+                        out = out + ch;
+                    }
+                }
+            }
+        }
+        i = i + 1;
+    }
+    return out;
+}
+
 fn emit_expr(node, path: Text) -> Array {
     let tag = node[0];
 
@@ -2395,7 +2461,7 @@ fn emit_expr(node, path: Text) -> Array {
         return [ir(1, node[1], "scalar")];
     }
     if tag == "str" {
-        return [ir(1, node[1], "scalar")];
+        return [ir(1, ir_escape(node[1]), "scalar")];
     }
     if tag == "bool" {
         return [ir(1, node[1], "scalar")];
@@ -2545,7 +2611,11 @@ fn emit_expr(node, path: Text) -> Array {
     if tag == "match" {
         return emit_match(node, path);
     }
-    return [irx(255, "unsupported:" + tag, "lang", "todo")];
+    let detail = "";
+    if LEN(node) > 1 {
+        detail = ":" + TO_STRING(node[1]);
+    }
+    return [irx(255, "unsupported:" + tag + detail, "lang", "todo")];
 }
 
 fn emit_match(node, path: Text) -> Array {
@@ -2582,6 +2652,9 @@ fn emit_stmts(list, path: Text) -> Array {
 
 fn emit_stmt(node, path: Text) -> Array {
     let tag = node[0];
+    if tag == "empty" {
+        return [];
+    }
 
     if tag == "let" {
         return cat(emit_expr(node[2], path + ".v"), [ir(3, node[1], "scalar")]);

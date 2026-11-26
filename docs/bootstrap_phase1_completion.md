@@ -279,10 +279,14 @@ that IR in the same process. A `bootstrap/compile-only.flag` in the working
 directory stops it after emission, which is how it compiles itself without
 recursing. Measured 2026-11-26 on this host VM: `bench/selfhost_check.sh`
 compiles `nullc.null` with `nullc.null` and with `emitter.null`; both produce
-12,854 rows / 260,961 bytes, byte-identical (80.8 s and 91.0 s, one run each, not
-a benchmark). Phase 4's remaining item is that both still execute on the host VM:
-a native `nullc` needs the string, call and array support tracked in
-`bootstrap_stage5_native_backend.md`.
+13,241 rows / 269,109 bytes, byte-identical and free of `unsupported:` markers
+(71.3 s and 116.3 s, one run each, not a benchmark). The first version of this
+check compared two compilers that both bailed on 51 statements: `break;` left its
+semicolon unconsumed, and a `"{"` element in a token table was read as string
+interpolation to EOF. The emitter parses both now, and the script fails if a
+marker appears. Phase 4's remaining item is that both still execute on the host
+VM: a native `nullc` needs aggregate typing and the rest of the string runtime
+tracked in `bootstrap_stage5_native_backend.md`.
 
 ## Success Criteria Met ✅
 
@@ -292,8 +296,9 @@ a native `nullc` needs the string, call and array support tracked in
 - [x] nullc.null can compile test programs (Phase 3) — same file, emitting
   `bootstrap/program.ir` and running it in-process
 - [x] nullc.null can compile itself (Phase 4) — `bench/selfhost_check.sh`
-- [x] Output is bit-for-bit identical across generations (Phase 4) — 12,854 rows,
-  260,961 bytes identical between `nullc.null` and the emitter stage
+- [x] Output is bit-for-bit identical across generations (Phase 4) — 13,241 rows,
+  269,109 bytes identical between `nullc.null` and the emitter stage, with no
+  unsupported rows
 - [ ] Zero Python/TypeScript in compilation pipeline (Phase 4) — the stages are
   Null, but they run on the host VM; a native `nullc` binary needs the gaps in
   `bootstrap_stage5_native_backend.md`

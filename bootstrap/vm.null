@@ -90,6 +90,34 @@ fn looks_numeric(text: Text) -> Bool {
     return ok;
 }
 
+// Decode the string-literal escapes the emitter writes (see ir_escape there).
+fn ir_unescape(text: Text) -> Text {
+    let out = "";
+    let i = 0;
+    while i < LEN(text) {
+        let ch = CHAR_AT(text, i);
+        if ch == "\\" {
+            i = i + 1;
+            if i < LEN(text) {
+                let esc = CHAR_AT(text, i);
+                if esc == "n" {
+                    out = out + "\n";
+                } else {
+                    if esc == "t" {
+                        out = out + "\t";
+                    } else {
+                        out = out + esc;
+                    }
+                }
+            }
+        } else {
+            out = out + ch;
+        }
+        i = i + 1;
+    }
+    return out;
+}
+
 fn const_value(text: Text) {
     if text == "true" {
         return true;
@@ -103,7 +131,7 @@ fn const_value(text: Text) {
     if looks_numeric(text) {
         return TO_NUMBER(text);
     }
-    return text;
+    return ir_unescape(text);
 }
 
 // meta is a space separated list of "key=value" entries.
@@ -412,10 +440,36 @@ fn run(rows) {
                 if name == "CONCAT" {
                     name = "concat";
                 }
+                if name == "CHAR_AT" {
+                    name = "char_at";
+                }
+                if name == "ORD" {
+                    name = "ord";
+                }
+                if name == "READ_FILE" {
+                    name = "read_file";
+                }
                 if name == "len" {
                     let v = stack[LEN(stack) - 1];
                     stack = drop_last(stack);
                     stack = APPEND(stack, LEN(v));
+                }
+                if name == "char_at" {
+                    let idx = stack[LEN(stack) - 1];
+                    stack = drop_last(stack);
+                    let text = stack[LEN(stack) - 1];
+                    stack = drop_last(stack);
+                    stack = APPEND(stack, SUBSTR(TO_STRING(text), idx, idx + 1));
+                }
+                if name == "ord" {
+                    let text = stack[LEN(stack) - 1];
+                    stack = drop_last(stack);
+                    stack = APPEND(stack, ORD(TO_STRING(text)));
+                }
+                if name == "read_file" {
+                    let path = stack[LEN(stack) - 1];
+                    stack = drop_last(stack);
+                    stack = APPEND(stack, READ_FILE(TO_STRING(path)));
                 }
                 if name == "mod" {
                     let b = stack[LEN(stack) - 1];
@@ -499,6 +553,15 @@ fn run(rows) {
                     is_builtin = true;
                 }
                 if name == "concat" {
+                    is_builtin = true;
+                }
+                if name == "char_at" {
+                    is_builtin = true;
+                }
+                if name == "ord" {
+                    is_builtin = true;
+                }
+                if name == "read_file" {
                     is_builtin = true;
                 }
                 if name == "__range__" {

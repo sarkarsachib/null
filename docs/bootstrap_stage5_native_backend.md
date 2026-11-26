@@ -138,8 +138,10 @@ that `MOD 2^k` never emits `idiv`, that a Null source program using `a[i] = x`
 compiles through the emitter and prints the written value, that `APPEND` grows a
 ten-element array from capacity zero, that an out-of-bounds write traps with
 exit 3, that a call after a `println` still returns the callee's value
-(parameters bound, promoted registers never live across a call), and that an
-unhonourable opcode is both reported and trapped. `tests/bootstrap` also covers
+(parameters bound, promoted registers never live across a call), that the string
+runtime prints the VM's exact output for literals, `LEN`, `+`, `==`/`!=`,
+`CHAR_AT`, `ORD` and `READ_FILE` (`test_source_string_runtime_matches_the_vm`),
+and that an unhonourable opcode is both reported and trapped. `tests/bootstrap` also covers
 the language-level `&&`/`||` opcodes (26/27), which previously compiled to
 nothing at all.
 
@@ -164,6 +166,18 @@ nothing at all.
   `a[i] = x` lowers to `set_index` followed by `STORE a`: the store is a no-op
   in this backend, which mutates in place, and is what makes the write visible
   to a runtime with immutable arrays (the bootstrap VM).
+- Strings are NUL-terminated byte pointers with a small runtime: `null_str_len`,
+  `null_str_eq`, `null_str_concat`, `null_str_char_at`, `null_str_ord`,
+  `null_read_file`. Literals travel through the IR escaped (`ir_escape` in the
+  emitter, `ir_unescape` in the VM and here), so quotes, backslashes, tabs and
+  newlines survive a row; op 1 decodes into the `.rodata` pool, and `gas_literal`
+  re-escapes for `.asciz`. Lowering is type-directed: `len`/`+`/`==`/`!=` pick the
+  string runtime when both operands are `str`. Missing: `SUBSTR`, `SPLIT`,
+  `JOIN`, `TO_STRING` (int to text), `WRITE_FILE`.
+- No aggregate typing: an index load (`arr[i]`) and a call result are both typed
+  `int`, so a stage that keeps strings in arrays (every `scan_*` in
+  `bootstrap/lexer.null` returns `[text, pos]`) cannot be compiled natively yet.
+  Booleans print as `1`/`0` here and `true`/`false` in the VM.
 - Calls bind up to six integer arguments into the callee's parameter slots. A
   local `let regs` in the function-definition handler used to overwrite the
   allocator's promoted-register table (`let` is function-scoped in this

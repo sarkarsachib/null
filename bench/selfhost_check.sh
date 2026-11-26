@@ -53,7 +53,16 @@ if ! cmp -s "$linked_ir" "$staged_ir"; then
     exit 1
 fi
 
+# Identical is not enough: the emitter must not have bailed on a statement.
+# (Match the marker rows, not the emitter's own "unsupported:" string literal.)
+markers=$(grep -cE "unsupported:.*lang.*todo" "$linked_ir" || true)
+if [ "$markers" -ne 0 ]; then
+    echo "FAIL $markers unsupported rows in the compiler's own IR; first few:"
+    grep -nE "unsupported:.*lang.*todo" "$linked_ir" | head -5
+    exit 1
+fi
+
 rows=$(wc -l <"$linked_ir")
 bytes=$(wc -c <"$linked_ir")
-echo "PASS identical IR: ${rows} rows, ${bytes} bytes"
+echo "PASS identical IR: ${rows} rows, ${bytes} bytes, no unsupported rows"
 echo "     nullc ${linked_ms} ms, emitter ${staged_ms} ms (host VM, this machine)"
