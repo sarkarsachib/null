@@ -1,6 +1,6 @@
 # Null benchmark results
 
-- timestamp: `2026-11-26T12:45:14Z`
+- timestamp: `2026-11-26T12:55:22Z`
 - machine: `Linux 4.19.0-gvisor` (2 cores, unknown)
 - cpu flags: `fma,sse4_2,avx2`
 - runs per configuration: 5 (median reported)
@@ -10,6 +10,6 @@
 
 | workload | Null native | C -O3 | C/Null | Null RSS | C RSS |
 | --- | --- | --- | --- | --- | --- |
-| `sum_loop` | 8.4 | 33.5 | 3.99x | 2784 | 3888 |
-| `comprehension` | 16.9 | 12.6 | 0.75x | 3260 | 3444 |
-| `array_map` | 218.0 | 156.2 | 0.72x | 128356 | 128952 |
+| `sum_loop` | 9.6 | 31.2 | 3.25x | 3072 | 4484 |
+| `comprehension` | 8.2 | 15.6 | 1.90x | 2348 | 4536 |
+| `array_map` | 232.7 | 168.2 | 0.72x | 128764 | 128752 |

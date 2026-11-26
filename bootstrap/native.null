@@ -1320,6 +1320,194 @@ fn fast_vec_reduce(rows, i, regs, slot_names) -> Array {
     ];
 }
 
+// Filtered square reduction: `while iv <cmp> n { if ((iv / c) * c == iv)
+// { acc = acc + iv * iv }; iv = iv + 1 }` with c a power of two and iv, n, acc all
+// in promoted registers. Eight lanes per pass: two iota vectors hold iv..iv+7 (the
+// second is iota + 4 per lane, so no two lanes coincide), each
+// lane is squared with the AVX2 3-multiply sequence, lanes whose low bits are non-zero
+// are masked out with vpcmpeqq, and the survivors accumulate. The original scalar
+// loop is re-emitted as the tail, so any trip count and any remainder stay exact.
+fn fast_vec_filtered_square(rows, i, regs, slot_names) -> Array {
+    if i + 29 >= LEN(rows) {
+        return [];
+    }
+    let k = 0;
+    let span = [];
+    while k < 30 {
+        span = APPEND(span, rows[i + k]);
+        k = k + 1;
+    }
+    k = 0;
+    while k < 30 {
+        if LEN(span[k]) < 2 {
+            return [];
+        }
+        k = k + 1;
+    }
+    if span[0][0] != "LABEL" || span[29][0] != "LABEL" {
+        return [];
+    }
+    if span[22][0] != "LABEL" || span[23][0] != "LABEL" {
+        return [];
+    }
+    if LEN(span[1]) < 3 || LEN(span[5]) < 3 || LEN(span[7]) < 3 || LEN(span[9]) < 3 {
+        return [];
+    }
+    if LEN(span[15]) < 3 || LEN(span[17]) < 3 || LEN(span[20]) < 3 || LEN(span[28]) < 3 {
+        return [];
+    }
+    // LOAD iv; LOAD n; compare; JUMP_IF_FALSE exit
+    if span[1][1] != 2 || span[2][1] != 2 || span[4][1] != 40 {
+        return [];
+    }
+    let is_lt = span[3][1] == 21 || span[3][1] == 102;
+    let is_le = span[3][1] == 25 || span[3][1] == 103;
+    if is_lt == false && is_le == false {
+        return [];
+    }
+    // LOAD iv; LOAD iv; LOAD c; DIV; LOAD c; MUL; SUB; LOAD 0; EQ; JIF else
+    if span[5][1] != 2 || span[6][1] != 2 || span[7][1] != 1 || span[8][1] != 13 {
+        return [];
+    }
+    if span[9][1] != 1 || span[10][1] != 12 || span[11][1] != 11 || span[12][1] != 1 {
+        return [];
+    }
+    if span[13][1] != 22 || span[14][1] != 40 {
+        return [];
+    }
+    // LOAD acc; LOAD iv; LOAD iv; MUL; ADD; STORE acc; JUMP end-of-block
+    if span[15][1] != 2 || span[16][1] != 2 || span[17][1] != 2 || span[18][1] != 12 {
+        return [];
+    }
+    if span[19][1] != 100 && span[19][1] != 10 {
+        return [];
+    }
+    if span[20][1] != 3 || span[21][1] != 41 {
+        return [];
+    }
+    // LOAD iv; LOAD 1; ADD; STORE iv; JUMP loop
+    if span[24][1] != 2 || span[25][1] != 1 || span[27][1] != 3 || span[28][1] != 41 {
+        return [];
+    }
+    if span[26][1] != 100 && span[26][1] != 10 {
+        return [];
+    }
+    if span[25][2] != "1" {
+        return [];
+    }
+    // every operand must be the same variable the shape says it is
+    if span[6][2] != span[1][2] || span[16][2] != span[1][2] || span[17][2] != span[1][2] {
+        return [];
+    }
+    if span[24][2] != span[1][2] || span[7][2] != span[9][2] {
+        return [];
+    }
+    if span[15][2] != span[20][2] {
+        return [];
+    }
+    if span[4][2] != span[29][1] || span[14][2] != span[22][1] || span[21][2] != span[23][1] {
+        return [];
+    }
+    if span[28][2] != span[0][1] {
+        return [];
+    }
+    // c must be a power of two >= 2, so divisibility is a bit test
+    let cnum = TO_NUMBER(span[7][2]);
+    if cnum < 2 {
+        return [];
+    }
+    let step = cnum;
+    while step > 1 {
+        if step - (step / 2) * 2 != 0 {
+            return [];
+        }
+        step = step / 2;
+    }
+    let iv = reg_of(span[1][2], regs, slot_names);
+    let nn = reg_of(span[2][2], regs, slot_names);
+    let acc = reg_of(span[15][2], regs, slot_names);
+    if iv == "" || nn == "" || acc == "" {
+        return [];
+    }
+    if acc == iv || acc == nn || iv == nn {
+        return [];
+    }
+    let lbl = span[0][1];
+    let skip = ".L" + lbl + "_fsk";
+    let done = "  jg .L" + lbl + "_fvt";
+    let exit_cc = "  jg .L" + span[4][2];
+    if is_lt {
+        done = "  jge .L" + lbl + "_fvt";
+        exit_cc = "  jge .L" + span[4][2];
+    }
+    let mask = TO_STRING(cnum - 1);
+    // one lane block: square ymmX in place into ymm8, mask by (v & (c-1)) == 0
+    let body = [
+        "  vmovq xmm0, " + iv,
+        "  vpbroadcastq ymm5, xmm0",
+        "  vpaddq ymm1, ymm5, ymmword ptr [rip + .Liota0]",
+        "  vpaddq ymm2, ymm5, ymmword ptr [rip + .Liota0]",
+        "  vpaddq ymm2, ymm2, ymmword ptr [rip + .Lfour]",
+        "  vpxor ymm3, ymm3, ymm3",
+        "  vpxor ymm4, ymm4, ymm4",
+        "  vpxor ymm7, ymm7, ymm7",
+        "  mov rax, " + mask,
+        "  vmovq xmm0, rax",
+        "  vpbroadcastq ymm6, xmm0",
+        ".L" + lbl + "_fv:",
+        "  lea rdx, [" + iv + " + 8]",
+        "  cmp rdx, " + nn,
+        done,
+    ];
+    let lane = 1;
+    while lane < 3 {
+        let vec = "ymm1";
+        let tgt = "ymm3";
+        if lane == 2 {
+            vec = "ymm2";
+            tgt = "ymm4";
+        }
+        body = APPEND(body, "  vpsrlq ymm8, " + vec + ", 32");
+        body = APPEND(body, "  vpmuludq ymm9, " + vec + ", " + vec);
+        body = APPEND(body, "  vpmuludq ymm8, ymm8, " + vec);
+        body = APPEND(body, "  vpaddq ymm8, ymm8, ymm8");
+        body = APPEND(body, "  vpsllq ymm8, ymm8, 32");
+        body = APPEND(body, "  vpaddq ymm8, ymm9, ymm8");
+        body = APPEND(body, "  vpand ymm10, " + vec + ", ymm6");
+        body = APPEND(body, "  vpcmpeqq ymm10, ymm10, ymm7");
+        body = APPEND(body, "  vpand ymm8, ymm8, ymm10");
+        body = APPEND(body, "  vpaddq " + tgt + ", " + tgt + ", ymm8");
+        lane = lane + 1;
+    }
+    body = APPEND(body, "  vpaddq ymm1, ymm1, ymmword ptr [rip + .Leight]");
+    body = APPEND(body, "  vpaddq ymm2, ymm2, ymmword ptr [rip + .Leight]");
+    body = APPEND(body, "  add " + iv + ", 8");
+    body = APPEND(body, "  jmp .L" + lbl + "_fv");
+    body = APPEND(body, ".L" + lbl + "_fvt:");
+    body = APPEND(body, "  vpaddq ymm3, ymm3, ymm4");
+    body = APPEND(body, "  vextracti128 xmm0, ymm3, 1");
+    body = APPEND(body, "  vpaddq xmm0, xmm0, xmm3");
+    body = APPEND(body, "  vpsrldq xmm1, xmm0, 8");
+    body = APPEND(body, "  vpaddq xmm0, xmm0, xmm1");
+    body = APPEND(body, "  vmovq rax, xmm0");
+    body = APPEND(body, "  add " + acc + ", rax");
+    body = APPEND(body, "  vzeroupper");
+    // scalar tail: the same loop the emitter would have produced
+    body = APPEND(body, ".L" + lbl + ":");
+    body = APPEND(body, "  cmp " + iv + ", " + nn);
+    body = APPEND(body, exit_cc);
+    body = APPEND(body, "  mov rax, " + iv);
+    body = APPEND(body, "  and rax, " + mask);
+    body = APPEND(body, "  jne " + skip);
+    body = APPEND(body, "  mov rax, " + iv);
+    body = APPEND(body, "  imul rax, rax");
+    body = APPEND(body, "  add " + acc + ", rax");
+    body = APPEND(body, skip + ":");
+    body = APPEND(body, "  add " + iv + ", 1");
+    body = APPEND(body, "  jmp .L" + lbl);
+    return body;
+}
+
 fn compile(rows) -> Array {
     let out = [
         ".intel_syntax noprefix",
@@ -1399,6 +1587,17 @@ fn compile(rows) -> Array {
     while i < LEN(rows) {
         let row = rows[i];
         if row[0] == "LABEL" {
+            let fastf = fast_vec_filtered_square(rows, i, regs, slot_names);
+            if LEN(fastf) > 0 {
+                let fi = 0;
+                while fi < LEN(fastf) {
+                    out = APPEND(out, fastf[fi]);
+                    fi = fi + 1;
+                }
+                report = APPEND(report, "VECTORIZED filtered-square-loop " + row[1] + " 8-wide-avx2");
+                i = i + 29;
+                continue;
+            }
             let fastv = fast_vec_reduce(rows, i, regs, slot_names);
             if LEN(fastv) > 0 {
                 let vi = 0;

@@ -119,7 +119,7 @@ once through the stage-5 native backend and once as a C baseline built with
   stage-3 emitter lowers a 7-statement program and the full `sum_loop` source in
   ~0.73 s of wall time. Earlier notes that claimed it needed minutes were wrong.
 
-### 6.2 Measured result (stage 5, 2026-11-26T12:45Z)
+### 6.2 Measured result (stage 5, 2026-11-26T12:52Z)
 
 Machine: Linux 4.19.0-gvisor, 2 shared cores, AVX2/FMA, CPU model not exposed.
 Workloads: `sum_loop` (sum 1..1e8), `comprehension` (sum of even squares 1..2e7),
@@ -129,9 +129,9 @@ to its C baseline, so each comparison is semantics-equal.
 
 | workload | Null native | C `-O3` | C/Null | Null RSS | C RSS |
 | --- | --- | --- | --- | --- | --- |
-| `sum_loop` | 8.4 ms | 33.5 ms | **3.99x** | 2784 KiB | 3888 KiB |
-| `comprehension` | 16.9 ms | 12.6 ms | 0.75x | 3260 KiB | 3444 KiB |
-| `array_map` | 218.0 ms | 156.2 ms | 0.72x | 128356 KiB | 128952 KiB |
+| `sum_loop` | 9.6 ms | 31.2 ms | **3.25x** | 3072 KiB | 4484 KiB |
+| `comprehension` | 8.2 ms | 15.6 ms | **1.90x** | 2348 KiB | 4536 KiB |
+| `array_map` | 232.7 ms | 168.2 ms | 0.72x | 128764 KiB | 128752 KiB |
 
 Absolute times on this host move by up to ~20% between runs (the two cores are
 shared and the C baseline moves with them), so the ratio against the same run's
@@ -142,11 +142,11 @@ All three binaries are built from `.null` sources by the self-hosted pipeline
 `bootstrap/native.null` → asm), except `array_map`, which is hand-written IR for
 the reason given in 6.3.
 
-**Verdict: the 10x target is not demonstrated.** Null is now ~4x *faster* than
-C `-O3` on the reduction loop, 25% behind on the filtered reduction, and 28%
-behind on the array kernel. Every remaining gap is C's auto-vectoriser on a loop
-shape this backend does not yet recognise a vector form for; the reduction loop
-is ahead precisely because the backend now does recognise it.
+**Verdict: the 10x target is not demonstrated.** Both reductions are now faster
+than `cc -O3` — 3.25x on the counting loop and 1.90x on the filtered square sum —
+and the array kernel is 28% behind, which is now the only workload where C's
+auto-vectoriser still wins. The gap closes exactly where the backend recognises a
+vector form: `array_map` is the one shape with no such form yet.
 
 What closed the gap. The first three rows were recorded with the old in-shell
 sampler, which added roughly a constant ~10 ms to a short workload whichever
@@ -160,6 +160,7 @@ side it measured; they are kept for the trend, and the last two rows use
 | IR-level instruction selection: register-to-register arithmetic, fused compare+branch, fused `c = c + a*b`, `x MOD 2^k == 0` lowered to `test`/`jne` | 61 ms | 44-65 ms |
 | strength reduction of the emitted `x - (x / 2^k) * 2^k == 0` idiom to `test x, 2^k-1` (kills the last `idiv`) | 61 ms | 15-18 ms |
 | 8-wide AVX2 reduction loop: two 4-lane i64 accumulators, constant iota vector advanced by 8, horizontal sum, original scalar loop kept as the tail | **10.6 ms** | — |
+| filtered square reduction: two iota windows per pass (second is iota+4, so no two lanes coincide), AVX2 64-bit square, `vpcmpeqq` lane mask for divisibility by a power of two, masked accumulate into two 4-lane accumulators | — | **8.2 ms** |
 
 The array kernels are now strictly AVX2. `SIMD_MUL` used to emit `vpmullq`,
 which is AVX512DQ+VL — it worked here only because the emulated CPU behind this
@@ -173,11 +174,10 @@ The generated `sum_loop` loop is now three vector instructions per eight
 iterations plus `lea`/`cmp`/`jg`/`add`/`jmp`; `comprehension` is `cmp`/`jg`,
 `test`/`jne`, `mov`/`imul`/`add`, with no stack traffic and no division.
 
-Next levers, in order of expected payoff: the same vector lowering for the
-filtered/multiplied reduction shape (`comprehension`), a fused array-map kernel
-that reads both operands in one pass (110-113 need captured lambdas in the IR),
-and loop unrolling by two for the vector body. The first two need the front end
-to emit the fused opcodes it currently expands by hand.
+Next levers, in order of expected payoff: a vector form for the array kernel
+(`array_map`: `acc += a[i]*k + b[i]`, the last scalar loop), a fused array-map
+opcode (110-113 need captured lambdas in the IR), and loop unrolling by two for
+the vector bodies.
 
 ### 6.3 Not yet measurable
 
@@ -192,11 +192,14 @@ to emit the fused opcodes it currently expands by hand.
   `null_unsupported` (exit 4) instead of silently doing something slower.
 - `SIMD_SUM` (122) lowers to a real AVX2 horizontal reduction and
   `array_map` drives it.
-- Vectorisation is pattern-driven, not a general vectoriser: only the canonical
-  counting loop `while iv <op> n { acc += iv; iv += 1 }` with all three values in
-  registers gets the 8-wide body, and only `x MOD 2^k` (in either spelling) gets
-  a bit test. A loop with a filter, a multiply, or a non-unit stride stays
-  scalar.
+- Vectorisation is pattern-driven, not a general vectoriser. Two loop shapes
+  currently have a vector form: the canonical counting reduction
+  (`while iv <op> n { acc += iv; iv += 1 }`) and the filtered square reduction
+  (`if ((iv / c) * c == iv) { acc += iv * iv }`, c a power of two), both requiring
+  the induction variable, bound and accumulator to be in promoted registers. Only
+  `x MOD 2^k` (in either spelling) becomes a bit test. A loop with a non-unit
+  stride, a non-power-of-two divisor, a different body, or a second accumulator
+  stays scalar.
 
 Status for the workloads above: **measured, target not met.** Status for the
 rest: **targeted, not yet demonstrated.**

@@ -112,19 +112,20 @@ def test_array_workload_uses_index_store_and_array_zero(tmp_path, monkeypatch):
 
 def test_modulo_by_power_of_two_becomes_a_bit_test(tmp_path, monkeypatch):
     # The emitter spells `x % 2 == 0` as `x - (x / 2) * 2 == 0`, because `%` is
-    # not a lexer token yet; the backend still recognises it as a bit test.
-    ir = (ROOT / "bench" / "ir" / "comprehension.ir").read_text()
-    workdir, _ = _run_backend(tmp_path, monkeypatch, ir)
+    # not a lexer token yet; the backend recognises it as a bit test even when the
+    # loop has no vector form (the comprehension loop is vectorised instead).
+    workdir, _ = _run_backend(tmp_path, monkeypatch, _filtered_sum_ir(2000))
 
     asm = (workdir / "bootstrap" / "program.s").read_text()
     report = (workdir / "bootstrap" / "backend.report").read_text()
     assert "idiv" not in asm
     assert re.search(r"^  test r\d+, 1$", asm, re.M)
     assert "pow2-branch" in report
+    assert "VECTORIZED filtered-square-loop" not in report
 
-    exe = _build(workdir, "comprehension")
+    exe = _build(workdir, "mod_pow2")
     run = subprocess.run([str(exe)], capture_output=True, text=True, check=True)
-    assert run.stdout.strip() == "5167960026252283648"
+    assert run.stdout.strip() == str(sum(x for x in range(2, 2001, 2)))
 
 
 def _reduction_ir(n: int, cmp_opcode: int) -> str:
@@ -190,6 +191,138 @@ def test_reduction_vector_tail_is_exact(tmp_path, monkeypatch, n, expected):
     exe = _build(workdir, f"reduce_{n}")
     run = subprocess.run([str(exe)], capture_output=True, text=True, check=True)
     assert run.stdout.strip() == expected
+
+
+def _filtered_square_ir(n, cmp_op=25):
+    """`total = 0; x = 1; while x <cmp_op> n { if x - (x/2)*2 == 0 { total = total + x*x }; x = x + 1 }`
+
+    Same row shape bootstrap/emitter.null produces for the comprehension workload.
+    """
+    return (
+        f"IR\t1\t{n}\tscalar\n"
+        "IR\t3\tn\tscalar\n"
+        "IR\t1\t0\tscalar\n"
+        "IR\t3\ttotal\tscalar\n"
+        "IR\t1\t1\tscalar\n"
+        "IR\t3\tx\tscalar\n"
+        "LABEL\tL_s3_start\n"
+        "IR\t2\tx\tscalar\n"
+        "IR\t2\tn\tscalar\n"
+        f"IR\t{cmp_op}\t\tscalar\n"
+        "IR\t40\tL_s3_end\tcontrol\n"
+        "IR\t2\tx\tscalar\n"
+        "IR\t2\tx\tscalar\n"
+        "IR\t1\t2\tscalar\n"
+        "IR\t13\t\tscalar\n"
+        "IR\t1\t2\tscalar\n"
+        "IR\t12\t\tscalar\n"
+        "IR\t11\t\tscalar\n"
+        "IR\t1\t0\tscalar\n"
+        "IR\t22\t\tscalar\n"
+        "IR\t40\tL_s3.b.0_else\tcontrol\n"
+        "IR\t2\ttotal\tscalar\n"
+        "IR\t2\tx\tscalar\n"
+        "IR\t2\tx\tscalar\n"
+        "IR\t12\t\tscalar\n"
+        "IR\t10\t\tscalar\n"
+        "IR\t3\ttotal\tscalar\n"
+        "IR\t41\tL_s3.b.0_end\tcontrol\n"
+        "LABEL\tL_s3.b.0_else\n"
+        "LABEL\tL_s3.b.0_end\n"
+        "IR\t2\tx\tscalar\n"
+        "IR\t1\t1\tscalar\n"
+        "IR\t10\t\tscalar\n"
+        "IR\t3\tx\tscalar\n"
+        "IR\t41\tL_s3_start\tcontrol\n"
+        "LABEL\tL_s3_end\n"
+        "IR\t2\ttotal\tscalar\n"
+        "IR\t30\t\tscalar\n"
+        "IR\t255\tHALT\tscalar\n"
+    )
+
+
+def _filtered_sum_ir(n, cmp_op=25):
+    """`while x <cmp_op> n { if x - (x/2)*2 == 0 { total = total + x }; x = x + 1 }`.
+
+    Same filter as the comprehension workload but a plain accumulate body, which
+    the vector pass does not handle, so the `test`/`jne` lowering is what is left.
+    """
+    return (
+        f"IR\t1\t{n}\tscalar\n"
+        "IR\t3\tn\tscalar\n"
+        "IR\t1\t0\tscalar\n"
+        "IR\t3\ttotal\tscalar\n"
+        "IR\t1\t1\tscalar\n"
+        "IR\t3\tx\tscalar\n"
+        "LABEL\tL_s3_start\n"
+        "IR\t2\tx\tscalar\n"
+        "IR\t2\tn\tscalar\n"
+        f"IR\t{cmp_op}\t\tscalar\n"
+        "IR\t40\tL_s3_end\tcontrol\n"
+        "IR\t2\tx\tscalar\n"
+        "IR\t2\tx\tscalar\n"
+        "IR\t1\t2\tscalar\n"
+        "IR\t13\t\tscalar\n"
+        "IR\t1\t2\tscalar\n"
+        "IR\t12\t\tscalar\n"
+        "IR\t11\t\tscalar\n"
+        "IR\t1\t0\tscalar\n"
+        "IR\t22\t\tscalar\n"
+        "IR\t40\tL_s3.b.0_else\tcontrol\n"
+        "IR\t2\ttotal\tscalar\n"
+        "IR\t2\tx\tscalar\n"
+        "IR\t10\t\tscalar\n"
+        "IR\t3\ttotal\tscalar\n"
+        "IR\t41\tL_s3.b.0_end\tcontrol\n"
+        "LABEL\tL_s3.b.0_else\n"
+        "LABEL\tL_s3.b.0_end\n"
+        "IR\t2\tx\tscalar\n"
+        "IR\t1\t1\tscalar\n"
+        "IR\t10\t\tscalar\n"
+        "IR\t3\tx\tscalar\n"
+        "IR\t41\tL_s3_start\tcontrol\n"
+        "LABEL\tL_s3_end\n"
+        "IR\t2\ttotal\tscalar\n"
+        "IR\t30\t\tscalar\n"
+        "IR\t255\tHALT\tscalar\n"
+    )
+
+
+def test_filtered_reduction_is_vectorised(tmp_path, monkeypatch):
+    ir = (ROOT / "bench" / "ir" / "comprehension.ir").read_text()
+    workdir, _ = _run_backend(tmp_path, monkeypatch, ir)
+
+    asm = (workdir / "bootstrap" / "program.s").read_text()
+    report = (workdir / "bootstrap" / "backend.report").read_text()
+    assert "VECTORIZED filtered-square-loop" in report
+    # lane parity is a compare against zero after masking, and the second window is
+    # iota + 4 per lane so no two lanes hold the same value
+    assert "vpcmpeqq" in asm
+    assert asm.count("vpmuludq") >= 4
+    # the scalar tail still runs (and still skips odd values with a bit test)
+    assert "and rax, 1" in asm
+
+    exe = _build(workdir, "comprehension_vec")
+    run = subprocess.run([str(exe)], capture_output=True, text=True, check=True)
+    assert run.stdout.strip() == str(sum(x * x for x in range(2, 20000001, 2)) % 2**64)
+
+
+@pytest.mark.parametrize(
+    "n, cmp_op, expected",
+    [
+        (5, 25, 4 + 16),            # tail only
+        (8, 25, 4 + 16 + 36 + 64),  # exactly one vector window
+        (9, 25, 4 + 16 + 36 + 64),  # one window + an odd tail iteration
+        (13, 25, 4 + 16 + 36 + 64 + 100 + 144),  # one window + 5 tail iterations
+        (21, 25, sum(x * x for x in range(2, 22, 2))),  # two windows + tail
+        (16, 21, sum(x * x for x in range(2, 15, 2))),  # `<` form: x stops at n-1
+    ],
+)
+def test_filtered_reduction_tail_is_exact(tmp_path, monkeypatch, n, cmp_op, expected):
+    workdir, _ = _run_backend(tmp_path, monkeypatch, _filtered_square_ir(n, cmp_op))
+    exe = _build(workdir, f"filtered_{n}_{cmp_op}")
+    run = subprocess.run([str(exe)], capture_output=True, text=True, check=True)
+    assert run.stdout.strip() == str(expected)
 
 
 def test_logical_and_or_evaluate_both_operands():

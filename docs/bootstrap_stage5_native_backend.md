@@ -43,6 +43,13 @@ invent an encoding of its own.
   count below eight, or a remainder, is exact. `<` and `<=` are both handled; the
   `iv + 8` guard is a `lea`/`cmp`/`jg`, and the pointer arithmetic wraps rather
   than trapping at the top of the range.
+- **Filtered reductions too.** The same 8-lane window vectorises when the body is
+  a masked square sum: divisibility by a power of two becomes
+  `vpand`/`vpcmpeqq` lane masks, each lane is squared with the AVX2 3-multiply
+  sequence, and only the surviving lanes accumulate. The second iota vector is
+  `iota + 4` per lane rather than a broadcast, because the sum of a broadcast
+  window is not a permutation of the window. The scalar tail is re-emitted
+  unchanged.
 - **Instruction selection over IR rows.** Before the per-token handlers run, five
   windows are matched and replaced whole: `LOAD a; LOAD b; arith; STORE c`
   becomes `add c, b` (or `mov`/`imul`/`mov` when the destination differs),
@@ -119,7 +126,9 @@ and the instruction-selection forms appear in the assembly (`add r13, r12`,
 `cmp r12, r14`/`jge`, `test r12, 1`, `call null_array_zero`, the unchecked index
 store), that the reduction loop becomes the AVX2 body (`vpbroadcastq`/`vpaddq`)
 and still prints the exact result, that the vector tail is exact for trip counts
-of 5, 8, 13 and 21, that the generated binaries print the C baselines' exact
+of 5, 8, 13 and 21, that the filtered square reduction is vectorised
+(`vpcmpeqq` lane masks) with exact results for both `<` and `<=` and for windows
+that do not divide evenly, that the generated binaries print the C baselines' exact
 results for `comprehension` and `array_map`, that `MOD 2^k` never emits `idiv`,
 and that an unhonourable opcode is both reported and trapped. `tests/bootstrap` also covers
 the language-level `&&`/`||` opcodes (26/27), which previously compiled to
@@ -127,11 +136,11 @@ nothing at all.
 
 ## Known gaps
 
-- Vectorisation is one pattern, not a vectoriser. Only the canonical counting
-  reduction (`acc += iv`) gets the 8-wide body; `comprehension` (filter plus
-  multiply) and `array_map` stay scalar inside their loops, which is why those
-  two are 24-26% behind C `-O3` (see §6.2 of the contract). Nothing is unrolled
-  yet.
+- Vectorisation is two patterns, not a vectoriser: the counting reduction
+  (`acc += iv`) and the filtered square reduction
+  (`if ((iv / c) * c == iv) { acc += iv * iv }`, c a power of two). `array_map`
+  stays scalar inside its loop and is the one workload still behind C `-O3`
+  (28%: see §6.2 of the contract). Nothing is unrolled yet.
 - Register promotion is frequency-based, not a real allocation (no liveness or
   interference), and is disabled for programs with functions.
 - There is no growable array opcode (106 traps), so arrays must be pre-sized with
