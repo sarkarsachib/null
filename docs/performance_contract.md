@@ -119,7 +119,7 @@ once through the stage-5 native backend and once as a C baseline built with
   stage-3 emitter lowers a 7-statement program and the full `sum_loop` source in
   ~0.73 s of wall time. Earlier notes that claimed it needed minutes were wrong.
 
-### 6.2 Measured result (stage 5, 2026-11-26T12:19Z)
+### 6.2 Measured result (stage 5, 2026-11-26T12:45Z)
 
 Machine: Linux 4.19.0-gvisor, 2 shared cores, AVX2/FMA, CPU model not exposed.
 Workloads: `sum_loop` (sum 1..1e8), `comprehension` (sum of even squares 1..2e7),
@@ -129,17 +129,21 @@ to its C baseline, so each comparison is semantics-equal.
 
 | workload | Null native | C `-O3` | C/Null | Null RSS | C RSS |
 | --- | --- | --- | --- | --- | --- |
-| `sum_loop` | 10.6 ms | 44.5 ms | **4.20x** | 3024 KiB | 4420 KiB |
-| `comprehension` | 18.0 ms | 13.6 ms | 0.76x | 2276 KiB | 3964 KiB |
-| `array_map` | 235.1 ms | 174.7 ms | 0.74x | 127872 KiB | 127872 KiB |
+| `sum_loop` | 8.4 ms | 33.5 ms | **3.99x** | 2784 KiB | 3888 KiB |
+| `comprehension` | 16.9 ms | 12.6 ms | 0.75x | 3260 KiB | 3444 KiB |
+| `array_map` | 218.0 ms | 156.2 ms | 0.72x | 128356 KiB | 128952 KiB |
+
+Absolute times on this host move by up to ~20% between runs (the two cores are
+shared and the C baseline moves with them), so the ratio against the same run's
+baseline is the number to read, not the millisecond column.
 
 All three binaries are built from `.null` sources by the self-hosted pipeline
 (`bench/workloads/*.null` → `bootstrap/emitter.null` → `bench/ir/*.ir` →
 `bootstrap/native.null` → asm), except `array_map`, which is hand-written IR for
 the reason given in 6.3.
 
-**Verdict: the 10x target is not demonstrated.** Null is now 4.2x *faster* than
-C `-O3` on the reduction loop, 24% behind on the filtered reduction, and 26%
+**Verdict: the 10x target is not demonstrated.** Null is now ~4x *faster* than
+C `-O3` on the reduction loop, 25% behind on the filtered reduction, and 28%
 behind on the array kernel. Every remaining gap is C's auto-vectoriser on a loop
 shape this backend does not yet recognise a vector form for; the reduction loop
 is ahead precisely because the backend now does recognise it.
@@ -156,6 +160,14 @@ side it measured; they are kept for the trend, and the last two rows use
 | IR-level instruction selection: register-to-register arithmetic, fused compare+branch, fused `c = c + a*b`, `x MOD 2^k == 0` lowered to `test`/`jne` | 61 ms | 44-65 ms |
 | strength reduction of the emitted `x - (x / 2^k) * 2^k == 0` idiom to `test x, 2^k-1` (kills the last `idiv`) | 61 ms | 15-18 ms |
 | 8-wide AVX2 reduction loop: two 4-lane i64 accumulators, constant iota vector advanced by 8, horizontal sum, original scalar loop kept as the tail | **10.6 ms** | — |
+
+The array kernels are now strictly AVX2. `SIMD_MUL` used to emit `vpmullq`,
+which is AVX512DQ+VL — it worked here only because the emulated CPU behind this
+gVisor host tolerates it, and it would trap on a real AVX2-only machine, so the
+kernel now computes the low 64 bits of each lane product with three `vpmuludq`
+plus shifts and adds. Correctness is unchanged (identical output) and the ratio
+went from 0.74x to 0.72x against a baseline that was itself 11% faster in this
+run, i.e. inside the noise above.
 
 The generated `sum_loop` loop is now three vector instructions per eight
 iterations plus `lea`/`cmp`/`jg`/`add`/`jmp`; `comprehension` is `cmp`/`jg`,

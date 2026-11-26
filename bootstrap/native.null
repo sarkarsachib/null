@@ -1168,7 +1168,15 @@ fn runtime_lines() -> Array {
         "  cmp rdx, r13",
         "  jg .Lsm_tail",
         "  vmovdqu ymm0, ymmword ptr [rbx + rcx * 8 + 8]",
-        "  vpmullq ymm0, ymm0, ymmword ptr [r12 + rcx * 8 + 8]",
+        "  vmovdqu ymm1, ymmword ptr [r12 + rcx * 8 + 8]",
+        "  vpsrlq ymm2, ymm0, 32",
+        "  vpsrlq ymm3, ymm1, 32",
+        "  vpmuludq ymm4, ymm0, ymm1",
+        "  vpmuludq ymm2, ymm2, ymm1",
+        "  vpmuludq ymm3, ymm3, ymm0",
+        "  vpaddq ymm2, ymm2, ymm3",
+        "  vpsllq ymm2, ymm2, 32",
+        "  vpaddq ymm0, ymm4, ymm2",
         "  vmovdqu ymmword ptr [r9 + rcx * 8 + 8], ymm0",
         "  add rcx, 4",
         "  jmp .Lsm_v",
@@ -1918,7 +1926,7 @@ fn compile(rows) -> Array {
                 types = drop_last(types);
                 types = APPEND(types, "arr");
                 sp = sp - 1;
-                report = APPEND(report, "LOWERED 121 simd-mul-avx2-vpmullq");
+                report = APPEND(report, "LOWERED 121 simd-mul-avx2-muludq");
             }
             if op == 113 {
                 out = emit_comprehension(out, report, operand, sp, 4096, slot_names);

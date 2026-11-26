@@ -100,6 +100,10 @@ def test_array_workload_uses_index_store_and_array_zero(tmp_path, monkeypatch):
     assert "mov qword ptr [rcx + rdx * 8 + 8], rax" in asm
     assert "LOWERED 107 fast-array-zero" in report
     assert "LOWERED 105 fast-index-store" in report
+    # 121 SIMD_MUL must stay AVX2: vpmullq is AVX512DQ+VL and traps on an AVX2-only
+    # machine, so the lane product is three vpmuludq plus shifts.
+    assert "vpmullq" not in asm
+    assert "vpmuludq" in asm
 
     exe = _build(workdir, "array_map")
     run = subprocess.run([str(exe)], capture_output=True, text=True, check=True)
