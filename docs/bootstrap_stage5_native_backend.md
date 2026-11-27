@@ -213,19 +213,30 @@ nothing at all.
 - Stage 1 runs natively. `bootstrap/lexer.null` compiles through
   emitter -> backend -> `cc` and tokenises `bootstrap/input.null` identically to
   the VM (44/44 and 1,242/1,242 tokens, pinned by
-  `test_native_stage1_lexer_matches_the_vm`). `bench/selfhost_check.sh` still
-  only covers the VM-hosted fixed point (13,426 rows, 280,860 bytes, identical).
-- `bootstrap/nullc.null` lowers completely: its 13,426 IR rows become 36,871
-  lines of assembly with 2,856 LOWERED ops, **0 FALLBACK**, a maximum operand
-  depth of 73 slots, and `cc` links a 217 KB executable from it. That binary
-  does not yet run correctly: it crashes on every input, including the empty
-  one, because the backend still types *untyped* parameters and locals as `int`.
-  `fn ir_row(token)` is the first example — `token[3]` is then an `int`, so
-  `row + token[3]` becomes an integer add on a pointer and `print` dereferences
-  the result. Executing the compiler natively needs dynamic values (runtime type
-  tags and dispatched `+`/`==`/`LEN`/index), or static annotations on every
-  helper that carries mixed values; that is the remaining gap for a Python-free
-  pipeline.
+  `test_native_stage1_lexer_matches_the_vm`). `bench/selfhost_check.sh` covers
+  the VM-hosted fixed point (13,450 rows, 281,506 bytes, identical).
+- `bootstrap/nullc.null` lowers completely and **runs**: its 13,434 IR rows
+  become 37,707 lines of assembly with 3,098 LOWERED ops, **0 FALLBACK**, and
+  `cc -O0` links a 221 KB executable. That binary compiles
+  `bootstrap/input.null` to IR byte-identical to the VM compiler's, so the
+  native stage is a real compiler, not just something that links.
+- Untyped values are dynamic. `type_norm("")` is `any`, and a parameter with no
+  `types=` entry, a local stored an `any` value, or an empty array literal keeps
+  that type, so `+`, `==`, `LEN`, `print`/`TO_STRING` and index loads dispatch at
+  runtime (`null_dyn_add`, `null_dyn_eq`, `null_dyn_len`, `null_dyn_index`,
+  `null_dyn_print`, `null_dyn_to_string`) instead of assuming `int`. The
+  encoding is top-bit tagging: ints and bools are raw, a string is a pointer
+  with bit 62 set, an array a pointer with bit 63 set; helpers untag their
+  pointer arguments and tag their results. Two consequences worth remembering:
+  the vector fast paths (`fast_vec_array_fill`, `fast_vec_array_axpy`) and
+  `set_index` work on untagged scratch copies, so a promoted array register
+  stays tagged for the code after the loop.
+- String literals keep their escapes across the pipeline. The host parser
+  decoded `\\n`/`\\t` with chained `str.replace` calls in the wrong order, so
+  `"\\t"` (backslash + `t`, which the emitter writes as an IR separator) became
+  a real tab and split an IR row in two; a single left-to-right pass
+  (`decode_escapes`) fixes it, and `emitter.null`'s own lexer now decodes
+  `\n`/`\t` the same way.
 - `array_map` is still authored directly in IR for speed, not because its source
   cannot be compiled: `bootstrap/emitter.null` lowers `APPEND` to 106 and the
   whole workload now runs from `.null` source (the tests check it), but its push

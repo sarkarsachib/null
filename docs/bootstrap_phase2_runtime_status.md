@@ -93,14 +93,15 @@ token stream is identical to the VM's (`test_native_stage1_lexer_matches_the_vm`
 
 The string library now covers `SPLIT`, `JOIN`, `SUBSTR`, `TO_STRING`,
 `TO_NUMBER`, `SLICE`, `CONTAINS`, `WRITE_FILE` and `FILE_EXISTS`, all compared
-against the VM by `test_native_string_builtins_match_the_vm`, and `break`/
-`continue` resolve to real loop labels. With that, `bootstrap/nullc.null` lowers
-end to end: 13,426 IR rows to 36,871 assembly lines, 2,856 LOWERED ops, zero
-FALLBACK, and `cc` links a 217 KB executable.
+against the VM by `test_native_string_builtins_match_the_vm`, and `break`/`continue` resolve to real loop labels. With that, `bootstrap/nullc.null` lowers
+end to end: 13,434 IR rows to 37,707 assembly lines, 3,098 LOWERED ops, zero
+FALLBACK, and `cc -O0` links a 221 KB executable.
 
-What is still missing for "zero Python in the pipeline" is a native `nullc`
-binary that **runs**: the linked one crashes on any input because untyped
-parameters and locals are typed `int` (dynamic values need runtime tags and
-dispatched `+`/`==`/`LEN`/index, or annotations everywhere). Until that lands
-the fixed point is real, but both working compilers execute on the host VM; see
+That binary runs. Untyped parameters and locals are `any`, and `+`, `==`, `LEN`,
+`print`/`TO_STRING` and index loads dispatch on a runtime tag (ints raw, strings
+and arrays pointer-tagged in bits 62/63) through `null_dyn_*` helpers. The
+natively built compiler reads `bootstrap/input.null` and writes IR byte-identical
+to the VM compiler's, so a `.null` program can be compiled with zero Python in
+the execution path; the host VM is still what runs `bootstrap/nullc.null`'s own
+definition, and the two agree on all 13,450 fixed-point rows. See
 `bootstrap_stage5_native_backend.md`.

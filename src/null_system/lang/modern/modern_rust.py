@@ -20,6 +20,7 @@ from ..ast_nodes import (
     PrintCommand,
 )
 from ..errors import SyntaxError, LexerError
+from ..parser import decode_escapes
 
 
 def _flatten_block(item):
@@ -85,13 +86,7 @@ class ModernRustTransformer(Transformer):
     def text_literal(self, items):
         token = items[0]
         value = str(token)[1:-1]
-        value = (
-            value.replace('\\n', '\n')
-            .replace('\\t', '\t')
-            .replace('\\"', '"')
-            .replace("\\'", "'")
-            .replace('\\\\', '\\')
-        )
+        value = decode_escapes(value)
         node = TextLiteral(value=value)
         node.span = self._get_span(token)
         return node

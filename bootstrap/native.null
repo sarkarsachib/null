@@ -813,7 +813,9 @@ fn type_at(types, idx: Num) -> Text {
 // Declared names (Num, Text, Bool, Array<Num>, ...) are normalised here.
 fn type_norm(decl: Text) -> Text {
     if LEN(decl) == 0 {
-        return "";
+        // Untyped parameters (and unannotated returns) carry mixed values; they
+        // are dispatched on the runtime tag instead of being assumed `int`.
+        return "any";
     }
     if decl == "Text" {
         return "str";
@@ -851,7 +853,8 @@ fn elem_spec(t: Text) -> Text {
     if starts_with(t, "arr:") {
         return SUBSTR(t, 4, LEN(t));
     }
-    return "int";
+    // `arr` alone: the elements were never seen, so they are dynamic.
+    return "any";
 }
 
 // Element type of `arr[idx]` when the index text is a compile-time constant.
@@ -874,6 +877,12 @@ fn elem_at(spec: Text, idx: Text) -> Text {
 }
 
 fn index_type(arr_type: Text, idx: Text) -> Text {
+    if arr_type == "str" {
+        return "str";
+    }
+    if arr_type == "any" {
+        return "any";
+    }
     if type_is_arr(arr_type) == false {
         return "int";
     }
@@ -1189,6 +1198,7 @@ fn runtime_lines() -> Array {
         "  push rbp",
         "  mov rbp, rsp",
         "  mov rsi, rdi",
+        "  and rsi, qword ptr [rip + .Lmask]",
         "  xor edx, edx",
         ".Lps_len:",
         "  cmp byte ptr [rsi + rdx], 0",
@@ -1228,6 +1238,167 @@ fn runtime_lines() -> Array {
         "  mov rdi, 1",
         "  syscall",
         "  leave",
+        "  ret",
+        "",
+        "null_dyn_add:",
+        "  push rbp",
+        "  mov rbp, rsp",
+        "  push rbx",
+        "  push r12",
+        "  mov rbx, rdi",
+        "  mov r12, rsi",
+        "  mov r8, rbx",
+        "  shr r8, 62",
+        "  mov r9, r12",
+        "  shr r9, 62",
+        "  test r8, r8",
+        "  jnz .Lda_l",
+        "  test r9, r9",
+        "  jnz .Lda_r",
+        "  mov rax, rbx",
+        "  add rax, r12",
+        "  jmp .Lda_out",
+        ".Lda_l:",
+        "  cmp r8, 1",
+        "  jne .Lda_zero",
+        "  cmp r9, 1",
+        "  je .Lda_ss",
+        "  test r9, r9",
+        "  jnz .Lda_zero",
+        "  mov rdi, r12",
+        "  call null_int_to_str",
+        "  mov r12, rax",
+        "  jmp .Lda_ss",
+        ".Lda_r:",
+        "  cmp r9, 1",
+        "  jne .Lda_zero",
+        "  test r8, r8",
+        "  jnz .Lda_zero",
+        "  mov rdi, rbx",
+        "  call null_int_to_str",
+        "  mov rbx, rax",
+        ".Lda_ss:",
+        "  mov rdi, rbx",
+        "  mov rsi, r12",
+        "  call null_str_concat",
+        "  jmp .Lda_out",
+        ".Lda_zero:",
+        "  xor eax, eax",
+        ".Lda_out:",
+        "  pop r12",
+        "  pop rbx",
+        "  leave",
+        "  ret",
+        "",
+        "null_dyn_eq:",
+        "  push rbp",
+        "  mov rbp, rsp",
+        "  push rbx",
+        "  push r12",
+        "  mov rbx, rdi",
+        "  mov r12, rsi",
+        "  mov r8, rbx",
+        "  shr r8, 62",
+        "  mov r9, r12",
+        "  shr r9, 62",
+        "  cmp r8, r9",
+        "  jne .Lde_no",
+        "  cmp r8, 1",
+        "  je .Lde_str",
+        "  cmp r8, 2",
+        "  je .Lde_ptr",
+        "  xor eax, eax",
+        "  cmp rbx, r12",
+        "  sete al",
+        "  jmp .Lde_out",
+        ".Lde_str:",
+        "  mov rdi, rbx",
+        "  mov rsi, r12",
+        "  call null_str_eq",
+        "  jmp .Lde_out",
+        ".Lde_ptr:",
+        "  xor eax, eax",
+        "  and rbx, qword ptr [rip + .Lmask]",
+        "  and r12, qword ptr [rip + .Lmask]",
+        "  cmp rbx, r12",
+        "  sete al",
+        "  jmp .Lde_out",
+        ".Lde_no:",
+        "  xor eax, eax",
+        ".Lde_out:",
+        "  pop r12",
+        "  pop rbx",
+        "  leave",
+        "  ret",
+        "",
+        "null_dyn_len:",
+        "  mov rax, rdi",
+        "  shr rax, 62",
+        "  cmp rax, 1",
+        "  je .Ldl_str",
+        "  cmp rax, 2",
+        "  je .Ldl_arr",
+        "  xor eax, eax",
+        "  ret",
+        ".Ldl_str:",
+        "  jmp null_str_len",
+        ".Ldl_arr:",
+        "  and rdi, qword ptr [rip + .Lmask]",
+        "  mov rax, qword ptr [rdi]",
+        "  ret",
+        "",
+        "null_dyn_index:",
+        "  mov rax, rdi",
+        "  shr rax, 62",
+        "  cmp rax, 1",
+        "  je .Ldi_str",
+        "  cmp rax, 2",
+        "  je .Ldi_arr",
+        "  xor eax, eax",
+        "  ret",
+        ".Ldi_str:",
+        "  jmp null_str_char_at",
+        ".Ldi_arr:",
+        "  and rdi, qword ptr [rip + .Lmask]",
+        "  cmp rsi, qword ptr [rdi]",
+        "  jb .Ldi_ok",
+        "  jmp null_panic_oob",
+        ".Ldi_ok:",
+        "  mov rax, qword ptr [rdi + rsi * 8 + 8]",
+        "  ret",
+        "",
+        "null_dyn_print:",
+        "  mov rax, rdi",
+        "  shr rax, 62",
+        "  cmp rax, 1",
+        "  je .Ldp_str",
+        "  cmp rax, 2",
+        "  je .Ldp_arr",
+        "  jmp null_print_i64",
+        ".Ldp_str:",
+        "  jmp null_print_str",
+        ".Ldp_arr:",
+        "  lea rsi, [rip + .Lnl]",
+        "  mov rdx, 1",
+        "  mov rax, 1",
+        "  mov rdi, 1",
+        "  syscall",
+        "  ret",
+        "",
+        "null_dyn_to_string:",
+        "  mov rax, rdi",
+        "  shr rax, 62",
+        "  cmp rax, 1",
+        "  je .Ldt_str",
+        "  cmp rax, 2",
+        "  je .Ldt_arr",
+        "  jmp null_int_to_str",
+        ".Ldt_str:",
+        "  mov rax, rdi",
+        "  ret",
+        ".Ldt_arr:",
+        "  lea rax, [rip + .Larrtext]",
+        "  bts rax, 62",
         "  ret",
         "",
         "null_array_new:",
@@ -1270,6 +1441,7 @@ fn runtime_lines() -> Array {
         "  push r12",
         "  sub rsp, 8",
         "  mov rbx, rdi",
+        "  and rbx, qword ptr [rip + .Lmask]",
         "  mov r12, qword ptr [rbx - 8]",
         "  add r12, r12",
         "  cmp r12, 4",
@@ -1308,6 +1480,7 @@ fn runtime_lines() -> Array {
         "  syscall",
         "",
         "null_str_len:",
+        "  and rdi, qword ptr [rip + .Lmask]",
         "  xor eax, eax",
         ".Lsls_loop:",
         "  cmp byte ptr [rdi + rax], 0",
@@ -1318,6 +1491,8 @@ fn runtime_lines() -> Array {
         "  ret",
         "",
         "null_str_eq:",
+        "  and rdi, qword ptr [rip + .Lmask]",
+        "  and rsi, qword ptr [rip + .Lmask]",
         "  xor rcx, rcx",
         ".Lseq_loop:",
         "  mov al, byte ptr [rdi + rcx]",
@@ -1336,6 +1511,7 @@ fn runtime_lines() -> Array {
         "  ret",
         "",
         "null_str_ord:",
+        "  and rdi, qword ptr [rip + .Lmask]",
         "  movzx eax, byte ptr [rdi]",
         "  ret",
         "",
@@ -1346,11 +1522,13 @@ fn runtime_lines() -> Array {
         "  push r12",
         "  mov rbx, rdi",
         "  mov r12, rsi",
+        "  and rbx, qword ptr [rip + .Lmask]",
         "  mov rdi, 2",
         "  call malloc@PLT",
         "  movzx ecx, byte ptr [rbx + r12]",
         "  mov byte ptr [rax], cl",
         "  mov byte ptr [rax + 1], 0",
+        "  bts rax, 62",
         "  pop r12",
         "  pop rbx",
         "  leave",
@@ -1367,6 +1545,8 @@ fn runtime_lines() -> Array {
         "  sub rsp, 8",
         "  mov rbx, rdi",
         "  mov r12, rsi",
+        "  and rbx, qword ptr [rip + .Lmask]",
+        "  and r12, qword ptr [rip + .Lmask]",
         "  call null_str_len",
         "  mov r13, rax",
         "  mov rdi, r12",
@@ -1384,6 +1564,7 @@ fn runtime_lines() -> Array {
         "  rep movsb",
         "  mov byte ptr [rdi], 0",
         "  mov rax, r15",
+        "  bts rax, 62",
         "  add rsp, 8",
         "  pop r15",
         "  pop r14",
@@ -1400,6 +1581,7 @@ fn runtime_lines() -> Array {
         "  push r12",
         "  push r13",
         "  push r14",
+        "  and rdi, qword ptr [rip + .Lmask]",
         "  mov eax, 2",
         "  xor esi, esi",
         "  xor edx, edx",
@@ -1433,9 +1615,11 @@ fn runtime_lines() -> Array {
         ".Lrf_done:",
         "  mov byte ptr [r12 + r14], 0",
         "  mov rax, r12",
+        "  bts rax, 62",
         "  jmp .Lrf_out",
         ".Lrf_fail:",
         "  lea rax, [rip + .Lempty]",
+        "  bts rax, 62",
         ".Lrf_out:",
         "  pop r14",
         "  pop r13",
@@ -1450,6 +1634,7 @@ fn runtime_lines() -> Array {
         "  push rbx",
         "  push r12",
         "  mov rbx, rdi",
+        "  and rbx, qword ptr [rip + .Lmask]",
         "  call null_str_len",
         "  mov r12, rax",
         "  lea rdi, [r12 + 1]",
@@ -1507,6 +1692,7 @@ fn runtime_lines() -> Array {
         "  rep movsb",
         "  mov byte ptr [rdi], 0",
         "  mov rax, r11",
+        "  bts rax, 62",
         "  add rsp, 48",
         "  pop r12",
         "  pop rbx",
@@ -1514,6 +1700,8 @@ fn runtime_lines() -> Array {
         "  ret",
         "",
         "null_str_find:",
+        "  and rdi, qword ptr [rip + .Lmask]",
+        "  and rsi, qword ptr [rip + .Lmask]",
         "  mov r8, rdx",
         ".Lsf_outer:",
         "  movzx eax, byte ptr [rdi + r8]",
@@ -1558,6 +1746,7 @@ fn runtime_lines() -> Array {
         "  mov rbx, rdi",
         "  mov r12, rsi",
         "  mov r13, rdx",
+        "  and rbx, qword ptr [rip + .Lmask]",
         "  mov rdi, rbx",
         "  call null_str_len",
         "  mov r14, rax",
@@ -1588,6 +1777,7 @@ fn runtime_lines() -> Array {
         "  rep movsb",
         "  mov byte ptr [rdi], 0",
         "  mov rax, r13",
+        "  bts rax, 62",
         "  pop r14",
         "  pop r13",
         "  pop r12",
@@ -1606,6 +1796,8 @@ fn runtime_lines() -> Array {
         "  sub rsp, 24",
         "  mov rbx, rdi",
         "  mov r12, rsi",
+        "  and rbx, qword ptr [rip + .Lmask]",
+        "  and r12, qword ptr [rip + .Lmask]",
         "  mov rdi, r12",
         "  call null_str_len",
         "  mov r15, rax",
@@ -1669,6 +1861,7 @@ fn runtime_lines() -> Array {
         ".Lsp_done:",
         "  mov rax, r14",
         ".Lsp_out:",
+        "  bts rax, 63",
         "  add rsp, 24",
         "  pop r15",
         "  pop r14",
@@ -1689,6 +1882,8 @@ fn runtime_lines() -> Array {
         "  sub rsp, 24",
         "  mov rbx, rdi",
         "  mov r12, rsi",
+        "  and rbx, qword ptr [rip + .Lmask]",
+        "  and r12, qword ptr [rip + .Lmask]",
         "  mov r13, qword ptr [rbx]",
         "  mov rdi, r12",
         "  call null_str_len",
@@ -1723,6 +1918,7 @@ fn runtime_lines() -> Array {
         "  cmp rax, r13",
         "  jge .Lsj_copy_done",
         "  mov rsi, qword ptr [rbx + rax * 8 + 8]",
+        "  and rsi, qword ptr [rip + .Lmask]",
         ".Lsj_elem:",
         "  mov cl, byte ptr [rsi]",
         "  test cl, cl",
@@ -1745,6 +1941,7 @@ fn runtime_lines() -> Array {
         ".Lsj_copy_done:",
         "  mov byte ptr [rdi], 0",
         "  mov rax, qword ptr [rsp + 8]",
+        "  bts rax, 62",
         "  add rsp, 24",
         "  pop r15",
         "  pop r14",
@@ -1764,6 +1961,7 @@ fn runtime_lines() -> Array {
         "  mov rbx, rdi",
         "  mov r12, rsi",
         "  mov r13, rdx",
+        "  and rbx, qword ptr [rip + .Lmask]",
         "  mov r14, qword ptr [rbx]",
         "  cmp r12, 0",
         "  jge .Lsl_s0",
@@ -1797,6 +1995,7 @@ fn runtime_lines() -> Array {
         "  jmp .Lsl_copy",
         ".Lsl_done:",
         "  mov rax, r14",
+        "  bts rax, 63",
         "  pop r14",
         "  pop r13",
         "  pop r12",
@@ -1805,6 +2004,7 @@ fn runtime_lines() -> Array {
         "  ret",
         "",
         "null_str_to_number:",
+        "  and rdi, qword ptr [rip + .Lmask]",
         "  xor eax, eax",
         "  xor r8d, r8d",
         "  xor ecx, ecx",
@@ -1832,6 +2032,7 @@ fn runtime_lines() -> Array {
         "  ret",
         "",
         "null_file_exists:",
+        "  and rdi, qword ptr [rip + .Lmask]",
         "  mov eax, 21",
         "  xor esi, esi",
         "  syscall",
@@ -1849,6 +2050,8 @@ fn runtime_lines() -> Array {
         "  push r14",
         "  mov rbx, rdi",
         "  mov r12, rsi",
+        "  and rbx, qword ptr [rip + .Lmask]",
+        "  and r12, qword ptr [rip + .Lmask]",
         "  mov rdi, rbx",
         "  mov esi, 577",
         "  mov edx, 420",
@@ -1896,7 +2099,9 @@ fn runtime_lines() -> Array {
         "  sub rsp, 8",
         "  mov rbx, rdi",
         "  mov r12, rsi",
-        "  mov r13, qword ptr [rdi]",
+        "  and rbx, qword ptr [rip + .Lmask]",
+        "  and r12, qword ptr [rip + .Lmask]",
+        "  mov r13, qword ptr [rbx]",
         "  mov rax, qword ptr [r12]",
         "  cmp r13, rax",
         "  jle .Lsa_n",
@@ -1928,6 +2133,7 @@ fn runtime_lines() -> Array {
         ".Lsa_done:",
         "  vzeroupper",
         "  mov rax, r9",
+        "  bts rax, 63",
         "  add rsp, 8",
         "  pop r13",
         "  pop r12",
@@ -1941,6 +2147,7 @@ fn runtime_lines() -> Array {
         "  push rbx",
         "  sub rsp, 8",
         "  mov rbx, rdi",
+        "  and rbx, qword ptr [rip + .Lmask]",
         "  mov rcx, qword ptr [rbx]",
         "  vpxor ymm0, ymm0, ymm0",
         "  xor r8, r8",
@@ -1979,7 +2186,9 @@ fn runtime_lines() -> Array {
         "  sub rsp, 8",
         "  mov rbx, rdi",
         "  mov r12, rsi",
-        "  mov r13, qword ptr [rdi]",
+        "  and rbx, qword ptr [rip + .Lmask]",
+        "  and r12, qword ptr [rip + .Lmask]",
+        "  mov r13, qword ptr [rbx]",
         "  mov rax, qword ptr [r12]",
         "  cmp r13, rax",
         "  jle .Lsm_n",
@@ -2019,6 +2228,7 @@ fn runtime_lines() -> Array {
         ".Lsm_done:",
         "  vzeroupper",
         "  mov rax, r9",
+        "  bts rax, 63",
         "  add rsp, 8",
         "  pop r13",
         "  pop r12",
@@ -2443,14 +2653,23 @@ fn fast_vec_array_fill(rows, i, regs, slot_names) -> Array {
         nn = "r8";
         prelude = APPEND(prelude, "  mov r8, qword ptr [rbp - " + TO_STRING(200 + index_of(slot_names, span[2][2]) * 8) + "]");
     }
+    // Array pointers are tagged, so the lane stores work on untagged copies in
+    // scratch registers: a promoted register keeps its tagged value for the
+    // code that follows the loop.
     if ar == "" {
-        ar = "r10";
         prelude = APPEND(prelude, "  mov r10, qword ptr [rbp - " + TO_STRING(200 + index_of(slot_names, span[5][2]) * 8) + "]");
+    } else {
+        prelude = APPEND(prelude, "  mov r10, " + ar);
     }
+    prelude = APPEND(prelude, "  and r10, qword ptr [rip + .Lmask]");
+    ar = "r10";
     if br == "" {
-        br = "r11";
         prelude = APPEND(prelude, "  mov r11, qword ptr [rbp - " + TO_STRING(200 + index_of(slot_names, span[10][2]) * 8) + "]");
+    } else {
+        prelude = APPEND(prelude, "  mov r11, " + br);
     }
+    prelude = APPEND(prelude, "  and r11, qword ptr [rip + .Lmask]");
+    br = "r11";
     let tail = ".L" + lbl + "_at";
     let leave = ".L" + lbl + "_ax";
     let done = "  jg " + tail;
@@ -2602,14 +2821,22 @@ fn fast_vec_array_axpy(rows, i, regs, slot_names) -> Array {
         nn = "r8";
         prelude = APPEND(prelude, "  mov r8, qword ptr [rbp - " + TO_STRING(200 + index_of(slot_names, span[2][2]) * 8) + "]");
     }
+    // As with the fill pass, the arrays are read through untagged scratch
+    // copies so a promoted pointer register stays tagged for later code.
     if ar == "" {
-        ar = "r10";
         prelude = APPEND(prelude, "  mov r10, qword ptr [rbp - " + TO_STRING(200 + index_of(slot_names, span[6][2]) * 8) + "]");
+    } else {
+        prelude = APPEND(prelude, "  mov r10, " + ar);
     }
+    prelude = APPEND(prelude, "  and r10, qword ptr [rip + .Lmask]");
+    ar = "r10";
     if br == "" {
-        br = "r11";
         prelude = APPEND(prelude, "  mov r11, qword ptr [rbp - " + TO_STRING(200 + index_of(slot_names, span[11][2]) * 8) + "]");
+    } else {
+        prelude = APPEND(prelude, "  mov r11, " + br);
     }
+    prelude = APPEND(prelude, "  and r11, qword ptr [rip + .Lmask]");
+    br = "r11";
     let vec_tail = ".L" + lbl + "_mvt";
     let tail = ".L" + lbl + "_mt2";
     let leave = ".L" + lbl + "_mx";
@@ -2915,6 +3142,7 @@ fn compile(rows) -> Array {
                             sid = LEN(str_pool) - 1;
                         }
                         out = APPEND(out, "  lea rax, [rip + .LS" + TO_STRING(sid) + "]");
+                        out = APPEND(out, "  bts rax, 62");
                         out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + sp * 8) + "], rax");
                         types = APPEND(types, "str");
                     }
@@ -2938,9 +3166,11 @@ fn compile(rows) -> Array {
                         out = APPEND(out, "  mov rax, qword ptr [rbp - " + TO_STRING(200 + sidx * 8) + "]");
                     }
                     out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + sp * 8) + "], rax");
-                    let t = "int";
+                    let t = "any";
                     if sidx < LEN(var_types) {
-                        t = var_types[sidx];
+                        if LEN(var_types[sidx]) > 0 {
+                            t = var_types[sidx];
+                        }
                     }
                     types = APPEND(types, t);
                 }
@@ -2949,7 +3179,7 @@ fn compile(rows) -> Array {
 
             if op == 3 {
                 let sidx = index_of(slot_names, operand);
-                let t = "int";
+                let t = "any";
                 if LEN(types) > 0 {
                     t = types[LEN(types) - 1];
                     types = drop_last(types);
@@ -2965,21 +3195,37 @@ fn compile(rows) -> Array {
                     out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(200 + sidx * 8) + "], rax");
                 }
                 while LEN(var_types) <= sidx {
-                    var_types = APPEND(var_types, "int");
+                    var_types = APPEND(var_types, "any");
                 }
                 var_types = replace_at(var_types, sidx, t);
                 sp = sp - 1;
             }
 
             if op == 10 {
+                let add_any = false;
+                if type_at(types, sp - 2) == "any" || type_at(types, sp - 1) == "any" {
+                    add_any = true;
+                }
                 let add_str = false;
-                if LEN(types) >= 2 {
-                    if types[LEN(types) - 2] == "str" {
-                        if types[LEN(types) - 1] == "str" {
-                            add_str = true;
+                if add_any == false {
+                    if LEN(types) >= 2 {
+                        if types[LEN(types) - 2] == "str" {
+                            if types[LEN(types) - 1] == "str" {
+                                add_str = true;
+                            }
                         }
                     }
                 }
+                if add_any {
+                    out = APPEND(out, "  mov rdi, qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "]");
+                    out = APPEND(out, "  mov rsi, qword ptr [rbp - " + TO_STRING(4096 + (sp - 1) * 8) + "]");
+                    out = APPEND(out, "  call null_dyn_add");
+                    out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "], rax");
+                    types = drop_last(types);
+                    types = set_top(types, "any");
+                    sp = sp - 1;
+                    report = APPEND(report, "LOWERED 10 dyn-add");
+                } else {
                 if add_str {
                     out = APPEND(out, "  mov rdi, qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "]");
                     out = APPEND(out, "  mov rsi, qword ptr [rbp - " + TO_STRING(4096 + (sp - 1) * 8) + "]");
@@ -2995,6 +3241,7 @@ fn compile(rows) -> Array {
                     out = APPEND(out, "  add qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "], rax");
                     types = drop_last(types);
                     sp = sp - 1;
+                }
                 }
             }
             if op == 11 {
@@ -3032,6 +3279,21 @@ fn compile(rows) -> Array {
                 sp = sp - 1;
             }
             if op == 22 {
+                let eq_any = false;
+                if type_at(types, sp - 2) == "any" || type_at(types, sp - 1) == "any" {
+                    eq_any = true;
+                }
+                if eq_any {
+                    out = APPEND(out, "  mov rdi, qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "]");
+                    out = APPEND(out, "  mov rsi, qword ptr [rbp - " + TO_STRING(4096 + (sp - 1) * 8) + "]");
+                    out = APPEND(out, "  call null_dyn_eq");
+                    out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "], rax");
+                    types = drop_last(types);
+                    types = drop_last(types);
+                    types = APPEND(types, "bool");
+                    sp = sp - 1;
+                    report = APPEND(report, "LOWERED 22 dyn-eq");
+                } else {
                 if str_pair(types) {
                     out = APPEND(out, "  mov rdi, qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "]");
                     out = APPEND(out, "  mov rsi, qword ptr [rbp - " + TO_STRING(4096 + (sp - 1) * 8) + "]");
@@ -3048,8 +3310,25 @@ fn compile(rows) -> Array {
                     types = set_top(types, "bool");
                     sp = sp - 1;
                 }
+                }
             }
             if op == 23 {
+                let ne_any = false;
+                if type_at(types, sp - 2) == "any" || type_at(types, sp - 1) == "any" {
+                    ne_any = true;
+                }
+                if ne_any {
+                    out = APPEND(out, "  mov rdi, qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "]");
+                    out = APPEND(out, "  mov rsi, qword ptr [rbp - " + TO_STRING(4096 + (sp - 1) * 8) + "]");
+                    out = APPEND(out, "  call null_dyn_eq");
+                    out = APPEND(out, "  xor rax, 1");
+                    out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "], rax");
+                    types = drop_last(types);
+                    types = drop_last(types);
+                    types = APPEND(types, "bool");
+                    sp = sp - 1;
+                    report = APPEND(report, "LOWERED 23 dyn-ne");
+                } else {
                 if str_pair(types) {
                     out = APPEND(out, "  mov rdi, qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "]");
                     out = APPEND(out, "  mov rsi, qword ptr [rbp - " + TO_STRING(4096 + (sp - 1) * 8) + "]");
@@ -3066,6 +3345,7 @@ fn compile(rows) -> Array {
                     types = drop_last(types);
                     types = set_top(types, "bool");
                     sp = sp - 1;
+                }
                 }
             }
             if op == 24 {
@@ -3087,13 +3367,18 @@ fn compile(rows) -> Array {
                     t = types[LEN(types) - 1];
                 }
                 out = APPEND(out, "  mov rdi, qword ptr [rbp - " + TO_STRING(4096 + (sp - 1) * 8) + "]");
-                if t == "str" {
-                    out = APPEND(out, "  call null_print_str");
+                if t == "any" {
+                    out = APPEND(out, "  call null_dyn_print");
+                    report = APPEND(report, "LOWERED 30 dyn-print");
                 } else {
-                    if t == "bool" {
-                        out = APPEND(out, "  call null_print_bool");
+                    if t == "str" {
+                        out = APPEND(out, "  call null_print_str");
                     } else {
-                        out = APPEND(out, "  call null_print_i64");
+                        if t == "bool" {
+                            out = APPEND(out, "  call null_print_bool");
+                        } else {
+                            out = APPEND(out, "  call null_print_i64");
+                        }
                     }
                 }
                 types = drop_last(types);
@@ -3169,6 +3454,12 @@ fn compile(rows) -> Array {
                 let builtin = false;
                 if name == "len" {
                     builtin = true;
+                    if type_at(types, base) == "any" {
+                        out = APPEND(out, "  mov rdi, qword ptr [rbp - " + TO_STRING(4096 + base * 8) + "]");
+                        out = APPEND(out, "  call null_dyn_len");
+                        out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + base * 8) + "], rax");
+                        report = APPEND(report, "LOWERED 70 len-dynamic");
+                    } else {
                     if type_at(types, base) == "str" {
                         out = APPEND(out, "  mov rdi, qword ptr [rbp - " + TO_STRING(4096 + base * 8) + "]");
                         out = APPEND(out, "  call null_str_len");
@@ -3176,9 +3467,11 @@ fn compile(rows) -> Array {
                         report = APPEND(report, "LOWERED 70 len-string");
                     } else {
                         out = APPEND(out, "  mov rax, qword ptr [rbp - " + TO_STRING(4096 + base * 8) + "]");
+                        out = APPEND(out, "  and rax, qword ptr [rip + .Lmask]");
                         out = APPEND(out, "  mov rax, qword ptr [rax]");
                         out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + base * 8) + "], rax");
                         report = APPEND(report, "LOWERED 70 len-array-header");
+                    }
                     }
                     sp = base + 1;
                     types = drop_last(types);
@@ -3257,6 +3550,12 @@ fn compile(rows) -> Array {
                 if name == "to_string" {
                     builtin = true;
                     let st = type_at(types, base);
+                    if st == "any" {
+                        out = APPEND(out, "  mov rdi, qword ptr [rbp - " + TO_STRING(4096 + base * 8) + "]");
+                        out = APPEND(out, "  call null_dyn_to_string");
+                        out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + base * 8) + "], rax");
+                        report = APPEND(report, "LOWERED 70 to_string-dynamic");
+                    } else {
                     if st == "str" {
                         report = APPEND(report, "LOWERED 70 to_string-identity");
                     } else {
@@ -3275,6 +3574,7 @@ fn compile(rows) -> Array {
                         }
                         out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + base * 8) + "], rax");
                         report = APPEND(report, "LOWERED 70 to_string");
+                    }
                     }
                     sp = base + 1;
                     types = drop_last(types);
@@ -3365,6 +3665,7 @@ fn compile(rows) -> Array {
                     // language, so source programs can mutate an array literal.
                     builtin = true;
                     out = APPEND(out, "  mov rax, qword ptr [rbp - " + TO_STRING(4096 + base * 8) + "]");
+                    out = APPEND(out, "  and rax, qword ptr [rip + .Lmask]");
                     out = APPEND(out, "  mov rcx, qword ptr [rbp - " + TO_STRING(4096 + (base + 1) * 8) + "]");
                     out = APPEND(out, "  cmp rcx, qword ptr [rax]");
                     out = APPEND(out, "  jb .Lsetok_" + TO_STRING(i));
@@ -3374,6 +3675,7 @@ fn compile(rows) -> Array {
                     out = APPEND(out, "  mov qword ptr [rax + rcx * 8 + 8], rdx");
                     // The op yields the array (the emitter follows it with STORE a
                     // for a plain `a[i] = x`), not the stored value.
+                    out = APPEND(out, "  bts rax, 63");
                     out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + base * 8) + "], rax");
                     types = drop_last(types);
                     types = drop_last(types);
@@ -3428,7 +3730,7 @@ fn compile(rows) -> Array {
                         // Declared return type of the callee (refined by its
                         // body for bare `Array`), so `f(x)[0]` and string
                         // returns keep their type through the call.
-                        let rt = "int";
+                        let rt = "any";
                         if fidx < LEN(fn_types) {
                             if LEN(fn_types[fidx]) > 0 {
                                 rt = fn_types[fidx];
@@ -3478,14 +3780,39 @@ fn compile(rows) -> Array {
                     e = e + 1;
                 }
                 out = APPEND(out, "  mov rax, qword ptr [rbp - 3000]");
+                out = APPEND(out, "  bts rax, 63");
                 out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + base * 8) + "], rax");
+                if LEN(spec) == 0 {
+                    spec = "any";
+                }
                 types = APPEND(types, "arr:" + spec);
                 sp = base + 1;
                 report = APPEND(report, "LOWERED 72 array-literal");
             }
 
             if op == 73 {
+                let btype = type_at(types, sp - 2);
+                let idx_now = const_operand(rows, i);
+                let use_dyn = false;
+                if btype == "any" {
+                    use_dyn = true;
+                }
+                if btype == "str" {
+                    use_dyn = true;
+                }
+                if use_dyn {
+                    out = APPEND(out, "  mov rdi, qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "]");
+                    out = APPEND(out, "  mov rsi, qword ptr [rbp - " + TO_STRING(4096 + (sp - 1) * 8) + "]");
+                    out = APPEND(out, "  call null_dyn_index");
+                    out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "], rax");
+                    types = drop_last(types);
+                    types = drop_last(types);
+                    types = APPEND(types, index_type(btype, idx_now));
+                    sp = sp - 1;
+                    report = APPEND(report, "LOWERED 73 dyn-index");
+                } else {
                 out = APPEND(out, "  mov rax, qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "]");
+                out = APPEND(out, "  and rax, qword ptr [rip + .Lmask]");
                 out = APPEND(out, "  mov rcx, qword ptr [rbp - " + TO_STRING(4096 + (sp - 1) * 8) + "]");
                 out = APPEND(out, "  cmp rcx, qword ptr [rax]");
                 out = APPEND(out, "  jb .Lidx_ok_" + TO_STRING(i));
@@ -3500,6 +3827,7 @@ fn compile(rows) -> Array {
                 types = APPEND(types, index_type(atype, idx_text));
                 sp = sp - 1;
                 report = APPEND(report, "LOWERED 73 index-bounds-checked");
+                }
             }
 
             if op == 74 {
@@ -3523,13 +3851,18 @@ fn compile(rows) -> Array {
                 let p = 0;
                 while p < LEN(params) {
                     let sidx = index_of(slot_names, params[p]);
+                    let pt = "";
                     if p < LEN(ptypes) {
-                        // Declared parameter types: a parameter is in scope from
-                        // the first instruction, before any store types it.
-                        let pt = type_norm(ptypes[p]);
-                        if LEN(pt) > 0 {
-                            var_types = set_var_type(var_types, sidx, pt);
-                        }
+                        pt = type_norm(ptypes[p]);
+                    } else {
+                        // No `types=` metadata (or a missing entry): the
+                        // parameter is untyped, so its values are dynamic.
+                        pt = "any";
+                    }
+                    // A parameter is in scope from the first instruction,
+                    // before any store types it.
+                    if LEN(pt) > 0 {
+                        var_types = set_var_type(var_types, sidx, pt);
                     }
                     if p < 6 {
                         out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(200 + sidx * 8) + "], " + arg_regs[p]);
@@ -3555,7 +3888,7 @@ fn compile(rows) -> Array {
                             // A body returning an array tells the backend its
                             // element types even when the signature only says
                             // `-> Array` (or nothing).
-                            if fn_types[skip] == "" || fn_types[skip] == "arr" {
+                            if fn_types[skip] == "" || fn_types[skip] == "arr" || fn_types[skip] == "any" {
                                 if LEN(ret_seen) > 0 {
                                     fn_types = replace_at(fn_types, skip, ret_seen);
                                 }
@@ -3600,6 +3933,7 @@ fn compile(rows) -> Array {
             }
             if op == 103 {
                 out = APPEND(out, "  mov rax, qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "]");
+                out = APPEND(out, "  and rax, qword ptr [rip + .Lmask]");
                 out = APPEND(out, "  mov rcx, qword ptr [rbp - " + TO_STRING(4096 + (sp - 1) * 8) + "]");
                 out = APPEND(out, "  mov rax, qword ptr [rax + rcx * 8 + 8]");
                 out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "], rax");
@@ -3613,6 +3947,7 @@ fn compile(rows) -> Array {
             }
             if op == 104 {
                 out = APPEND(out, "  mov rax, qword ptr [rbp - " + TO_STRING(4096 + (sp - 1) * 8) + "]");
+                out = APPEND(out, "  and rax, qword ptr [rip + .Lmask]");
                 out = APPEND(out, "  mov rax, qword ptr [rax]");
                 out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + (sp - 1) * 8) + "], rax");
                 types = drop_last(types);
@@ -3622,10 +3957,12 @@ fn compile(rows) -> Array {
             if op == 105 {
                 // FAST_INDEX_STORE: arr[idx] = value, bounds proven, in place.
                 out = APPEND(out, "  mov rcx, qword ptr [rbp - " + TO_STRING(4096 + (sp - 3) * 8) + "]");
+                out = APPEND(out, "  and rcx, qword ptr [rip + .Lmask]");
                 out = APPEND(out, "  mov rdx, qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "]");
                 out = APPEND(out, "  mov rax, qword ptr [rbp - " + TO_STRING(4096 + (sp - 1) * 8) + "]");
                 out = APPEND(out, "  mov qword ptr [rcx + rdx * 8 + 8], rax");
                 out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + (sp - 3) * 8) + "], rcx");
+                out = APPEND(out, "  bts qword ptr [rbp - " + TO_STRING(4096 + (sp - 3) * 8) + "], 63");
                 types = drop_last(types);
                 types = drop_last(types);
                 types = drop_last(types);
@@ -3639,6 +3976,7 @@ fn compile(rows) -> Array {
                 // place when the capacity is exhausted) and push the array back.
                 // Growing can move the array, so the IR contract is a = APPEND(a, x).
                 out = APPEND(out, "  mov rcx, qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "]");
+                out = APPEND(out, "  and rcx, qword ptr [rip + .Lmask]");
                 out = APPEND(out, "  mov rax, qword ptr [rcx]");
                 out = APPEND(out, "  cmp rax, qword ptr [rcx - 8]");
                 out = APPEND(out, "  jl .Lpush_store_" + TO_STRING(i));
@@ -3652,6 +3990,7 @@ fn compile(rows) -> Array {
                 out = APPEND(out, "  add rax, 1");
                 out = APPEND(out, "  mov qword ptr [rcx], rax");
                 out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "], rcx");
+                out = APPEND(out, "  bts qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "], 63");
                 types = drop_last(types);
                 types = drop_last(types);
                 types = APPEND(types, "arr");
@@ -3663,6 +4002,7 @@ fn compile(rows) -> Array {
                 // FAST_ARRAY_ZERO: pop n, push a zeroed array of length n.
                 out = APPEND(out, "  mov rdi, qword ptr [rbp - " + TO_STRING(4096 + (sp - 1) * 8) + "]");
                 out = APPEND(out, "  call null_array_zero");
+                out = APPEND(out, "  bts rax, 63");
                 out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + (sp - 1) * 8) + "], rax");
                 types = drop_last(types);
                 types = APPEND(types, "arr");
@@ -3748,6 +4088,8 @@ fn compile(rows) -> Array {
     out = APPEND(out, "");
     out = APPEND(out, ".section .rodata");
     out = APPEND(out, ".Lnl: .byte 10");
+    out = APPEND(out, ".Lmask: .quad 0x3fffffffffffffff");
+    out = APPEND(out, ".Larrtext: .asciz \"[array]\"");
     out = APPEND(out, ".Ltrue: .asciz \"true\"");
     out = APPEND(out, ".Lfalse: .asciz \"false\"");
     out = APPEND(out, ".Loob: .ascii \"OOB PANIC!!!\\n\"");
@@ -3850,6 +4192,7 @@ fn emit_comprehension(out, report, operand: Text, sp: Num, base_off: Num, slot_n
     let src = base_off + (sp - 1) * 8;
     let o = out;
     o = APPEND(o, "  mov rax, qword ptr [rbp - " + TO_STRING(src) + "]");
+    o = APPEND(o, "  and rax, qword ptr [rip + .Lmask]");
     o = APPEND(o, "  mov rcx, qword ptr [rax]");
     o = APPEND(o, "  mov qword ptr [rbp - 9000], rcx");
     o = APPEND(o, "  mov qword ptr [rbp - 9008], rax");
@@ -3887,6 +4230,7 @@ fn emit_comprehension(out, report, operand: Text, sp: Num, base_off: Num, slot_n
     o = APPEND(o, "  mov rax, qword ptr [rbp - 9016]");
     o = APPEND(o, "  mov rcx, qword ptr [rbp - 9024]");
     o = APPEND(o, "  mov qword ptr [rax], rcx");
+    o = APPEND(o, "  bts rax, 63");
     o = APPEND(o, "  mov qword ptr [rbp - " + TO_STRING(src) + "], rax");
     // The report list is rebuilt by the caller from its own copy, so the note
     // is written by compile() itself.

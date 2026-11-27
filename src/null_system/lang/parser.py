@@ -26,6 +26,37 @@ from .ast_nodes import (
 from .errors import SyntaxError, LexerError
 
 
+def decode_escapes(value: str) -> str:
+    """Decode string-literal escapes in one left-to-right pass.
+
+    Chained ``str.replace`` calls decode in the wrong order: replacing ``\\n``
+    before ``\\\\`` turns the two-character escape ``\\t`` into a backslash plus
+    a literal tab. A single pass keeps ``\\t`` as backslash + ``t``.
+    """
+    out = []
+    i = 0
+    n = len(value)
+    while i < n:
+        ch = value[i]
+        if ch == "\\" and i + 1 < n:
+            esc = value[i + 1]
+            if esc == "n":
+                out.append("\n")
+            elif esc == "t":
+                out.append("\t")
+            elif esc == "r":
+                out.append("\r")
+            elif esc == "0":
+                out.append("\0")
+            else:
+                out.append(esc)
+            i += 2
+        else:
+            out.append(ch)
+            i += 1
+    return "".join(out)
+
+
 class NullLangTransformer(Transformer):
     """Transforms Lark parse tree into Null-Lang AST."""
     
@@ -131,9 +162,7 @@ class NullLangTransformer(Transformer):
     def text_literal(self, items):
         token = items[0]
         # Remove quotes
-        value = str(token)[1:-1]
-        # Handle escape sequences
-        value = value.replace('\\n', '\n').replace('\\t', '\t').replace('\\"', '"').replace("\\'", "'").replace('\\\\', '\\')
+        value = decode_escapes(str(token)[1:-1])
         node = TextLiteral(value=value)
         node.span = self._get_span(token)
         return node
