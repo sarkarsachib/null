@@ -1510,6 +1510,27 @@ fn runtime_lines() -> Array {
         "  xor eax, eax",
         "  ret",
         "",
+        "null_truthy:",
+        "  mov rax, rdi",
+        "  shr rax, 62",
+        "  cmp rax, 1",
+        "  je .Ltr_str",
+        "  cmp rax, 2",
+        "  je .Ltr_yes",
+        "  test rdi, rdi",
+        "  setne al",
+        "  movzx rax, al",
+        "  ret",
+        ".Ltr_str:",
+        "  and rdi, qword ptr [rip + .Lmask]",
+        "  cmp byte ptr [rdi], 0",
+        "  setne al",
+        "  movzx rax, al",
+        "  ret",
+        ".Ltr_yes:",
+        "  mov rax, 1",
+        "  ret",
+        "",
         "null_str_ord:",
         "  and rdi, qword ptr [rip + .Lmask]",
         "  movzx eax, byte ptr [rdi]",
@@ -3119,9 +3140,10 @@ fn compile(rows) -> Array {
                 let is_str = has_meta(meta, "str");
                 if is_bool {
                     // Boolean literals: 1/0 in memory, tagged `bool` so print
-                    // picks the true/false formatting the VM uses.
+                    // picks the true/false formatting the VM uses. The emitter
+                    // writes the word, but accept 0/1 too so older IR still runs.
                     let bv = "0";
-                    if operand == "true" {
+                    if operand == "true" || operand == "1" {
                         bv = "1";
                     }
                     out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + sp * 8) + "], " + bv);
@@ -3359,6 +3381,25 @@ fn compile(rows) -> Array {
                 types = drop_last(types);
                 types = set_top(types, "bool");
                 sp = sp - 1;
+            }
+
+            // Logical and/or: both operands are coerced to a bool, so an `any`
+            // operand goes through null_truthy rather than being read as an int.
+            if op == 26 {
+                out = cat(out, logic_sequence("and", types, sp));
+                types = drop_last(types);
+                types = drop_last(types);
+                types = APPEND(types, "bool");
+                sp = sp - 1;
+                report = APPEND(report, "LOWERED 26 and");
+            }
+            if op == 27 {
+                out = cat(out, logic_sequence("or", types, sp));
+                types = drop_last(types);
+                types = drop_last(types);
+                types = APPEND(types, "bool");
+                sp = sp - 1;
+                report = APPEND(report, "LOWERED 27 or");
             }
 
             if op == 30 {
@@ -4151,6 +4192,48 @@ fn replace_at(list, k: Num, value) -> Array {
         i = i + 1;
     }
     return out;
+}
+
+// `and`/`or` over two stack slots. When either side is `any` the runtime has to
+// decide truthiness, so both go through null_truthy; otherwise a plain test of
+// the raw 0/1 is enough.
+fn logic_sequence(kind: Text, types, sp: Num) -> Array {
+    let a = 4096 + (sp - 2) * 8;
+    let b = 4096 + (sp - 1) * 8;
+    let dyn = false;
+    if type_at(types, sp - 2) == "any" || type_at(types, sp - 1) == "any" {
+        dyn = true;
+    }
+    if dyn == false {
+        return [
+            "  mov rax, qword ptr [rbp - " + TO_STRING(a) + "]",
+            "  test rax, rax",
+            "  setne al",
+            "  movzx rax, al",
+            "  mov rdx, qword ptr [rbp - " + TO_STRING(b) + "]",
+            "  test rdx, rdx",
+            "  setne dl",
+            "  movzx rdx, dl",
+            "  " + kind + " rax, rdx",
+            "  mov qword ptr [rbp - " + TO_STRING(a) + "], rax",
+        ];
+    }
+    let right = "  or al, dl";
+    if kind == "and" {
+        right = "  and al, dl";
+    }
+    return [
+        "  mov rdi, qword ptr [rbp - " + TO_STRING(a) + "]",
+        "  call null_truthy",
+        "  mov qword ptr [rbp - " + TO_STRING(a) + "], rax",
+        "  mov rdi, qword ptr [rbp - " + TO_STRING(b) + "]",
+        "  call null_truthy",
+        "  mov rdx, rax",
+        "  mov rax, qword ptr [rbp - " + TO_STRING(a) + "]",
+        right,
+        "  movzx rax, al",
+        "  mov qword ptr [rbp - " + TO_STRING(a) + "], rax",
+    ];
 }
 
 fn cmp_sequence(kind: Text, sp: Num) -> Array {

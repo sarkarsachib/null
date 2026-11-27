@@ -66,3 +66,66 @@ rows=$(wc -l <"$linked_ir")
 bytes=$(wc -c <"$linked_ir")
 echo "PASS identical IR: ${rows} rows, ${bytes} bytes, no unsupported rows"
 echo "     nullc ${linked_ms} ms, emitter ${staged_ms} ms (host VM, this machine)"
+
+# --- native fixed point -----------------------------------------------------
+# The checks above prove the compiler's fixed point, but both stages still run on
+# the host VM. This stage compiles bootstrap/native.null itself into a real
+# x86-64 binary and has that binary compile nullc.null; its IR must match the
+# VM's byte for byte. This is the check that Python is out of the pipeline.
+if [ "${SKIP_NATIVE:-0}" = "1" ]; then
+    echo "SKIP native fixed point (SKIP_NATIVE=1)"
+    exit 0
+fi
+
+NATIVE_WORK="$ROOT/bench/build/selfhost_native"
+rm -rf "$NATIVE_WORK"
+mkdir -p "$NATIVE_WORK/emit/bootstrap" "$NATIVE_WORK/native/bootstrap" \
+         "$NATIVE_WORK/native_run/bootstrap" "$NATIVE_WORK/vm_run/bootstrap"
+cp "$ROOT/bootstrap/nullc.null" "$NATIVE_WORK/emit/bootstrap/input.null"
+
+echo "== native backend compiles nullc.null =="
+( cd "$NATIVE_WORK/emit" && ${STAGES_CMD} "$RUNNER" "$ROOT/bootstrap/emitter.null" ) >"$NATIVE_WORK/emit.log" 2>&1
+if [ $? -ne 0 ]; then
+    echo "FAIL emitter exited $?; log: $NATIVE_WORK/emit.log"
+    tail -5 "$NATIVE_WORK/emit.log"
+    exit 1
+fi
+cp "$NATIVE_WORK/emit/bootstrap/program.ir" "$NATIVE_WORK/native/bootstrap/program.ir"
+( cd "$NATIVE_WORK/native" && ${STAGES_CMD} "$RUNNER" "$ROOT/bootstrap/native.null" ) >"$NATIVE_WORK/native.log" 2>&1
+if [ $? -ne 0 ]; then
+    echo "FAIL backend exited $?; log: $NATIVE_WORK/native.log"
+    tail -5 "$NATIVE_WORK/native.log"
+    exit 1
+fi
+if [ "$(grep -c '^FALLBACK' "$NATIVE_WORK/native/bootstrap/backend.report" || true)" != "0" ]; then
+    echo "FAIL the native backend fell back on its own source"
+    grep '^FALLBACK' "$NATIVE_WORK/native/bootstrap/backend.report" | head -5
+    exit 1
+fi
+cc -O0 -o "$NATIVE_WORK/nullc" "$NATIVE_WORK/native/bootstrap/program.s" || {
+    echo "FAIL cc could not assemble the backend"; exit 1; }
+
+echo "== that binary compiles nullc.null ==="
+cp "$ROOT/bootstrap/nullc.null" "$NATIVE_WORK/native_run/bootstrap/input.null"
+cp "$ROOT/bootstrap/nullc.null" "$NATIVE_WORK/vm_run/bootstrap/input.null"
+touch "$NATIVE_WORK/native_run/bootstrap/compile-only.flag" \
+      "$NATIVE_WORK/vm_run/bootstrap/compile-only.flag"
+( cd "$NATIVE_WORK/native_run" && "$NATIVE_WORK/nullc" ) >"$NATIVE_WORK/native_run.log" 2>&1
+if [ $? -ne 0 ]; then
+    echo "FAIL natively built nullc exited $?; log: $NATIVE_WORK/native_run.log"
+    tail -5 "$NATIVE_WORK/native_run.log"
+    exit 1
+fi
+( cd "$NATIVE_WORK/vm_run" && ${STAGES_CMD} "$RUNNER" "$ROOT/bootstrap/nullc.null" ) >"$NATIVE_WORK/vm_run.log" 2>&1
+if [ $? -ne 0 ]; then
+    echo "FAIL VM nullc exited $?; log: $NATIVE_WORK/vm_run.log"
+    tail -5 "$NATIVE_WORK/vm_run.log"
+    exit 1
+fi
+if ! cmp -s "$NATIVE_WORK/native_run/bootstrap/program.ir" "$NATIVE_WORK/vm_run/bootstrap/program.ir"; then
+    echo "FAIL native and VM IR differ; first divergence:"
+    diff "$NATIVE_WORK/vm_run/bootstrap/program.ir" "$NATIVE_WORK/native_run/bootstrap/program.ir" | head -10
+    exit 1
+fi
+nrows=$(wc -l <"$NATIVE_WORK/native_run/bootstrap/program.ir")
+echo "PASS native fixed point: ${nrows} rows, identical to the VM, no FALLBACK"

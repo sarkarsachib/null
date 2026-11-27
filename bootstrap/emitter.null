@@ -2013,7 +2013,9 @@ fn render_expr(node) {
         return "STR " + node[1];
     }
     if tag == "bool" {
-        return "BOOL " + TO_STRING(node[1]);
+        // Not TO_STRING: a native bool is a raw 0/1, so a dynamic TO_STRING
+        // cannot tell it from an int and would render `1`.
+        return "BOOL " + bool_text(node[1]);
     }
     if tag == "null" {
         return "NULL";
@@ -2355,6 +2357,15 @@ fn irx(op: Num, operand, layer: Text, meta: Text) -> Array {
     return ["IR", op, operand, layer, meta];
 }
 
+// A bool literal is written as the word so the IR does not depend on the
+// consumer being able to tell a raw 0/1 apart from an int.
+fn bool_text(b) -> Text {
+    if b == true {
+        return "true";
+    }
+    return "false";
+}
+
 fn label(name: Text) -> Array {
     return ["LABEL", name];
 }
@@ -2431,6 +2442,13 @@ fn cmp_op(op: Text) -> Num {
     if op == "<=" {
         return 25;
     }
+    if op == "&&" {
+        return 26;
+    }
+    if op == "||" {
+        return 27;
+    }
+    // Unreachable for a well-formed tree; == is the least surprising guess.
     return 22;
 }
 
@@ -2491,8 +2509,10 @@ fn emit_expr(node, path: Text) -> Array {
     }
     if tag == "bool" {
         // The `bool` marker keeps the literal `true` distinguishable from the
-        // string literal "true", which is also an op-1 constant.
-        return [irx(1, node[1], "scalar", "bool")];
+        // string literal "true", which is also an op-1 constant. The operand
+        // is the word, not 0/1: both consumers read `operand == "true"`, and a
+        // native bool is a raw 0/1 that TO_STRING cannot tell from an int.
+        return [irx(1, bool_text(node[1]), "scalar", "bool")];
     }
     if tag == "null" {
         return [ir(1, "NOTHING", "scalar")];
@@ -2538,7 +2558,7 @@ fn emit_expr(node, path: Text) -> Array {
         if node[1] == "-" {
             return cat(out, [irx(70, "neg", "scalar", "arity=1")]);
         }
-        out = cat(out, [irx(1, false, "scalar", "bool")]);
+        out = cat(out, [irx(1, "false", "scalar", "bool")]);
         return cat(out, [ir(22, "", "scalar")]);
     }
     if tag == "compare" {

@@ -244,5 +244,22 @@ nothing at all.
   107/105 IR is 1.8x faster. Everything else is generated from `.null` source via
   `bench/emit_workloads.sh` (~0.7-1.0 s per workload, not the "too slow" the
   earlier revision of this document claimed).
+- The native pipeline reaches its own fixed point. `bench/selfhost_check.sh`
+  now compiles `bootstrap/native.null` into an x86-64 binary and has that
+  binary compile `bootstrap/nullc.null`; the IR is byte-identical to the VM
+  compiler's (13,665 rows, 0 FALLBACK). Both earlier stages of the script run
+  on the host VM, so this native stage is the one that shows Python is out of
+  the pipeline. Set `SKIP_NATIVE=1` to run only the VM stages.
+- `&&` and `||` have their own opcodes (26 AND, 27 OR). They used to have no
+  case in the emitter's `cmp_op`, which fell through to its `==` default, so
+  every logical operator silently compiled to equality — `a && b` and `a || b`
+  both became `a == b`. The VM-only test that covered `&&`/`||` could not see
+  it because it never ran the native backend. Native lowering coerces both
+  operands with `null_truthy` when either is `any`, and with a plain `test`
+  otherwise.
+- A bool literal is written to the IR as the word `true`/`false`, never `1`/`0`.
+  Both consumers read `operand == "true"`, and a native bool is a raw 0/1 that
+  `TO_STRING` cannot tell from an int, so `1` used to print as `1` where the VM
+  printed `true`.
 - Floating point, string concatenation and distributed/GPU targets are declared
   unsupported rather than half-implemented.

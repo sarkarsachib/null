@@ -118,6 +118,25 @@ fn ir_unescape(text: Text) -> Text {
     return out;
 }
 
+// Truthiness for the logical operators, matching what a branch tests: false,
+// 0, the empty string and NOTHING are falsy, everything else is truthy.
+// Written with nested ifs because `&&`/`||` are unreliable in this dialect.
+fn truthy(v) -> Bool {
+    if v == false {
+        return false;
+    }
+    if v == 0 {
+        return false;
+    }
+    if v == "" {
+        return false;
+    }
+    if v == "NOTHING" {
+        return false;
+    }
+    return true;
+}
+
 fn const_value(text: Text) {
     // `true`/`false` reach here only as strings: bool literals are tagged in
     // the IR (see the op-1 handler), so a string literal "true" stays a string.
@@ -348,6 +367,37 @@ fn run(rows) {
                 }
                 if op == 25 {
                     result = left <= right;
+                }
+                stack = APPEND(stack, result);
+            }
+            // Logical operators are their own ops (26 AND, 27 OR). They used to
+            // fall through to op 22, which silently compiled `a && b` to `a == b`.
+            if op == 26 {
+                handled = true;
+                let right = stack[LEN(stack) - 1];
+                stack = drop_last(stack);
+                let left = stack[LEN(stack) - 1];
+                stack = drop_last(stack);
+                let result = false;
+                if truthy(left) == true {
+                    if truthy(right) == true {
+                        result = true;
+                    }
+                }
+                stack = APPEND(stack, result);
+            }
+            if op == 27 {
+                handled = true;
+                let right = stack[LEN(stack) - 1];
+                stack = drop_last(stack);
+                let left = stack[LEN(stack) - 1];
+                stack = drop_last(stack);
+                let result = false;
+                if truthy(left) == true {
+                    result = true;
+                }
+                if truthy(right) == true {
+                    result = true;
                 }
                 stack = APPEND(stack, result);
             }

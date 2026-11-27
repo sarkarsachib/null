@@ -597,6 +597,39 @@ def test_logical_and_or_evaluate_both_operands():
     assert result.output == ["or", "and"]
 
 
+def test_native_logical_operators_are_not_equality(tmp_path, monkeypatch):
+    # `&&` and `||` once had no opcode of their own, so the emitter's cmp_op fell
+    # through to its `==` default and every logical operator compiled to equality.
+    # The VM-only test above could not see it: it never runs the native backend.
+    program = (
+        "let x = 5;\n"
+        "println(false || true);\n"
+        "println(true || false);\n"
+        "println(true && false);\n"
+        "println(true && true);\n"
+        "if x > 1 || x > 9 {\n    println(\"or\");\n}\n"
+        "if x > 1 && x > 9 {\n    println(\"and-bad\");\n}\n"
+        "if x > 1 && x < 9 {\n    println(\"and\");\n}\n"
+    )
+    workdir, _ = _run_pipeline(tmp_path, monkeypatch, program)
+
+    ir = (workdir / "bootstrap" / "program.ir").read_text()
+    assert "IR\t26\t" in ir, "AND must lower to its own opcode"
+    assert "IR\t27\t" in ir, "OR must lower to its own opcode"
+
+    report = (workdir / "bootstrap" / "backend.report").read_text()
+    assert "FALLBACK" not in report
+
+    exe = _build(workdir, "logic")
+    native = subprocess.run([str(exe)], capture_output=True, text=True, check=True)
+    expected = ["true", "true", "false", "true", "or", "and"]
+    assert native.stdout.splitlines() == expected
+
+    vm = NullVM().execute(NullLangCompiler().compile(ModernRustParser().parse(program)))
+    assert vm.success, vm.error
+    assert native.stdout.splitlines() == vm.output
+
+
 def test_boolean_results_print_like_the_vm(tmp_path, monkeypatch):
     # Comparisons now carry the `bool` type through stores, parameters and
     # returns, so print formats them as true/false instead of 1/0. The VM is the
