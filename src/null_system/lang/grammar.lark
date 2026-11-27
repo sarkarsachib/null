@@ -27,10 +27,7 @@ annotated_statement: annotation* base_statement -> attach_annotations
                 | if_statement
                 | show_statement
                 | input_statement
-                | read_file_statement
                 | write_file_statement
-                | file_exists_statement
-                | list_files_statement
                 | repeat_statement
                 | define_statement
                 | return_statement
@@ -74,7 +71,15 @@ variant_decl: identifier ("(" type_annotation ")")?
 
 // Commands
 
-set_statement: "SET" target "TO" expression -> set_cmd
+// The three file commands used to be separate rules that spelled the left side
+// as a bare `identifier` while set_statement used `target`. Both reduce after
+// "SET" NAME "TO", and that reduce/reduce conflict made lark drop the
+// `expression` branch of set_statement entirely, so `SET x TO 10` did not parse
+// at all. Keeping every branch on `target` leaves one reduction and no conflict.
+set_statement: "SET" target "TO" "READ_FILE" expression -> read_file_cmd
+             | "SET" target "TO" "FILE_EXISTS" expression -> file_exists_cmd
+             | "SET" target "TO" "LIST_FILES" expression -> list_files_cmd
+             | "SET" target "TO" expression -> set_cmd
 target: identifier
       | member_access
 
@@ -86,13 +91,7 @@ show_statement: "SHOW" expression -> show_cmd
 
 input_statement: "INPUT" identifier ("(" expression ")")? -> input_cmd
 
-read_file_statement: "SET" identifier "TO" "READ_FILE" expression -> read_file_cmd
-
 write_file_statement: "WRITE_FILE" expression "WITH" expression -> write_file_cmd
-
-file_exists_statement: "SET" identifier "TO" "FILE_EXISTS" expression -> file_exists_cmd
-
-list_files_statement: "SET" identifier "TO" "LIST_FILES" expression -> list_files_cmd
 
 repeat_statement: "REPEAT" atom "TIMES" block "END" "REPEAT" -> repeat_cmd
 

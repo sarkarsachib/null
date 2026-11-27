@@ -4,7 +4,10 @@ import json
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from pygls.server import LanguageServer
+try:  # pygls>=2.0 moved LanguageServer out of pygls.server
+    from pygls.lsp.server import LanguageServer
+except ImportError:  # pygls 1.x
+    from pygls.server import LanguageServer
 
 try:  # pygls>=1.0
     from lsprotocol.types import (

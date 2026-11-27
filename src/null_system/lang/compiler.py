@@ -78,6 +78,7 @@ class NullLangCompiler:
         self.current_syntax_mode: Optional[str] = None
         self.current_line: Optional[int] = None
         self._loop_stack: List[Dict[str, Any]] = []
+        self._hidden_local_seq = 0
         self._has_main = False
 
     def compile(self, ast: ASTNode) -> SuperBitStream:
@@ -92,6 +93,7 @@ class NullLangCompiler:
         self.tokens = []
         self.current_metadata = {}
         self._loop_stack = []
+        self._hidden_local_seq = 0
         self.current_module = "__main__"
         self.imported_modules = {}
         self.current_line = None
@@ -259,16 +261,60 @@ class NullLangCompiler:
                 opcode=SuperBitOpCode.JUMP_IF_FALSE, operand=end_idx
             )
 
-    def _visit_RepeatCommand(self, node: RepeatCommand) -> None:
-        """Emit tokens for REPEAT command."""
-        self._apply_annotations(node)
-        self._visit(node.count)
-        loop_start = len(self.tokens)
+    def _new_hidden_local(self, kind: str) -> str:
+        """Return a fresh name for a compiler-generated local.
 
+        REPEAT needs a counter slot that the source cannot name. The prefix is
+        outside the identifier grammar's reach in practice, and the sequence
+        makes the name unique per compilation, so nested REPEATs cannot share
+        a counter.
+        """
+        self._hidden_local_seq += 1
+        return f"__null_{kind}_{self._hidden_local_seq}"
+
+    def _visit_RepeatCommand(self, node: RepeatCommand) -> None:
+        """Emit tokens for REPEAT command.
+
+        The count used to be evaluated and then dropped: the body followed an
+        unconditional JUMP back to its own start, so every REPEAT looped
+        forever. The count now lives in a hidden counter slot that is tested
+        before each pass and decremented at the end of one, which is also where
+        CONTINUE goes.
+        """
+        self._apply_annotations(node)
+        counter = self._new_hidden_local("repeat")
+        self._visit(node.count)
+        self._emit(SuperBitOpCode.STORE_VAR, counter)
+
+        # Loop while the counter is still positive, so a count of 0 runs the
+        # body zero times and the last pass decrements to exactly 0.
+        loop_start = len(self.tokens)
+        self._emit(SuperBitOpCode.LOAD_VAR, counter)
+        self._emit(SuperBitOpCode.LOAD_CONST, 0)
+        self._emit(SuperBitOpCode.COMPARE_GT)
+        jump_exit_idx = len(self.tokens)
+        self._emit(SuperBitOpCode.JUMP_IF_FALSE, 0)
+
+        decrement = len(self.tokens)
+        self._loop_stack.append({"continue": decrement, "breaks": []})
         for stmt in node.body:
             self._visit(stmt)
+        loop_ctx = self._loop_stack.pop()
 
+        self._emit(SuperBitOpCode.LOAD_VAR, counter)
+        self._emit(SuperBitOpCode.LOAD_CONST, 1)
+        self._emit(SuperBitOpCode.BINARY_SUB)
+        self._emit(SuperBitOpCode.STORE_VAR, counter)
         self._emit(SuperBitOpCode.JUMP, loop_start)
+
+        end_idx = len(self.tokens)
+        self.tokens[jump_exit_idx] = SuperBitIRToken(
+            opcode=SuperBitOpCode.JUMP_IF_FALSE, operand=end_idx
+        )
+        for break_idx in loop_ctx["breaks"]:
+            self.tokens[break_idx] = SuperBitIRToken(
+                opcode=SuperBitOpCode.JUMP, operand=end_idx
+            )
 
     def _visit_DefineCommand(self, node: DefineCommand) -> None:
         """Emit tokens for DEFINE command.

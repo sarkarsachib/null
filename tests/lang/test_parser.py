@@ -538,3 +538,49 @@ class TestEdgeCases:
         result = parse_statement('SET data TO @http.get("url")')
         assert isinstance(result, SetCommand)
         assert isinstance(result.value, NullLibAnnotation)
+
+
+class TestSetStatementParses:
+    """`SET x TO <value>` is the language's only assignment, so it must parse.
+
+    The three file commands used to be separate rules whose left side was a
+    bare `identifier` while set_statement used `target`. Both reduce after
+    "SET" NAME "TO", and lark resolved that reduce/reduce conflict by dropping
+    set_statement's `expression` branch, so every ordinary assignment failed
+    to parse while `SET x TO READ_FILE ...` still worked.
+    """
+
+    @pytest.mark.parametrize(
+        "source",
+        [
+            "SET x TO 42",
+            "SET x TO -1",
+            "SET x TO y",
+            'SET x TO "text"',
+            "SET x TO 1 PLUS 2",
+            "SET x TO a TIMES b MINUS c",
+            "SET x TO TRUE",
+            "SET x TO [1, 2, 3]",
+            "SET x TO f(1)",
+            "SET obj.field TO 5",
+        ],
+    )
+    def test_plain_assignment_parses(self, source):
+        result = parse_statement(source)
+        assert isinstance(result, SetCommand)
+
+    @pytest.mark.parametrize(
+        "source",
+        [
+            'SET data TO READ_FILE "input.txt"',
+            'SET found TO FILE_EXISTS "input.txt"',
+            'SET names TO LIST_FILES "."',
+        ],
+    )
+    def test_file_commands_still_parse(self, source):
+        result = parse_statement(source)
+        assert isinstance(result, SetCommand) or result is not None
+
+    def test_assignment_value_is_the_expression(self):
+        result = parse_statement("SET x TO 1 PLUS 2")
+        assert isinstance(result.value, BinaryExpression)
