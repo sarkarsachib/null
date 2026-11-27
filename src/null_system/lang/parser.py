@@ -32,6 +32,10 @@ def decode_escapes(value: str) -> str:
     Chained ``str.replace`` calls decode in the wrong order: replacing ``\\n``
     before ``\\\\`` turns the two-character escape ``\\t`` into a backslash plus
     a literal tab. A single pass keeps ``\\t`` as backslash + ``t``.
+
+    Only ``\\n``, ``\\t``, ``\\"``, ``\\'`` and ``\\\\`` are escapes. An unrecognized
+    escape keeps its backslash, so ``\\a`` stays the two characters ``\\`` and
+    ``a`` instead of silently becoming ``a``.
     """
     out = []
     i = 0
@@ -44,11 +48,10 @@ def decode_escapes(value: str) -> str:
                 out.append("\n")
             elif esc == "t":
                 out.append("\t")
-            elif esc == "r":
-                out.append("\r")
-            elif esc == "0":
-                out.append("\0")
+            elif esc == '"' or esc == "'" or esc == "\\":
+                out.append(esc)
             else:
+                out.append("\\")
                 out.append(esc)
             i += 2
         else:

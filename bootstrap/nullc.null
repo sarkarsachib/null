@@ -174,8 +174,9 @@ fn scan_string(src: Text, start: Num, quote: Text) {
                 if ch == "\\" {
                     i = i + 1;
                     if i < n {
-                        // Decode the escapes the host parser decodes, so a
-                        // natively built compiler sees the same literal text.
+                        // Decode exactly the escapes the host parser decodes,
+                        // so a natively built compiler sees the same literal
+                        // text. An unrecognized escape keeps its backslash.
                         let esc = CHAR_AT(src, i);
                         if esc == "n" {
                             text = text + "\n";
@@ -183,7 +184,19 @@ fn scan_string(src: Text, start: Num, quote: Text) {
                             if esc == "t" {
                                 text = text + "\t";
                             } else {
-                                text = text + esc;
+                                if esc == "\\" {
+                                    text = text + "\\";
+                                } else {
+                                    if esc == "\"" {
+                                        text = text + "\"";
+                                    } else {
+                                        if esc == "'" {
+                                            text = text + "'";
+                                        } else {
+                                            text = text + "\\" + esc;
+                                        }
+                                    }
+                                }
                             }
                         }
                         i = i + 1;
