@@ -2967,6 +2967,43 @@ fn resolve_breaks(rows, break_label: Text, cont_label: Text) -> Array {
     return out;
 }
 
+// --- diagnostics -----------------------------------------------------------
+// A row the emitter could not lower is a compile-time error, not a runtime
+// no-op. `meta` is "todo" for a construct the front end could not handle (a
+// syntax error such as `let y = ;`, or a feature with no lowering yet) and
+// "decl" for a declaration the language accepts but has no runtime for.
+fn compile_errors(rows) -> Array {
+    let out = [];
+    let i = 0;
+    while i < LEN(rows) {
+        let row = rows[i];
+        if row[0] == "IR" {
+            if row[1] == 255 {
+                if LEN(row) > 4 {
+                    if row[4] == "todo" {
+                        out = APPEND(out, row[2]);
+                    }
+                }
+            }
+        }
+        i = i + 1;
+    }
+    return out;
+}
+
+// Report every compile error and return how many there were. The caller still
+// writes the IR (so a later stage cannot read a stale file), but a non-zero
+// count means the program must not be executed.
+fn report_compile_errors(rows) -> Num {
+    let errors = compile_errors(rows);
+    let i = 0;
+    while i < LEN(errors) {
+        println("ERROR: unsupported construct: " + errors[i]);
+        i = i + 1;
+    }
+    return LEN(errors);
+}
+
 fn emit_program(program) -> Array {
     let stmts = program[1];
     let out = [];
@@ -2987,6 +3024,7 @@ fn emit_main(source: Text) -> Array {
 // the link step emits one call and never has to generate a newline escape.
 fn compile_to_ir_text(source: Text) -> Text {
     let tokens = emit_program(parse_program(tokenize(source)));
+    report_compile_errors(tokens);
     let rows = [];
     let k = 0;
     while k < LEN(tokens) {
@@ -2998,6 +3036,7 @@ fn compile_to_ir_text(source: Text) -> Text {
 
 let program = parse_program(tokenize(READ_FILE("bootstrap/input.null")));
 let ir_tokens = emit_program(program);
+report_compile_errors(ir_tokens);
 let lines = [];
 let rows = [];
 let k = 0;

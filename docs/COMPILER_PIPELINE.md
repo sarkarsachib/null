@@ -55,9 +55,9 @@ The same functions are inlined at the top of `bootstrap/emitter.null` (lines
 `emitter.null` is a **concatenation** of the lexer, the parser and the IR emitter,
 with section headers at lines 289, 2341 and 2914 marking the boundaries.
 
-Known defect: `3.5` lexes as the integer `3` followed by `.5`, which the emitter
-then reads as `get_member field=5`. See
-[`IMPLEMENTATION_GAPS.md`](IMPLEMENTATION_GAPS.md) P0-2.
+`3.5` is a single `NUMBER` token: `scan_number` takes a fractional part only at
+a `.` followed by a digit, so `..` (range) and `1.foo` (member access) are
+unaffected. Fixed in Phase 1 (was P0-2).
 
 ## Stage 2 — parser
 
@@ -119,10 +119,15 @@ The IR is documented authoritatively by `bootstrap/ir.null`, which contains a
 `src/null_system/superbit/ir.py`. The two agree. Full table in
 [`ARCHITECTURE_AUDIT.md`](ARCHITECTURE_AUDIT.md) § The IR.
 
-**This stage is where `match` breaks.** `MATCH_TAG` (50) is emitted as a marker
-with the pattern as operand, but no `COMPARE_EQ` and no `JUMP_IF_FALSE` are
-emitted, so there is nothing for a backend to branch on. The arm labels
-`L_s1_a0`, `L_s1_a1` exist but are never jump targets.
+`match` lowers to a real chain: the subject is stored in a hidden slot, each
+literal arm emits `EQ` (22) + `JUMP_IF_FALSE` (40) to the next arm, the arm body
+ends with an unconditional jump past the chain, and a wildcard arm is fallthrough.
+Variant patterns (`Ok(x)`) still emit `MATCH_PATTERN` (52), which traps rather
+than running the wrong arm.
+
+A construct the emitter cannot lower becomes `IR 255 … lang todo` and is
+reported as `ERROR: unsupported construct: …` — see
+[`ROADMAP_STATUS.md`](ROADMAP_STATUS.md) § 1.4.
 
 ## Stage 4 — native backend
 

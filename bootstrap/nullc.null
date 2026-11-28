@@ -2893,6 +2893,35 @@ fn resolve_breaks(rows, break_label: Text, cont_label: Text) -> Array {
     return out;
 }
 
+fn compile_errors(rows) -> Array {
+    let out = [];
+    let i = 0;
+    while i < LEN(rows) {
+        let row = rows[i];
+        if row[0] == "IR" {
+            if row[1] == 255 {
+                if LEN(row) > 4 {
+                    if row[4] == "todo" {
+                        out = APPEND(out, row[2]);
+                    }
+                }
+            }
+        }
+        i = i + 1;
+    }
+    return out;
+}
+
+fn report_compile_errors(rows) -> Num {
+    let errors = compile_errors(rows);
+    let i = 0;
+    while i < LEN(errors) {
+        println("ERROR: unsupported construct: " + errors[i]);
+        i = i + 1;
+    }
+    return LEN(errors);
+}
+
 fn emit_program(program) -> Array {
     let stmts = program[1];
     let out = [];
@@ -2910,6 +2939,7 @@ fn emit_main(source: Text) -> Array {
 
 fn compile_to_ir_text(source: Text) -> Text {
     let tokens = emit_program(parse_program(tokenize(source)));
+    report_compile_errors(tokens);
     let rows = [];
     let k = 0;
     while k < LEN(tokens) {
@@ -2917,6 +2947,16 @@ fn compile_to_ir_text(source: Text) -> Text {
         k = k + 1;
     }
     return JOIN(rows, "\n");
+}
+
+fn vm_starts_with(text: Text, prefix: Text) -> Bool {
+    if LEN(prefix) > LEN(text) {
+        return false;
+    }
+    if SUBSTR(text, 0, LEN(prefix)) == prefix {
+        return true;
+    }
+    return false;
 }
 
 fn drop_last(list) -> Array {
@@ -3078,12 +3118,55 @@ fn has_meta(meta: Text, key: Text) -> Bool {
     return found;
 }
 
+fn idiv_mag(x: Num, y: Num) -> Num {
+    let divisors = [];
+    let quotients = [];
+    let d = y;
+    let q = 1;
+    while d <= x {
+        divisors = APPEND(divisors, d);
+        quotients = APPEND(quotients, q);
+        d = d + d;
+        q = q + q;
+    }
+    let total = 0;
+    let i = LEN(divisors) - 1;
+    while i >= 0 {
+        if divisors[i] <= x {
+            x = x - divisors[i];
+            total = total + quotients[i];
+        }
+        i = i - 1;
+    }
+    return total;
+}
+
 fn idiv(a: Num, b: Num) -> Num {
-    let q = 0;
-    let rest = a;
-    while rest >= b {
-        rest = rest - b;
-        q = q + 1;
+    if a == 0 {
+        return 0;
+    }
+    if b == 0 {
+        return 0;
+    }
+    let a_neg = false;
+    if a < 0 {
+        a_neg = true;
+    }
+    let b_neg = false;
+    if b < 0 {
+        b_neg = true;
+    }
+    let x = a;
+    if a_neg {
+        x = 0 - a;
+    }
+    let y = b;
+    if b_neg {
+        y = 0 - b;
+    }
+    let q = idiv_mag(x, y);
+    if a_neg != b_neg {
+        return 0 - q;
     }
     return q;
 }
@@ -3234,7 +3317,15 @@ fn run(rows) {
                 stack = drop_last(stack);
                 let left = stack[LEN(stack) - 1];
                 stack = drop_last(stack);
-                stack = APPEND(stack, left / right);
+                // Integer division truncates toward zero, the way the native
+                // backend's `idiv` does. Python's `/` returns a float, which
+                // made `7 / 2` print 3.5 here and 3 natively.
+                if right == 0 {
+                    println("VM ERROR: division by zero");
+                    running = false;
+                } else {
+                    stack = APPEND(stack, idiv(left, right));
+                }
             }
             let is_compare = false;
             if op >= 20 {
@@ -3415,6 +3506,33 @@ fn run(rows) {
                 if name == "READ_FILE" {
                     name = "read_file";
                 }
+                if name == "TO_STRING" {
+                    name = "to_string";
+                }
+                if name == "TO_NUMBER" {
+                    name = "to_number";
+                }
+                if name == "SPLIT" {
+                    name = "split";
+                }
+                if name == "JOIN" {
+                    name = "join";
+                }
+                if name == "SUBSTR" {
+                    name = "substr";
+                }
+                if name == "SLICE" {
+                    name = "slice";
+                }
+                if name == "CONTAINS" {
+                    name = "contains";
+                }
+                if name == "WRITE_FILE" {
+                    name = "write_file";
+                }
+                if name == "FILE_EXISTS" {
+                    name = "file_exists";
+                }
                 if name == "len" {
                     let v = stack[LEN(stack) - 1];
                     stack = drop_last(stack);
@@ -3436,6 +3554,68 @@ fn run(rows) {
                     let path = stack[LEN(stack) - 1];
                     stack = drop_last(stack);
                     stack = APPEND(stack, READ_FILE(TO_STRING(path)));
+                }
+                if name == "write_file" {
+                    let content = stack[LEN(stack) - 1];
+                    stack = drop_last(stack);
+                    let path = stack[LEN(stack) - 1];
+                    stack = drop_last(stack);
+                    WRITE_FILE(TO_STRING(path), TO_STRING(content));
+                    stack = APPEND(stack, "");
+                }
+                if name == "file_exists" {
+                    let path = stack[LEN(stack) - 1];
+                    stack = drop_last(stack);
+                    stack = APPEND(stack, FILE_EXISTS(TO_STRING(path)));
+                }
+                if name == "to_string" {
+                    let value = stack[LEN(stack) - 1];
+                    stack = drop_last(stack);
+                    stack = APPEND(stack, TO_STRING(value));
+                }
+                if name == "to_number" {
+                    let value = stack[LEN(stack) - 1];
+                    stack = drop_last(stack);
+                    stack = APPEND(stack, TO_NUMBER(TO_STRING(value)));
+                }
+                if name == "split" {
+                    let sep = stack[LEN(stack) - 1];
+                    stack = drop_last(stack);
+                    let text = stack[LEN(stack) - 1];
+                    stack = drop_last(stack);
+                    stack = APPEND(stack, SPLIT(TO_STRING(text), TO_STRING(sep)));
+                }
+                if name == "join" {
+                    let sep = stack[LEN(stack) - 1];
+                    stack = drop_last(stack);
+                    let items = stack[LEN(stack) - 1];
+                    stack = drop_last(stack);
+                    stack = APPEND(stack, JOIN(items, TO_STRING(sep)));
+                }
+                if name == "substr" {
+                    let end = stack[LEN(stack) - 1];
+                    stack = drop_last(stack);
+                    let start = stack[LEN(stack) - 1];
+                    stack = drop_last(stack);
+                    let text = stack[LEN(stack) - 1];
+                    stack = drop_last(stack);
+                    stack = APPEND(stack, SUBSTR(TO_STRING(text), TO_NUMBER(start), TO_NUMBER(end)));
+                }
+                if name == "slice" {
+                    let end = stack[LEN(stack) - 1];
+                    stack = drop_last(stack);
+                    let start = stack[LEN(stack) - 1];
+                    stack = drop_last(stack);
+                    let items = stack[LEN(stack) - 1];
+                    stack = drop_last(stack);
+                    stack = APPEND(stack, SLICE(items, TO_NUMBER(start), TO_NUMBER(end)));
+                }
+                if name == "contains" {
+                    let needle = stack[LEN(stack) - 1];
+                    stack = drop_last(stack);
+                    let text = stack[LEN(stack) - 1];
+                    stack = drop_last(stack);
+                    stack = APPEND(stack, CONTAINS(TO_STRING(text), TO_STRING(needle)));
                 }
                 if name == "mod" {
                     let b = stack[LEN(stack) - 1];
@@ -3530,6 +3710,33 @@ fn run(rows) {
                 if name == "read_file" {
                     is_builtin = true;
                 }
+                if name == "write_file" {
+                    is_builtin = true;
+                }
+                if name == "file_exists" {
+                    is_builtin = true;
+                }
+                if name == "to_string" {
+                    is_builtin = true;
+                }
+                if name == "to_number" {
+                    is_builtin = true;
+                }
+                if name == "split" {
+                    is_builtin = true;
+                }
+                if name == "join" {
+                    is_builtin = true;
+                }
+                if name == "substr" {
+                    is_builtin = true;
+                }
+                if name == "slice" {
+                    is_builtin = true;
+                }
+                if name == "contains" {
+                    is_builtin = true;
+                }
                 if name == "__range__" {
                     is_builtin = true;
                 }
@@ -3600,6 +3807,14 @@ fn run(rows) {
                 handled = true;
                 if operand == "HALT" {
                     running = false;
+                } else {
+                    // A row the front end could not lower is a compile error; it
+                    // used to be a silent no-op, so the rest of the program ran
+                    // with a missing value on the stack.
+                    if vm_starts_with(operand, "unsupported:") {
+                        println("VM ERROR: unsupported construct " + operand);
+                        running = false;
+                    }
                 }
             }
             if handled == false {

@@ -6,7 +6,10 @@ working tree. Nothing here is inferred from a class, rule, or doc existing.
 
 ## Verdict
 
-Phase 0 is **complete**. Phase 1 has **not** started.
+Phase 0 is **complete**. Phase 1 is **in progress**: the semantic conformance
+suite exists and passes, five divergences it found are fixed, and compile-time
+errors are now reported instead of silently halting. Sections 1.1 (normative
+decisions), 1.3 (type system) and the source locations of 1.4 remain.
 
 The compiler is real: it self-hosts and produces a native binary that reproduces
 its own IR byte for byte. It is also **not yet a usable language**: the standard
@@ -22,6 +25,88 @@ broken, and 57 tests fail.
 | Do the tests pass? | Mostly | 959 passed, 57 failed, 11 errors |
 | Does the TS VM compile? | No | 97 `tsc` errors |
 | Are the perf claims sound? | No | `volatile` in the C baseline |
+
+## Phase 1 — progress
+
+Measured 2026-11-28 on this working tree. Phase 0's figures above are kept as the
+baseline they were measured against.
+
+### 1.2 Semantic conformance — done
+
+`tests/bootstrap/test_semantic_conformance.py` is the shared suite the roadmap
+requires. Each case is a Null program plus its specified stdout. For every case
+it runs the program on the bootstrap VM (reference) and, separately, lowers it
+with `bootstrap/native.null`, assembles it with `cc -O0` and runs the binary. It
+requires:
+
+1. the VM output equals the specified output (so a program wrong on both
+   backends still fails),
+2. the native output equals the VM output,
+3. the IR has no `unsupported:` row and `backend.report` has no `FALLBACK` row.
+
+19 cases cover arithmetic and precedence, comparison and logical operators,
+if/else, while, for-in, array read/write, APPEND growth, string operations,
+SPLIT/JOIN/SUBSTR/CONTAINS, SLICE/TO_NUMBER, file write/exists/read, functions
+and recursion, `match` on integers, strings and wildcards, float literals,
+break/continue, nested loops, truncating division, and arrays of strings.
+
+```
+$ pytest tests/bootstrap/test_semantic_conformance.py -q
+19 passed
+```
+
+Before it was added there was no test that ran one program on both backends. On
+its first run it found five divergences, all now fixed:
+
+| Divergence | Cause | Fix |
+| --- | --- | --- |
+| `words[1]` printed as a pointer, `LEN(words[1])` garbage, then SIGSEGV | `native.null` built an array literal's element spec from `types` while the store loop shrank that same stack, so every element after the first was typed `""` | build the spec before the store loop |
+| `7 / 2` printed `3.5` on the VM, `3` natively | the VM used Python `/`; native uses `idiv` | VM integer division truncating toward zero, by doubling (logarithmic, not repeated subtraction) |
+| `SPLIT`, `JOIN`, `SUBSTR`, `CONTAINS`, `TO_STRING`, `TO_NUMBER`, `SLICE`, `WRITE_FILE`, `FILE_EXISTS` were `VM ERROR: unknown call` | builtins existed only in the native runtime | implemented in `bootstrap/vm.null` |
+
+### 1.4 Diagnostics — partial
+
+A syntax error used to become `IR 255 unsupported:eof:PUNCT:;`, which both
+backends treated as a no-op: the VM ran on with a missing value, the native
+binary emitted nothing and exited 0. A typo therefore looked like a working
+build that printed less than expected.
+
+Now:
+
+- the emitter prints `ERROR: unsupported construct: <construct>` for every
+  `todo` row (`bootstrap/emitter.null`, `compile_errors` / `report_compile_errors`);
+- the VM stops with `VM ERROR: unsupported construct …`;
+- the native backend routes the row to `null_unsupported` (`UNSUPPORTED OP!!`,
+  exit 4) and records `ERROR …` in `backend.report`;
+- `tests/bootstrap/test_diagnostics.py` asserts all three, plus that a clean
+  program is unaffected.
+
+Still missing: **source locations**. Tokens carry no line/column, so a
+diagnostic names the construct but not where it is. That requires positional
+tokens through `tokenize`/`parse_primary` and is recorded as P1-8.
+
+### Regression gate after these changes
+
+`bench/selfhost_check.sh` was re-run after regenerating `bootstrap/nullc.null`
+from the modified `emitter.null` and `vm.null`:
+
+```
+PASS identical IR: 14636 rows, 309192 bytes, no unsupported rows
+     nullc 164893 ms, emitter 149438 ms (host VM, this machine)
+PASS native fixed point: 14636 rows, identical to the VM, no FALLBACK
+```
+
+The row count grew from 13,894 to 14,636 because the VM now carries the string
+builtins and the long-division helper. The timings are higher than Phase 0's
+because the machine was under load; the row and byte counts are the assertion.
+
+### Still open in Phase 1
+
+- 1.1: the keyword set, statement termination, comment syntax and ownership
+  decision are documented as open questions, not decided.
+- 1.3: no static type checking. The native backend is dynamically typed;
+  `let a: Num = 4` is not checked against its initialiser.
+- 1.4: line/column diagnostics (P1-8).
 
 ## What exists and works
 

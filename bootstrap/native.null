@@ -4050,7 +4050,12 @@ fn compile(rows) -> Array {
                 out = APPEND(out, "  call null_array_new");
                 out = APPEND(out, "  mov qword ptr [rbp - 3000], rax");
                 // The literal's element types, in order: `arr:str|int` for a
-                // tuple, `arr:str` for a homogeneous list.
+                // tuple, `arr:str|str` for a homogeneous list.
+                //
+                // The spec must be read before the store loop shrinks `types`:
+                // reading it inside the loop dropped every element after the
+                // first, so `["a", "b"][1]` was typed `""` (dynamic) and a
+                // string element was printed as its tagged pointer.
                 let spec = "";
                 let e = 0;
                 while e < argc {
@@ -4058,6 +4063,10 @@ fn compile(rows) -> Array {
                         spec = spec + "|";
                     }
                     spec = spec + type_at(types, base + e);
+                    e = e + 1;
+                }
+                e = 0;
+                while e < argc {
                     out = APPEND(out, "  mov rcx, qword ptr [rbp - " + TO_STRING(4096 + (base + e) * 8) + "]");
                     out = APPEND(out, "  mov qword ptr [rax + " + TO_STRING((e + 1) * 8) + "], rcx");
                     types = drop_last(types);
@@ -4193,6 +4202,14 @@ fn compile(rows) -> Array {
                 }
                 if operand == "move" {
                     report = APPEND(report, "STAT 255 move-erased-at-compile-time");
+                }
+                // A row the front end could not lower is a compile error. It used
+                // to fall through as a no-op, so `let y = ;` produced a binary
+                // that ran with a missing value and exited 0.
+                if starts_with(operand, "unsupported:") {
+                    out = APPEND(out, "  call null_unsupported");
+                    report = APPEND(report, "FALLBACK 255 " + operand);
+                    report = APPEND(report, "ERROR " + operand);
                 }
             }
 

@@ -177,8 +177,9 @@ both gitignored.
 
 ## Known weaknesses in the bootstrap
 
-- The lexer mishandles float literals (`3.5` → `3` + `get_member field=5`).
-- The emitter emits no branch for `match` arms.
+- Float literals and `match` arms now lower correctly (Phase 1); the remaining
+  diagnostic gap is that errors have no source location, so a message names the
+  construct but not the line.
 - `link.null`'s block scanner is line-based and depends on brace indentation.
 - Nothing in the bootstrap chain type-checks; the native backend is dynamically
   typed.

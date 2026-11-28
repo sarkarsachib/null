@@ -6,6 +6,22 @@ a reproduction, the root cause with a file reference, and the scope of the fix.
 Priority: **P0** = produces wrong results or blocks a phase; **P1** = missing
 capability the roadmap requires; **P2** = unverified or dead code.
 
+## Resolved in Phase 1 (2026-11-28)
+
+These were reproduced, fixed in `bootstrap/`, and are now covered by tests. The
+original analysis is kept below because the reproductions still describe the
+failure modes.
+
+| Item | Defect | Fix | Test |
+| --- | --- | --- | --- |
+| P0-1 | `match` emitted no compare and no branch | `emit_match`: hidden subject slot, `EQ` + `JUMP_IF_FALSE` per literal arm | `test_phase1_match_and_float.py`, conformance corpus |
+| P0-2 | `3.5` lexed as `3` + `get_member field=5` | `scan_number` takes a fractional part only when a digit follows the dot; float constants load from `.double` rodata | same |
+| P0-5 | nothing compared the VM against native output | `test_semantic_conformance.py`: 18 programs, VM vs native vs specified stdout | that file |
+| P0-6 | an array of strings lost its element type after index 0 (`words[1]` printed as a tagged pointer, `LEN(words[1])` garbage, then SIGSEGV) | the array-literal element spec was built from `types` while the store loop shrank it; it is now built first | conformance `array-of-strings` |
+| P0-7 | `7 / 2` printed `3.5` on the VM and `3` natively | VM division now truncates toward zero with a doubling long-division helper, matching `idiv` | conformance `integer-division-*` |
+| P1-7 | `SPLIT`, `JOIN`, `SUBSTR`, `SLICE`, `CONTAINS`, `TO_STRING`, `TO_NUMBER`, `WRITE_FILE`, `FILE_EXISTS` were unknown calls on the bootstrap VM while the native runtime implemented them | implemented in `bootstrap/vm.null` | conformance `string-*`, `integer-division-*` |
+| P0-8 | a syntax error became `IR 255 unsupported:…`, a silent no-op in both backends (exit 0, truncated program) | emitter reports `ERROR: unsupported construct …`; VM stops; native routes to `null_unsupported` (exit 4) | `test_diagnostics.py` |
+
 ---
 
 ## P0-1 — `match` emits no branch, in both backends
@@ -256,6 +272,19 @@ way to run a `.null` stage.
 **Scope** — Phase 6. Depends on Phase 4 (a native driver binary).
 
 ---
+
+## P1-8 — Diagnostics have no source location (open)
+
+**Measured** — a program with `let y = ;` now reports
+`ERROR: unsupported construct: unsupported:eof:PUNCT:;`, but nothing says which
+line it is on. `tokenize` emits tokens as `"KIND value"` with no position, and
+the AST nodes carry no span, so no stage can name a location.
+
+**Scope** — Phase 1.4. Needs positional tokens (`line:col` prefix in the token
+text, or a parallel offsets array) threaded from `tokenize` to the `eof`
+fallback in `parse_primary`, then `line:col: error: message` formatting in
+`report_compile_errors`. Touching the token format touches the fixed point, so
+it must be followed by `bench/selfhost_check.sh`.
 
 ## P1-6 — Division by zero traps instead of reporting
 

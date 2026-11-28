@@ -81,8 +81,6 @@ Each of the above was run through `emitter.null` → `native.null` → `cc -O0` 
 
 | Construct | Observed |
 | --- | --- |
-| `let x = 3.5; println(x);` | lexes as `3` + `get_member field=5`; `FALLBACK 70`; prints `UNSUPPORTED OP!!`, exit 4 |
-| `match n { 1 => … 2 => … }` | first arm always executes; no comparison or branch in the IR |
 | `let m = { "k": 1 };` | `FALLBACK 1`; `UNSUPPORTED OP!!` |
 | `own` / `borrow` / `move` / `ref` | lexed, emitted as plain store/load, never checked |
 | `async` / `await` | partially emitted (`__await__`), no runtime |
@@ -90,6 +88,43 @@ Each of the above was run through `emitter.null` → `native.null` → `cc -O0` 
 | `data class` | tokens consumed, lowered as `INDEX`/`STORE_VAR` — not a struct |
 | `?.` `?:` `!!` | emitted as `SAFE_CALL` (60), `ELVIS_CHECK` (61), `NOT_NULL_CHECK` (62); no backend lowering |
 | `Type<T>` generics | lexed, no semantics |
+
+Two constructs that were listed here as broken are fixed and covered by the
+conformance corpus: `match` now lowers to one compare-and-branch per arm, and a
+float literal is a single tagged constant that prints its fractional value.
+
+### Numeric semantics
+
+`Num` is a signed 64-bit integer. The rules both backends implement, and the
+conformance suite asserts:
+
+| Operation | Rule |
+| --- | --- |
+| `+ - *` | 64-bit two's-complement wraparound |
+| `/` | truncates toward zero (`7 / 2 == 3`, `-9 / 4 == -2`); not float division |
+| `/` by zero | native traps (SIGFPE, exit 136) — still a defect, see `IMPLEMENTATION_GAPS.md` P1-6 |
+| float literals | stored and printed; float **arithmetic** is refused, not miscompiled |
+| comparison | signed; results are `Bool`, printed `true`/`false` |
+
+Float division is therefore not implemented: `3.5 / 2` is not a supported
+operation in this stage, and the backend refuses rather than producing an
+integer from IEEE-754 bits.
+
+### Runtime builtins both backends implement
+
+`LEN`, `APPEND`, `SPLIT`, `JOIN`, `SUBSTR`, `SLICE`, `CONTAINS`, `CHAR_AT`,
+`ORD`, `TO_STRING`, `TO_NUMBER`, `READ_FILE`, `WRITE_FILE`, `FILE_EXISTS`,
+`println`, `print`. Anything else is a compile error in the native backend
+(``FALLBACK 70 unknown-call-…``) and a ``VM ERROR: unknown call …`` on the VM.
+
+### Diagnostics
+
+A construct the front end cannot lower produces one `IR 255 … todo` row per
+site, the compiler prints `ERROR: unsupported construct: <construct>`, the VM
+stops with `VM ERROR: unsupported construct …`, and the native binary refuses to
+run (`UNSUPPORTED OP!!`, exit 4). Diagnostics do **not** carry a source location
+yet: tokens have no line/column, so the message names the construct only. This
+is the main open item of Phase 1.4.
 
 ---
 
