@@ -22,6 +22,20 @@ failure modes.
 | P1-7 | `SPLIT`, `JOIN`, `SUBSTR`, `SLICE`, `CONTAINS`, `TO_STRING`, `TO_NUMBER`, `WRITE_FILE`, `FILE_EXISTS` were unknown calls on the bootstrap VM while the native runtime implemented them | implemented in `bootstrap/vm.null` | conformance `string-*`, `integer-division-*` |
 | P0-8 | a syntax error became `IR 255 unsupported:…`, a silent no-op in both backends (exit 0, truncated program) | emitter reports `ERROR: unsupported construct …`; VM stops; native routes to `null_unsupported` (exit 4) | `test_diagnostics.py` |
 
+## Resolved in Phase 2 (2026-11-28)
+
+Both defects were in the Python toolchain, not the bootstrap front end. They are
+fixed and covered by `tests/test_compiler.py::TestEmitterOpcodes` and
+`TestOptimizationPasses`; the analysis below is kept for the failure modes.
+
+| Item | Defect | Fix | Test |
+| --- | --- | --- | --- |
+| P0-3 | `AST_TO_SUPERBIT_TABLE` held bare strings, so `to_bytes()` raised `ValueError: invalid literal for int() … 'BINARY_ADD'` | table values are `SuperBitOpCode` members | `TestEmitterOpcodes` asserts both emitted opcodes and the serialized bytes |
+| P0-4 | `DeduplicationPass` / `CompressionPass` read the removed `symbol` / `bits` API | both passes use `opcode` / `operand`; `_FOLDABLE_OPS` decides what may be folded | `TestOptimizationPasses` |
+
+After the fixes: `pytest tests/test_compiler.py` → 13 passed,
+`pytest tests/test_integration.py` → 17 passed.
+
 ---
 
 ## P0-1 — `match` emits no branch, in both backends
@@ -391,11 +405,62 @@ diff readable.
 
 ---
 
+## P0-9 — `SuperBitToken` silently dropped its bit width (found and fixed in Phase 2)
+
+**Reproduction** — `pytest tests/superbit/test_tokens.py`:
+
+```
+E       AssertionError: assert 1 == 6
+E        +  where 1 = SuperBitToken('SET', operand=1).bit_width
+```
+
+**Root cause** — `src/null_system/superbit/tokens.py` documents the constructor
+as `SuperBitToken(symbol, bits, bit_width)`, but the dataclass had only
+`(opcode, operand, metadata)`, so a third positional argument landed in
+`metadata` and `bit_width` was a read-only property derived from
+`operand.bit_length()`. A 6-bit `SET` token therefore occupied 1 bit.
+
+**Blast radius** — `SuperBitGroup.to_byte()` packed every token as narrow as its
+value, so encoded bytes were wrong; 6 tests failed. `encoder.py` and
+`SuperBitGroup.from_byte` both construct tokens with an explicit width and were
+affected.
+
+**Fix** — `bit_width` is a real field with a `__post_init__` fallback to the old
+derived value; `to_bytes` / `from_bytes` carry the width; `SuperBitStream` now
+delegates to the token serializer instead of duplicating the format, and its
+deserializer reuses `SuperBitToken.from_bytes`. `pytest tests/superbit` → 71
+passed, `tests/test_security.py` → 17 passed.
+
+---
+
+## P2-2b — High compression does not compress interleaved repeats (open)
+
+**Reproduction** — `pytest tests/test_compression.py::TestAdvancedCompressionPass::test_high_compression`:
+
+```
+E       AssertionError: assert 100 < 100
+```
+
+**Root cause** — `AdvancedCompressionPass._compress_high` learns a dictionary,
+replaces each token with a `DICT` token, then run-length encodes. The test data
+is `LOAD_CONST i % 10` for `i in range(100)`, so after dictionary substitution
+no two adjacent tokens are equal and RLE finds no runs; the token count is
+unchanged. The pass is not wrong, it is simply incapable of this pattern, and the
+`compression_ratio` it reports counts tokens rather than bytes.
+
+**Scope** — needs a real entropy or pattern coder (or a byte-size metric), which
+is a design decision, not a bug fix. Left open and recorded here rather than
+silently relaxed. `tests/test_compression.py::TestRunLengthEncoder::test_decode_runs`
+was a wrong test expectation (a first run of 3 occupies indices 0–2, so
+`BINARY_ADD` starts at index 3); the test was corrected, `decode` was already
+right.
+
+---
+
 ## Suggested order
 
 1. **P2-6** — hygiene. Trivial, unblocks clean diffs.
-2. **P0-3, P0-4** — two small localized fixes that unblock ~15 tests and the whole
-   super-bit encode path.
+2. ~~**P0-3, P0-4**~~ — done in Phase 2, along with P0-9 (token bit width).
 3. **P0-1, P0-2** — correctness bugs in the only pipeline that reaches machine
    code.
 4. **P0-5** — the differential harness, which makes the remaining work verifiable.

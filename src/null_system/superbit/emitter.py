@@ -22,14 +22,17 @@ from .ir import SuperBitIRToken, SuperBitOpCode, SuperBitStream
 class SuperBitEmitter:
     """Emits Super-bit IR tokens from an AST."""
 
+    # Values are SuperBitOpCode members, not strings: `to_bytes()` serializes the
+    # opcode with `int()`, so a bare name raised
+    # `ValueError: invalid literal for int() with base 10: 'BINARY_ADD'`.
     AST_TO_SUPERBIT_TABLE = {
-        "add": "BINARY_ADD",
-        "subtract": "BINARY_SUB",
-        "multiply": "BINARY_MUL",
-        "divide": "BINARY_DIV",
-        "greater_than": "COMPARE_GT",
-        "less_than": "COMPARE_LT",
-        "equals": "COMPARE_EQ",
+        "add": SuperBitOpCode.BINARY_ADD,
+        "subtract": SuperBitOpCode.BINARY_SUB,
+        "multiply": SuperBitOpCode.BINARY_MUL,
+        "divide": SuperBitOpCode.BINARY_DIV,
+        "greater_than": SuperBitOpCode.COMPARE_GT,
+        "less_than": SuperBitOpCode.COMPARE_LT,
+        "equals": SuperBitOpCode.COMPARE_EQ,
     }
 
     def __init__(self):

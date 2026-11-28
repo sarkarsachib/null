@@ -116,6 +116,60 @@ class TestOptimizationPasses:
         assert optimized.tokens[0].operand == 5.0
 
 
+class TestEmitterOpcodes:
+    """The emitter must store opcode members, not bare names.
+
+    Regression: ``AST_TO_SUPERBIT_TABLE`` mapped to strings, so any program
+    with a binary operator raised
+    ``ValueError: invalid literal for int() with base 10: 'BINARY_ADD'`` when
+    the stream was serialized.
+    """
+
+    def test_binary_operator_emits_an_opcode_member(self):
+        from null_system.ast.nodes import BinaryOp, Literal, PrintStatement, Program
+        from null_system.superbit.emitter import SuperBitEmitter
+
+        node = BinaryOp(op="add", left=Literal(value=1), right=Literal(value=2))
+        stream = SuperBitEmitter().emit(Program(statements=[PrintStatement(value=node)]))
+
+        assert [t.opcode for t in stream.tokens] == [
+            SuperBitOpCode.LOAD_CONST,
+            SuperBitOpCode.LOAD_CONST,
+            SuperBitOpCode.BINARY_ADD,
+            SuperBitOpCode.PRINT,
+        ]
+
+    def test_stream_with_a_binary_operator_serializes(self):
+        from null_system.ast.nodes import BinaryOp, Literal, PrintStatement, Program
+        from null_system.superbit.emitter import SuperBitEmitter
+
+        node = BinaryOp(op="multiply", left=Literal(value=3), right=Literal(value=4))
+        stream = SuperBitEmitter().emit(Program(statements=[PrintStatement(value=node)]))
+
+        # 4 tokens, each opcode byte + 1 operand tag byte; the two consts add 4 bytes.
+        assert stream.to_bytes() == bytes([1, 2, 0, 0, 0, 3, 1, 2, 0, 0, 0, 4, 12, 0, 30, 0])
+
+    def test_token_normalizes_an_opcode_name(self):
+        from null_system.superbit.ir import SuperBitIRToken, SuperBitOpCode
+
+        token = SuperBitIRToken(opcode="BINARY_ADD")
+
+        assert token.opcode is SuperBitOpCode.BINARY_ADD
+        assert token.to_bytes() == bytes([10, 0])
+
+    def test_token_rejects_an_unknown_opcode_name(self):
+        import pytest
+
+        from null_system.superbit.ir import SuperBitIRToken
+
+        with pytest.raises(ValueError) as excinfo:
+            SuperBitIRToken(opcode="NOT_AN_OPCODE")
+
+        message = str(excinfo.value)
+        assert "NOT_AN_OPCODE" in message
+        assert "invalid literal for int()" not in message
+
+
 class TestCompilationArtifact:
     """Tests for CompilationArtifact."""
     

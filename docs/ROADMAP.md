@@ -56,9 +56,13 @@ incomplete ones. Measured in Phase 0:
   `JUMP_IF_FALSE` per literal arm, asserted by `test_semantic_conformance.py`.
 - ~~Float literals are lexed as `3` plus `get_member field=5`~~ — fixed in
   Phase 1; float arithmetic is still refused rather than miscompiled.
-- `AST_TO_SUPERBIT_TABLE` stores bare strings where `SuperBitOpCode` members are
-  required, so `to_bytes()` raises `ValueError: invalid literal for int() … 'BINARY_ADD'`.
-- The optimizer passes still use a removed token API (`symbol` / `bits`).
+- ~~`AST_TO_SUPERBIT_TABLE` stores bare strings where `SuperBitOpCode` members are
+  required, so `to_bytes()` raises `ValueError: invalid literal for int() … 'BINARY_ADD'`.~~
+  — fixed in Phase 2: the table now holds `SuperBitOpCode` members and
+  `TestEmitterOpcodes` asserts both the emitted opcodes and the serialized bytes.
+- ~~The optimizer passes still use a removed token API (`symbol` / `bits`).~~ —
+  fixed in Phase 2: `DeduplicationPass` and `CompressionPass` use `opcode` /
+  `operand`, with `_FOLDABLE_OPS` deciding what may be folded.
 
 Exit criteria: every IR opcode emitted by a front end is lowered, never
 `FALLBACK`; a differential test compares VM and native output for the same

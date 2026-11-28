@@ -15,6 +15,16 @@ class OptimizationPass(ABC):
         pass
 
 
+_FOLDABLE_OPS = frozenset(
+    {
+        SuperBitOpCode.BINARY_ADD,
+        SuperBitOpCode.BINARY_SUB,
+        SuperBitOpCode.BINARY_MUL,
+        SuperBitOpCode.BINARY_DIV,
+    }
+)
+
+
 class DeduplicationPass(OptimizationPass):
     """Remove duplicate consecutive operations."""
     
@@ -33,11 +43,11 @@ class DeduplicationPass(OptimizationPass):
     
     def _is_duplicate(self, token1: SuperBitIRToken, token2: SuperBitIRToken) -> bool:
         """Check if two tokens are duplicates."""
-        if token1.symbol != token2.symbol:
+        if token1.opcode != token2.opcode:
             return False
         
-        if token1.symbol == "LOAD_CONST":
-            return token1.bits == token2.bits
+        if token1.opcode == SuperBitOpCode.LOAD_CONST:
+            return token1.operand == token2.operand
         
         return False
 
@@ -67,29 +77,24 @@ class CompressionPass(OptimizationPass):
             return False
         
         return (
-            tokens[idx].symbol == "LOAD_CONST" and
-            tokens[idx + 1].symbol == "LOAD_CONST" and
-            tokens[idx + 2].symbol in [
-                "BINARY_ADD",
-                "BINARY_SUB",
-                "BINARY_MUL",
-                "BINARY_DIV",
-            ]
+            tokens[idx].opcode == SuperBitOpCode.LOAD_CONST and
+            tokens[idx + 1].opcode == SuperBitOpCode.LOAD_CONST and
+            tokens[idx + 2].opcode in _FOLDABLE_OPS
         )
     
     def _fold_constants(self, tokens: List[SuperBitIRToken], idx: int) -> SuperBitIRToken:
         """Fold constant binary operation."""
-        left = tokens[idx].bits
-        right = tokens[idx + 1].bits
-        op = tokens[idx + 2].symbol
+        left = tokens[idx].operand
+        right = tokens[idx + 1].operand
+        op = tokens[idx + 2].opcode
         
-        if op == "BINARY_ADD":
+        if op == SuperBitOpCode.BINARY_ADD:
             result = left + right
-        elif op == "BINARY_SUB":
+        elif op == SuperBitOpCode.BINARY_SUB:
             result = left - right
-        elif op == "BINARY_MUL":
+        elif op == SuperBitOpCode.BINARY_MUL:
             result = left * right
-        elif op == "BINARY_DIV":
+        elif op == SuperBitOpCode.BINARY_DIV:
             result = left // right if right != 0 else 0
         else:
             result = left

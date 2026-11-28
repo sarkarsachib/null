@@ -196,15 +196,33 @@ Summary, ordered by severity:
    `FALLBACK 70 unknown-call-get_member`, and the binary prints
    `UNSUPPORTED OP!!` with exit 4. The Python VM prints `3.5` correctly, so the
    two paths disagree.
-3. **`AST_TO_SUPERBIT_TABLE` stores strings, not opcodes.**
-   `src/null_system/superbit/emitter.py` maps to `"BINARY_ADD"` where
-   `src/null_system/superbit/ir.py:94` does `int(self.opcode)`. Result:
-   `ValueError: invalid literal for int() with base 10: 'BINARY_ADD'`, which is
-   the direct cause of 9 failures in `tests/test_integration.py` and 3 in
-   `tests/test_compiler.py`.
-4. **The optimizer uses a removed token API.** `src/null_system/compiler/optimization.py`
-   reads `token.symbol` / `token.bits`; tokens now expose `opcode` / `operand`.
-   5 failures.
+3. ~~**`AST_TO_SUPERBIT_TABLE` stores strings, not opcodes.**~~ — fixed in
+   Phase 2. `src/null_system/superbit/emitter.py` maps to `SuperBitOpCode`
+   members, so `to_bytes()` returns bytes instead of raising
+   `ValueError: invalid literal for int() with base 10: 'BINARY_ADD'`.
+   `TestEmitterOpcodes` pins the opcode sequence and the exact serialization.
+4. ~~**The optimizer uses a removed token API.**~~ — fixed in Phase 2.
+   `DeduplicationPass` and `CompressionPass` use `token.opcode` / `token.operand`,
+   with `_FOLDABLE_OPS` deciding what may be folded.
+
+A third, previously unreported defect turned up while verifying those: the
+bit-level `SuperBitToken` documented as `SuperBitToken(symbol, bits, bit_width)`
+had no width field, so the width fell into `metadata` and `bit_width` was derived
+from `operand.bit_length()`. A 6-bit `SET` therefore packed as 1 bit and
+`SuperBitGroup.to_byte()` produced wrong bytes. `bit_width` is now a real field,
+the token byte format carries it, and `SuperBitStream` reuses the token
+serializer instead of duplicating the format.
+
+After those fixes: `pytest tests/test_compiler.py tests/test_integration.py` →
+32 passed, `pytest tests/superbit` → 71 passed, `pytest tests/test_security.py`
+→ 17 passed, `pytest tests/test_compression.py` → 17 passed, 1 failed
+(`test_high_compression`, recorded as an open design gap: the pass has no coder
+for interleaved repeats). The rest of the failure table above was measured
+before Phase 2 and is not yet re-measured.
+
+The `invalid literal for int()` path is now unreachable from any constructor:
+`SuperBitIRToken.__post_init__` normalises an opcode name to its enum member and
+raises `ValueError` naming the bad value at construction instead.
 
 ### P1 — capability gaps
 
@@ -307,8 +325,8 @@ are build artifacts and must not be committed.
 ## Next prerequisites before Phase 1
 
 1. Decide the single native syntax (Phase 1 blocking decision).
-2. Fix `AST_TO_SUPERBIT_TABLE` and the optimizer token API — these are small,
-   localized, and unblock 15 tests plus the whole super-bit encode path.
+2. ~~Fix `AST_TO_SUPERBIT_TABLE` and the optimizer token API~~ — done in Phase 2;
+   the super-bit encode path serializes again.
 3. Fix `match` lowering in `bootstrap/emitter.null`; it is a correctness bug in
    both backends and any test written against `match` today asserts wrong behavior.
 4. Fix float lexing in the bootstrap front end, or remove floats from the

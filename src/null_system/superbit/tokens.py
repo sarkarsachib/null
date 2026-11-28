@@ -44,7 +44,21 @@ class SuperBitToken:
 
     opcode: Union[str, SuperBitOpCode]
     operand: Optional[Union[int, str, object]] = None
+    bit_width: int = 0
     metadata: Optional[dict] = None
+
+    def __post_init__(self) -> None:
+        """Derive the width for tokens created without one.
+
+        ``bit_width`` used to be a read-only property computed from
+        ``operand.bit_length()``, so the documented
+        ``SuperBitToken(symbol, bits, bit_width)`` constructor silently put the
+        width into ``metadata`` and every token packed as if it were as narrow
+        as its value. An explicit width is now honoured; omitting it keeps the
+        old derived behaviour.
+        """
+        if not self.bit_width and isinstance(self.operand, int):
+            self.bit_width = self.operand.bit_length() or 1
 
     @property
     def symbol(self) -> str:
@@ -60,13 +74,6 @@ class SuperBitToken:
             return self.operand
         return 0
 
-    @property
-    def bit_width(self) -> int:
-        """Get bit width (for compatibility)."""
-        if isinstance(self.operand, int):
-            return (self.operand.bit_length() or 1)
-        return 0
-
     def to_bytes(self) -> bytes:
         """Serialize token to bytes.
 
@@ -75,7 +82,8 @@ class SuperBitToken:
         opcode_str = self.symbol
         opcode_bytes = opcode_str.encode("utf-8")
         data = struct.pack(">H", len(opcode_bytes)) + opcode_bytes
-        
+        data += struct.pack(">H", self.bit_width)
+
         if self.operand is not None:
             if isinstance(self.operand, (int, float)):
                 data += struct.pack(">B", 1) + struct.pack(">Q", int(self.operand))
@@ -107,7 +115,12 @@ class SuperBitToken:
         
         opcode_str = data[offset:offset+opcode_len].decode("utf-8")
         offset += opcode_len
-        
+
+        if offset + 2 > len(data):
+            raise ValueError("Incomplete bit width")
+        bit_width = struct.unpack(">H", data[offset:offset+2])[0]
+        offset += 2
+
         operand_type = data[offset]
         offset += 1
         
@@ -127,11 +140,14 @@ class SuperBitToken:
             operand = data[offset:offset+operand_len].decode("utf-8")
             offset += operand_len
         
-        token = SuperBitToken(opcode_str, operand)
+        token = SuperBitToken(opcode_str, operand, bit_width)
         return token, offset
 
     def __repr__(self) -> str:
-        return f"SuperBitToken({self.symbol!r}, operand={self.operand!r})"
+        return (
+            f"SuperBitToken({self.symbol!r}, bits={self.bits}, "
+            f"width={self.bit_width})"
+        )
 
     def __eq__(self, other) -> bool:
         if not isinstance(other, SuperBitToken):
@@ -139,6 +155,7 @@ class SuperBitToken:
         return (
             self.opcode == other.opcode
             and self.operand == other.operand
+            and self.bit_width == other.bit_width
         )
 
 
@@ -294,29 +311,17 @@ class SuperBitStream:
         """Serialize stream to bytes."""
         data = struct.pack(">I", len(self.tokens))
         for token in self.tokens:
-            token_bytes = self._token_to_bytes(token)
-            data += token_bytes
+            data += self._token_to_bytes(token)
         return data
-    
+
     @staticmethod
     def _token_to_bytes(token: SuperBitToken) -> bytes:
-        """Serialize a single token."""
-        opcode_str = token.symbol
-        opcode_bytes = opcode_str.encode("utf-8")
-        data = struct.pack(">H", len(opcode_bytes)) + opcode_bytes
-        
-        if token.operand is not None:
-            if isinstance(token.operand, (int, float)):
-                data += struct.pack(">B", 1) + struct.pack(">Q", int(token.operand))
-            elif isinstance(token.operand, str):
-                operand_bytes = token.operand.encode("utf-8")
-                data += struct.pack(">B", 2) + struct.pack(">H", len(operand_bytes)) + operand_bytes
-            else:
-                data += struct.pack(">B", 0)
-        else:
-            data += struct.pack(">B", 0)
-        
-        return data
+        """Serialize a single token.
+
+        Delegates to :meth:`SuperBitToken.to_bytes` so the stream and token
+        formats cannot drift apart.
+        """
+        return token.to_bytes()
     
     @staticmethod
     def from_bytes(data: bytes) -> "SuperBitStream":
@@ -327,42 +332,12 @@ class SuperBitStream:
         token_count = struct.unpack(">I", data[:4])[0]
         tokens = []
         offset = 4
-        
+
         for _ in range(token_count):
-            if offset + 3 > len(data):
-                raise ValueError("Incomplete stream")
-            
-            opcode_len = struct.unpack(">H", data[offset:offset+2])[0]
-            offset += 2
-            
-            if offset + opcode_len + 1 > len(data):
-                raise ValueError("Incomplete opcode")
-            
-            opcode_str = data[offset:offset+opcode_len].decode("utf-8")
-            offset += opcode_len
-            
-            operand_type = data[offset]
-            offset += 1
-            
-            operand = None
-            if operand_type == 1:
-                if offset + 8 > len(data):
-                    raise ValueError("Incomplete operand")
-                operand = struct.unpack(">Q", data[offset:offset+8])[0]
-                offset += 8
-            elif operand_type == 2:
-                if offset + 2 > len(data):
-                    raise ValueError("Incomplete operand length")
-                operand_len = struct.unpack(">H", data[offset:offset+2])[0]
-                offset += 2
-                if offset + operand_len > len(data):
-                    raise ValueError("Incomplete operand")
-                operand = data[offset:offset+operand_len].decode("utf-8")
-                offset += operand_len
-            
-            token = SuperBitToken(opcode_str, operand)
+            token, consumed = SuperBitToken.from_bytes(data[offset:])
             tokens.append(token)
-        
+            offset += consumed
+
         return SuperBitStream(tokens=tokens)
     
     def __repr__(self) -> str:

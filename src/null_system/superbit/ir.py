@@ -89,6 +89,32 @@ class SuperBitIRToken:
     source_line: int | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        """Normalise the opcode so serialization can never see a bare name.
+
+        Regression guard: ``to_bytes`` does ``int(self.opcode)``, so a string
+        such as ``"BINARY_ADD"`` used to fail deep in serialization with
+        ``invalid literal for int()``. Coercing here turns that into a clear
+        error at the construction site instead.
+        """
+        if isinstance(self.opcode, SuperBitOpCode):
+            return
+        if isinstance(self.opcode, str):
+            try:
+                opcode = SuperBitOpCode[self.opcode]
+            except KeyError:
+                raise ValueError(
+                    f"unknown opcode name {self.opcode!r}; expected a SuperBitOpCode member"
+                ) from None
+        else:
+            try:
+                opcode = SuperBitOpCode(self.opcode)
+            except ValueError:
+                raise ValueError(
+                    f"invalid opcode {self.opcode!r}; expected a SuperBitOpCode member"
+                ) from None
+        object.__setattr__(self, "opcode", opcode)
+
     def to_bytes(self) -> bytes:
         payload = self._encode_operand(self.operand)
         return bytes([int(self.opcode)]) + payload

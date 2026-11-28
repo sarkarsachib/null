@@ -55,7 +55,10 @@ class TestRunLengthEncoder:
         
         assert len(decoded) == 5
         assert decoded[0].operand == 5
-        assert decoded[2].opcode == SuperBitOpCode.BINARY_ADD
+        # The first run of 3 fills indices 0-2, so the BINARY_ADD run starts at 3.
+        assert decoded[2].opcode == SuperBitOpCode.LOAD_CONST
+        assert decoded[3].opcode == SuperBitOpCode.BINARY_ADD
+        assert decoded[4].opcode == SuperBitOpCode.BINARY_ADD
     
     def test_encode_decode_roundtrip(self):
         """Test encode/decode roundtrip."""
