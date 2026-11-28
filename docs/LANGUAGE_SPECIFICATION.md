@@ -86,12 +86,16 @@ Each of the above was run through `emitter.null` → `native.null` → `cc -O0` 
 | `async` / `await` | partially emitted (`__await__`), no runtime |
 | `trait` / `sealed` | lexed, no semantics |
 | `data class` | tokens consumed, lowered as `INDEX`/`STORE_VAR` — not a struct |
-| `?.` `?:` `!!` | emitted as `SAFE_CALL` (60), `ELVIS_CHECK` (61), `NOT_NULL_CHECK` (62); no backend lowering |
+| `?.` on a non-null object | emitted as `SAFE_CALL` (60) and lowered, but no object member table exists, so the object is returned unchanged |
+| `null!!` | `NOT_NULL_CHECK` (62) reports `NOT NULL ASSERTION FAILED!!` instead of passing null through |
 | `Type<T>` generics | lexed, no semantics |
 
-Two constructs that were listed here as broken are fixed and covered by the
-conformance corpus: `match` now lowers to one compare-and-branch per arm, and a
-float literal is a single tagged constant that prints its fractional value.
+Four constructs that were listed here as broken are fixed and covered by the
+conformance corpus: `match` lowers to one compare-and-branch per arm, a float
+literal is a single tagged constant that prints its fractional value, `?:`
+keeps a truthy left value and uses the fallback otherwise, and `!!` passes a
+non-null value through. Safe access on null yields `NOTHING`; member lookup on a
+non-null object is still not implemented.
 
 ### Numeric semantics
 

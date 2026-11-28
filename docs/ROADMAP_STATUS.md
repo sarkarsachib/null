@@ -97,15 +97,16 @@ work noted in `IMPLEMENTATION_GAPS.md`).
 from the modified `emitter.null`, `vm.null` and `native.null`:
 
 ```
-PASS identical IR: 15041 rows, 318744 bytes, no unsupported rows
-     nullc 127879 ms, emitter 121497 ms (host VM, this machine)
-PASS native fixed point: 15041 rows, identical to the VM, no FALLBACK
+PASS identical IR: 15108 rows, 320201 bytes, no unsupported rows
+     nullc 130626 ms, emitter 136173 ms (host VM, this machine)
+PASS native fixed point: 15108 rows, identical to the VM, no FALLBACK
 ```
 
-The row count grew from 13,894 to 15,041 because the VM now carries the string
-builtins and the long-division helper, and the emitter carries positional
-tokens. The timings vary with machine load; the row and byte counts are the
-assertion.
+The row count grew from 13,894 to 15,108 because the VM now carries the string
+builtins, the long-division helper, positional tokens and the null-safety
+guards. The timings vary with machine load; the row and byte counts are the
+assertion. Opcodes 60/61/62 (`?.`, `?:`, `!!`) now lower natively; member
+lookup on a non-null object still needs an object member table.
 
 ### Still open in Phase 1
 

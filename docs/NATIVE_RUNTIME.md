@@ -249,8 +249,9 @@ Each of these was compiled through `emitter.null` → `native.null` → `cc -O0`
 | `let a: Num = 4` | correct |
 
 The strongest evidence is the native fixed point: the backend lowers its own
-4,363-line source with zero `FALLBACK` rows, and the resulting binary reproduces
-the Python VM's IR byte for byte (13,665 rows). See [`BOOTSTRAP.md`](BOOTSTRAP.md).
+source with zero `FALLBACK` rows, and the resulting binary reproduces the Python
+VM's IR byte for byte (15,108 rows, 320,201 bytes after the null-safety
+lowering). See [`BOOTSTRAP.md`](BOOTSTRAP.md).
 
 ## What is verified broken
 
@@ -261,7 +262,8 @@ the Python VM's IR byte for byte (13,665 rows). See [`BOOTSTRAP.md`](BOOTSTRAP.m
 | `let m = { "k": 1 };` | `FALLBACK 1`, prints `UNSUPPORTED OP!!` |
 | `x / 0` | `DIVISION BY ZERO!!!`, exit 5 |
 | `own` / `borrow` / `move` | no enforcement |
-| `?.` `?:` `!!` | opcodes 60/61/62 emitted, no lowering |
+| `?.` on a non-null object | opcode 60 lowers, but there is no object member table, so the object is returned unchanged |
+| `null!!` | opcode 62 prints `NOT NULL ASSERTION FAILED!!` to stderr and exits |
 | `data class` | lowered as `INDEX`/`STORE_VAR`, not a struct |
 | `async` / `await` | `__await__` emitted, no runtime |
 
