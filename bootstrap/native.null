@@ -2297,6 +2297,49 @@ fn runtime_lines() -> Array {
         "  movzx rax, al",
         "  ret",
         "",
+        "null_shell:",
+        "  push rbp",
+        "  mov rbp, rsp",
+        "  push rbx",
+        "  push r12",
+        "  sub rsp, 32",
+        "  and rdi, qword ptr [rip + .Lmask]",
+        "  mov rbx, rdi",
+        "  mov eax, 57",
+        "  syscall",
+        "  test rax, rax",
+        "  jne .Lsh_parent",
+        "  lea rax, [rip + .Lsh]",
+        "  mov qword ptr [rsp], rax",
+        "  lea rax, [rip + .Lshc]",
+        "  mov qword ptr [rsp + 8], rax",
+        "  mov qword ptr [rsp + 16], rbx",
+        "  mov qword ptr [rsp + 24], 0",
+        "  lea rdi, [rip + .Lsh]",
+        "  mov rsi, rsp",
+        "  xor edx, edx",
+        "  mov eax, 59",
+        "  syscall",
+        "  mov eax, 60",
+        "  mov edi, 127",
+        "  syscall",
+        ".Lsh_parent:",
+        "  mov r12, rax",
+        "  mov rdi, r12",
+        "  mov rsi, rsp",
+        "  xor edx, edx",
+        "  xor r10d, r10d",
+        "  mov eax, 61",
+        "  syscall",
+        "  mov rax, qword ptr [rsp]",
+        "  and rax, 65280",
+        "  shr rax, 8",
+        "  add rsp, 32",
+        "  pop r12",
+        "  pop rbx",
+        "  leave",
+        "  ret",
+        "",
         "null_write_file:",
         "  push rbp",
         "  mov rbp, rsp",
@@ -3180,6 +3223,8 @@ fn fast_vec_array_axpy(rows, i, regs, slot_names) -> Array {
 }
 
 fn compile(rows) -> Array {
+    // Keep the process arguments for the ARGC/ARGV builtins. edi is argc and
+    // rsi is argv at the C entry point.
     let out = [
         ".intel_syntax noprefix",
         ".text",
@@ -3192,6 +3237,9 @@ fn compile(rows) -> Array {
         "  push r14",
         "  push r15",
         "  sub rsp, 16384",
+        "  movsxd rax, edi",
+        "  mov qword ptr [rip + .Largc], rax",
+        "  mov qword ptr [rip + .Largv], rsi",
     ];
     let report = [];
 
@@ -3869,6 +3917,15 @@ fn compile(rows) -> Array {
                 if name == "FILE_EXISTS" {
                     name = "file_exists";
                 }
+                if name == "ARGC" {
+                    name = "argc";
+                }
+                if name == "ARGV" {
+                    name = "argv";
+                }
+                if name == "SHELL" {
+                    name = "shell";
+                }
                 if name == "SLICE" {
                     name = "slice";
                 }
@@ -4035,6 +4092,49 @@ fn compile(rows) -> Array {
                     sp = base + 1;
                     types = drop_last(types);
                     types = APPEND(types, "bool");
+                }
+                if name == "shell" {
+                    // Run a command through /bin/sh and yield its exit status.
+                    // This is how a native driver invokes cc and the stages.
+                    builtin = true;
+                    out = APPEND(out, "  mov rdi, qword ptr [rbp - " + TO_STRING(4096 + base * 8) + "]");
+                    out = APPEND(out, "  call null_shell");
+                    out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + base * 8) + "], rax");
+                    report = APPEND(report, "LOWERED 70 shell");
+                    sp = base + 1;
+                    types = drop_last(types);
+                    types = APPEND(types, "int");
+                }
+                if name == "argc" {
+                    // Process argument count, captured from main's edi.
+                    builtin = true;
+                    out = APPEND(out, "  mov rax, qword ptr [rip + .Largc]");
+                    out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + base * 8) + "], rax");
+                    report = APPEND(report, "LOWERED 70 argc");
+                    sp = base + 1;
+                    types = APPEND(types, "int");
+                }
+                if name == "argv" {
+                    // Process argument by index as a tagged C string. An index
+                    // outside the captured range yields the empty string rather
+                    // than reading past argv.
+                    builtin = true;
+                    out = APPEND(out, "  mov rcx, qword ptr [rbp - " + TO_STRING(4096 + base * 8) + "]");
+                    out = APPEND(out, "  xor eax, eax");
+                    out = APPEND(out, "  cmp rcx, qword ptr [rip + .Largc]");
+                    out = APPEND(out, "  jae .Largnone_" + TO_STRING(i));
+                    out = APPEND(out, "  mov rax, qword ptr [rip + .Largv]");
+                    out = APPEND(out, "  mov rax, qword ptr [rax + rcx * 8]");
+                    out = APPEND(out, "  jmp .Largvout_" + TO_STRING(i));
+                    out = APPEND(out, ".Largnone_" + TO_STRING(i) + ":");
+                    out = APPEND(out, "  lea rax, [rip + .Lempty]");
+                    out = APPEND(out, ".Largvout_" + TO_STRING(i) + ":");
+                    out = APPEND(out, "  bts rax, 62");
+                    out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + base * 8) + "], rax");
+                    report = APPEND(report, "LOWERED 70 argv");
+                    sp = base + 1;
+                    types = drop_last(types);
+                    types = APPEND(types, "str");
                 }
                 if name == "slice" {
                     builtin = true;
@@ -4543,6 +4643,11 @@ fn compile(rows) -> Array {
     out = APPEND(out, ".Lmask: .quad 0x3fffffffffffffff");
     out = APPEND(out, ".Larrtext: .asciz \"[array]\"");
     out = APPEND(out, ".Lnull: .asciz \"NOTHING\"");
+    out = APPEND(out, ".bss");
+    out = APPEND(out, ".align 8");
+    out = APPEND(out, ".Largc: .quad 0");
+    out = APPEND(out, ".Largv: .quad 0");
+    out = APPEND(out, ".section .rodata");
     out = APPEND(out, ".Lnotnull: .ascii \"NOT NULL ASSERTION FAILED!!\\n\"");
     out = APPEND(out, ".Ltrue: .asciz \"true\"");
     out = APPEND(out, ".Lfalse: .asciz \"false\"");
@@ -4550,6 +4655,8 @@ fn compile(rows) -> Array {
     out = APPEND(out, ".Ldivzero: .ascii \"DIVISION BY ZERO!!!\\n\"");
     out = APPEND(out, ".Lunsup: .ascii \"UNSUPPORTED OP!!\\n\"");
     out = APPEND(out, ".Lempty: .asciz \"\"");
+    out = APPEND(out, ".Lsh: .asciz \"/bin/sh\"");
+    out = APPEND(out, ".Lshc: .asciz \"-c\"");
     out = APPEND(out, ".Lf10: .double 10.0");
     out = APPEND(out, ".p2align 4");
     out = APPEND(out, ".Liota0: .quad 0, 1, 2, 3");
@@ -4742,13 +4849,24 @@ fn emit_comprehension(out, report, operand: Text, sp: Num, base_off: Num, slot_n
 }
 
 fn main() -> Num {
-    let text = READ_FILE("bootstrap/program.ir");
+    // argv[1] is the IR to lower (default bootstrap/program.ir), argv[2] is the
+    // assembly output (default bootstrap/program.s). This lets a native driver
+    // chain stages without the fixed working-directory layout.
+    let ir_path = "bootstrap/program.ir";
+    if ARGC() > 1 {
+        ir_path = ARGV(1);
+    }
+    let asm_path = "bootstrap/program.s";
+    if ARGC() > 2 {
+        asm_path = ARGV(2);
+    }
+    let text = READ_FILE(ir_path);
     let rows = parse_rows(text);
     let result = compile(rows);
     let out = result[0];
     let report = result[1];
     let asm = JOIN(out, "\n") + "\n";
-    WRITE_FILE("bootstrap/program.s", asm);
+    WRITE_FILE(asm_path, asm);
     WRITE_FILE("bootstrap/backend.report", JOIN(report, "\n") + "\n");
     println("ASM " + TO_STRING(LEN(out)));
     println("LOWERED " + TO_STRING(count_prefix(report, "LOWERED")));

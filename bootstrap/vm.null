@@ -610,6 +610,15 @@ fn run(rows) {
                 if name == "FILE_EXISTS" {
                     name = "file_exists";
                 }
+                if name == "ARGC" {
+                    name = "argc";
+                }
+                if name == "ARGV" {
+                    name = "argv";
+                }
+                if name == "SHELL" {
+                    name = "shell";
+                }
                 if name == "len" {
                     let v = stack[LEN(stack) - 1];
                     stack = drop_last(stack);
@@ -644,6 +653,19 @@ fn run(rows) {
                     let path = stack[LEN(stack) - 1];
                     stack = drop_last(stack);
                     stack = APPEND(stack, FILE_EXISTS(TO_STRING(path)));
+                }
+                if name == "argc" {
+                    stack = APPEND(stack, ARGC());
+                }
+                if name == "argv" {
+                    let index = stack[LEN(stack) - 1];
+                    stack = drop_last(stack);
+                    stack = APPEND(stack, ARGV(index));
+                }
+                if name == "shell" {
+                    let command = stack[LEN(stack) - 1];
+                    stack = drop_last(stack);
+                    stack = APPEND(stack, SHELL(TO_STRING(command)));
                 }
                 if name == "to_string" {
                     let value = stack[LEN(stack) - 1];
@@ -791,6 +813,15 @@ fn run(rows) {
                     is_builtin = true;
                 }
                 if name == "file_exists" {
+                    is_builtin = true;
+                }
+                if name == "argc" {
+                    is_builtin = true;
+                }
+                if name == "argv" {
+                    is_builtin = true;
+                }
+                if name == "shell" {
                     is_builtin = true;
                 }
                 if name == "to_string" {

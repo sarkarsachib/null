@@ -110,12 +110,23 @@ while p < LEN(parts) {
     p = p + 1;
 }
 
-out = APPEND(out, "// --- driver: compile bootstrap/input.null and run it in this process ---");
-out = APPEND(out, "// bootstrap/compile-only.flag in the working directory stops execution after");
-out = APPEND(out, "// emission; that is how nullc compiles nullc (no infinite self-run).");
-out = APPEND(out, "let source = READ_FILE(\"bootstrap/input.null\");");
+out = APPEND(out, "// --- driver: compile a source file and run it in this process ---");
+out = APPEND(out, "//");
+out = APPEND(out, "// argv[1] is the source path (default bootstrap/input.null), argv[2] is the IR");
+out = APPEND(out, "// output path (default bootstrap/program.ir). bootstrap/compile-only.flag in");
+out = APPEND(out, "// the working directory stops execution after emission; that is how nullc");
+out = APPEND(out, "// compiles nullc (no infinite self-run).");
+out = APPEND(out, "let source_path = \"bootstrap/input.null\";");
+out = APPEND(out, "if ARGC() > 1 {");
+out = APPEND(out, "    source_path = ARGV(1);");
+out = APPEND(out, "}");
+out = APPEND(out, "let ir_path = \"bootstrap/program.ir\";");
+out = APPEND(out, "if ARGC() > 2 {");
+out = APPEND(out, "    ir_path = ARGV(2);");
+out = APPEND(out, "}");
+out = APPEND(out, "let source = READ_FILE(source_path);");
 out = APPEND(out, "let ir = compile_to_ir_text(source);");
-out = APPEND(out, "WRITE_FILE(\"bootstrap/program.ir\", ir);");
+out = APPEND(out, "WRITE_FILE(ir_path, ir);");
 out = APPEND(out, "if FILE_EXISTS(\"bootstrap/compile-only.flag\") == false {");
 out = APPEND(out, "    run(parse_rows(ir));");
 out = APPEND(out, "}");

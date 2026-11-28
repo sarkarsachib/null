@@ -34,6 +34,10 @@ class NullVM:
         self.output: List[str] = []
         self.pc = 0
         self.feature_config = feature_config
+        # Process arguments visible to a running program. The host VM has no
+        # argv of its own in the bootstrap chain, so a caller sets this
+        # explicitly; a native binary fills it from the real process argv.
+        self.argv: List[str] = []
     
     def execute(self, superbit_stream: SuperBitStream) -> ExecutionResult:
         """Execute a super-bit stream."""
@@ -217,6 +221,17 @@ class NullVM:
             return None
         if key == "FILE_EXISTS":
             return os.path.exists(str(args[0]))
+        if key == "ARGC":
+            return float(len(self.argv))
+        if key == "ARGV":
+            index = int(args[0])
+            if 0 <= index < len(self.argv):
+                return self.argv[index]
+            return ""
+        if key == "SHELL":
+            import subprocess
+
+            return float(subprocess.call(str(args[0]), shell=True))
         if key == "LIST_FILES":
             return sorted(os.listdir(str(args[0])))
         if key == "RANGE":

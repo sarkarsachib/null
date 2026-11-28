@@ -3653,6 +3653,15 @@ fn run(rows) {
                 if name == "FILE_EXISTS" {
                     name = "file_exists";
                 }
+                if name == "ARGC" {
+                    name = "argc";
+                }
+                if name == "ARGV" {
+                    name = "argv";
+                }
+                if name == "SHELL" {
+                    name = "shell";
+                }
                 if name == "len" {
                     let v = stack[LEN(stack) - 1];
                     stack = drop_last(stack);
@@ -3687,6 +3696,19 @@ fn run(rows) {
                     let path = stack[LEN(stack) - 1];
                     stack = drop_last(stack);
                     stack = APPEND(stack, FILE_EXISTS(TO_STRING(path)));
+                }
+                if name == "argc" {
+                    stack = APPEND(stack, ARGC());
+                }
+                if name == "argv" {
+                    let index = stack[LEN(stack) - 1];
+                    stack = drop_last(stack);
+                    stack = APPEND(stack, ARGV(index));
+                }
+                if name == "shell" {
+                    let command = stack[LEN(stack) - 1];
+                    stack = drop_last(stack);
+                    stack = APPEND(stack, SHELL(TO_STRING(command)));
                 }
                 if name == "to_string" {
                     let value = stack[LEN(stack) - 1];
@@ -3836,6 +3858,15 @@ fn run(rows) {
                 if name == "file_exists" {
                     is_builtin = true;
                 }
+                if name == "argc" {
+                    is_builtin = true;
+                }
+                if name == "argv" {
+                    is_builtin = true;
+                }
+                if name == "shell" {
+                    is_builtin = true;
+                }
                 if name == "to_string" {
                     is_builtin = true;
                 }
@@ -3968,12 +3999,23 @@ fn run(rows) {
     }
 }
 
-// --- driver: compile bootstrap/input.null and run it in this process ---
-// bootstrap/compile-only.flag in the working directory stops execution after
-// emission; that is how nullc compiles nullc (no infinite self-run).
-let source = READ_FILE("bootstrap/input.null");
+// --- driver: compile a source file and run it in this process ---
+//
+// argv[1] is the source path (default bootstrap/input.null), argv[2] is the IR
+// output path (default bootstrap/program.ir). bootstrap/compile-only.flag in
+// the working directory stops execution after emission; that is how nullc
+// compiles nullc (no infinite self-run).
+let source_path = "bootstrap/input.null";
+if ARGC() > 1 {
+    source_path = ARGV(1);
+}
+let ir_path = "bootstrap/program.ir";
+if ARGC() > 2 {
+    ir_path = ARGV(2);
+}
+let source = READ_FILE(source_path);
 let ir = compile_to_ir_text(source);
-WRITE_FILE("bootstrap/program.ir", ir);
+WRITE_FILE(ir_path, ir);
 if FILE_EXISTS("bootstrap/compile-only.flag") == false {
     run(parse_rows(ir));
 }
