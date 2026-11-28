@@ -81,24 +81,31 @@ Now:
 - `tests/bootstrap/test_diagnostics.py` asserts all three, plus that a clean
   program is unaffected.
 
-Still missing: **source locations**. Tokens carry no line/column, so a
-diagnostic names the construct but not where it is. That requires positional
-tokens through `tokenize`/`parse_primary` and is recorded as P1-8.
+Source locations are now included: `tokenize` returns a `["TOKENS", tokens,
+positions, eof]` wrapper whose third field holds the `line:col` of each token,
+`parse_primary` stamps the position on the `eof` fallback node, and the emitter
+prints `2:9: error: unsupported construct: …`. Tokens themselves keep their
+`"KIND value"` text, so the canonical IR is byte-identical.
+
+Still missing: locations for constructs that parse but cannot be lowered — the
+AST has no spans, so only the `eof` fallback is positioned (P1-8, remaining
+work noted in `IMPLEMENTATION_GAPS.md`).
 
 ### Regression gate after these changes
 
 `bench/selfhost_check.sh` was re-run after regenerating `bootstrap/nullc.null`
-from the modified `emitter.null` and `vm.null`:
+from the modified `emitter.null`, `vm.null` and `native.null`:
 
 ```
-PASS identical IR: 14636 rows, 309192 bytes, no unsupported rows
-     nullc 164893 ms, emitter 149438 ms (host VM, this machine)
-PASS native fixed point: 14636 rows, identical to the VM, no FALLBACK
+PASS identical IR: 15041 rows, 318744 bytes, no unsupported rows
+     nullc 127879 ms, emitter 121497 ms (host VM, this machine)
+PASS native fixed point: 15041 rows, identical to the VM, no FALLBACK
 ```
 
-The row count grew from 13,894 to 14,636 because the VM now carries the string
-builtins and the long-division helper. The timings are higher than Phase 0's
-because the machine was under load; the row and byte counts are the assertion.
+The row count grew from 13,894 to 15,041 because the VM now carries the string
+builtins and the long-division helper, and the emitter carries positional
+tokens. The timings vary with machine load; the row and byte counts are the
+assertion.
 
 ### Still open in Phase 1
 
@@ -106,7 +113,8 @@ because the machine was under load; the row and byte counts are the assertion.
   decision are documented as open questions, not decided.
 - 1.3: no static type checking. The native backend is dynamically typed;
   `let a: Num = 4` is not checked against its initialiser.
-- 1.4: line/column diagnostics (P1-8).
+- 1.4: line/column diagnostics exist for the `eof` fallback only (P1-8); other
+  unsupported constructs still report without a location.
 
 ## What exists and works
 
@@ -154,7 +162,7 @@ Hand probes, each emitted through `emitter.null` → `native.null` → `cc -O0`:
 | typed `let a: Num = 4` | `FALLBACK 0` | correct |
 
 Runtime safety is partly present: an out-of-bounds index prints `OOB PANIC!!!` and
-exits 3. Division by zero raises SIGFPE and exits 136 with no message.
+exits 3, and division by zero prints `DIVISION BY ZERO!!!` and exits 5.
 
 ### Repository scale
 

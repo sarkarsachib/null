@@ -9,12 +9,12 @@ which both backends handled as a no-op (the VM ignored the row; the native
 backend emitted nothing at all). The program then printed what it could and
 exited 0, so a typo looked like a working build.
 
-Now the emitter reports ``ERROR: unsupported construct: …`` when it emits such
-a row, the VM stops with ``VM ERROR: unsupported construct …``, and the native
-backend routes the row to ``null_unsupported`` (``UNSUPPORTED OP!!``, exit 4).
-What is still missing is a source location: tokens carry no line/column yet, so
-these diagnostics name the construct but not where it is. That gap is recorded
-in docs/IMPLEMENTATION_GAPS.md.
+Now the emitter reports ``2:9: error: unsupported construct: …`` when it emits
+such a row: ``tokenize`` tracks the line and column of every token, the parser
+records the position on the offending ``eof`` node, and the emitter appends it
+to the unsupported marker. The VM stops with ``VM ERROR: unsupported construct
+…`` and the native backend routes the row to ``null_unsupported``
+(``UNSUPPORTED OP!!``, exit 4).
 """
 
 import os
@@ -93,10 +93,17 @@ def test_clean_program_reports_no_errors(tmp_path):
 def test_vm_reports_and_stops_on_an_unparseable_statement(tmp_path):
     output = _run_nullc(tmp_path, DIRTY)
 
-    assert "ERROR: unsupported construct: unsupported:eof:PUNCT:;" in output
+    # `let y = ;` — the `;` is at line 2, column 9 (1-based).
+    assert "2:9: error: unsupported construct: unsupported:eof:PUNCT:;" in output
     # the compile error stops the program; the trailing `println(x)` never runs
     assert "5" not in output
     assert any(line.startswith("VM ERROR: unsupported construct") for line in output)
+
+
+def test_location_points_at_the_offending_token(tmp_path):
+    # Same mistake one line further down: the reported line must follow the source.
+    output = _run_nullc(tmp_path, "let x = 5;\nprintln(x);\nlet y = ;\n")
+    assert "3:9: error: unsupported construct: unsupported:eof:PUNCT:;" in output
 
 
 def test_native_binary_refuses_a_program_with_a_compile_error(tmp_path):

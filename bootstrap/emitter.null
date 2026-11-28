@@ -243,22 +243,47 @@ fn scan_string(src: Text, start: Num, quote: Text) {
     return [text, i];
 }
 
+// Token text stays `KIND value` so every consumer of it is unchanged.
+// Positions live in a parallel array: element k is "line:col" for token k,
+// and the last element is the position just after the final token. Diagnostics
+// use these offsets; the parser continues to see plain token strings.
 fn tokenize(src: Text) {
     let out = [];
+    let positions = [];
     let i = 0;
     let n = LEN(src);
+    let line = 1;
+    let col = 1;
     while i < n {
         let ch = CHAR_AT(src, i);
         let code = ORD(ch);
         if code == 35 {
-            i = skip_comment(src, i);
+            let after = skip_comment(src, i);
+            while i < after {
+                if CHAR_AT(src, i) == "\n" {
+                    line = line + 1;
+                    col = 1;
+                } else {
+                    col = col + 1;
+                }
+                i = i + 1;
+            }
         } else {
             if is_space(code) {
+                if code == 10 {
+                    line = line + 1;
+                    col = 1;
+                } else {
+                    col = col + 1;
+                }
                 i = i + 1;
             } else {
+                let at = TO_STRING(line) + ":" + TO_STRING(col);
+                let width = 1;
                 if is_alpha(code) {
                     let ident = scan_ident(src, i);
                     let word = ident[0];
+                    width = ident[1] - i;
                     i = ident[1];
                     if is_keyword(word) {
                         out = APPEND(out, "KEYWORD " + word);
@@ -268,16 +293,19 @@ fn tokenize(src: Text) {
                 } else {
                     if is_digit(code) {
                         let number = scan_number(src, i);
+                        width = number[1] - i;
                         out = APPEND(out, "NUMBER " + number[0]);
                         i = number[1];
                     } else {
                         if code == 34 {
                             let text = scan_string(src, i + 1, "\"");
+                            width = text[1] - i;
                             out = APPEND(out, "STRING " + text[0]);
                             i = text[1];
                         } else {
                             if code == 39 {
                                 let text = scan_string(src, i + 1, "'");
+                                width = text[1] - i;
                                 out = APPEND(out, "STRING " + text[0]);
                                 i = text[1];
                             } else {
@@ -287,11 +315,17 @@ fn tokenize(src: Text) {
                                         two = ch + CHAR_AT(src, i + 1);
                                     }
                                     if two == "//" {
-                                        i = skip_comment(src, i);
+                                        let after = skip_comment(src, i);
+                                        while i < after {
+                                            col = col + 1;
+                                            i = i + 1;
+                                        }
+                                        width = 0;
                                     } else {
                                         let op = ch;
                                         if is_two_char_op(two) {
                                             op = two;
+                                            width = 2;
                                             i = i + 1;
                                         }
                                         out = APPEND(out, "PUNCT " + op);
@@ -305,10 +339,18 @@ fn tokenize(src: Text) {
                         }
                     }
                 }
+                if width > 0 {
+                    positions = APPEND(positions, at);
+                    let w = 0;
+                    while w < width {
+                        col = col + 1;
+                        w = w + 1;
+                    }
+                }
             }
         }
     }
-    return out;
+    return ["TOKENS", out, positions, TO_STRING(line) + ":" + TO_STRING(col)];
 }
 
 // ---------------------------------------------------------------------------
@@ -342,11 +384,17 @@ fn tokenize(src: Text) {
 // ---------------------------------------------------------------------------
 
 fn token_kind(tok: Text) -> Text {
+    if tok == "TOKENS" {
+        return "";
+    }
     let parts = SPLIT(tok, " ");
     return parts[0];
 }
 
 fn token_value(tok: Text) -> Text {
+    if tok == "TOKENS" {
+        return "";
+    }
     let parts = SPLIT(tok, " ");
     if LEN(parts) <= 1 {
         return "";
@@ -355,13 +403,13 @@ fn token_value(tok: Text) -> Text {
 }
 
 fn tok_is(tokens, pos: Num, kind: Text, value: Text) -> Bool {
-    if pos >= LEN(tokens) {
+    if pos >= token_len(tokens) {
         return false;
     }
-    if token_kind(tokens[pos]) != kind {
+    if token_kind(token_at(tokens, pos)) != kind {
         return false;
     }
-    return token_value(tokens[pos]) == value;
+    return token_value(token_at(tokens, pos)) == value;
 }
 
 fn punct(tokens, pos: Num, ch: Text) -> Bool {
@@ -373,17 +421,17 @@ fn kw(tokens, pos: Num, word: Text) -> Bool {
 }
 
 fn ident_at(tokens, pos: Num) -> Bool {
-    if pos >= LEN(tokens) {
+    if pos >= token_len(tokens) {
         return false;
     }
-    return token_kind(tokens[pos]) == "IDENT";
+    return token_kind(token_at(tokens, pos)) == "IDENT";
 }
 
 fn number_at(tokens, pos: Num) -> Bool {
-    if pos >= LEN(tokens) {
+    if pos >= token_len(tokens) {
         return false;
     }
-    return token_kind(tokens[pos]) == "NUMBER";
+    return token_kind(token_at(tokens, pos)) == "NUMBER";
 }
 
 fn skip(tokens, pos: Num, ch: Text) -> Num {
@@ -394,7 +442,7 @@ fn skip(tokens, pos: Num, ch: Text) -> Num {
 }
 
 fn at_end(tokens, pos: Num) -> Bool {
-    return pos >= LEN(tokens);
+    return pos >= token_len(tokens);
 }
 
 // --- Declarations ----------------------------------------------------------
@@ -402,13 +450,13 @@ fn at_end(tokens, pos: Num) -> Bool {
 fn parse_type(tokens, pos: Num) {
     // Types are kept as plain names: Num, Text, Bool, Nothing, Result<T>,
     // Option<Text>, User defined names, and qualified module types.
-    let n = LEN(tokens);
+    let n = token_len(tokens);
     let text = "";
     if at_end(tokens, pos) {
         return ["", pos];
     }
     if ident_at(tokens, pos) {
-        text = token_value(tokens[pos]);
+        text = token_value(token_at(tokens, pos));
         pos = pos + 1;
         if punct(tokens, pos, "<") {
             text = text + "<";
@@ -418,7 +466,7 @@ fn parse_type(tokens, pos: Num) {
                     pos = pos + 1;
                     break;
                 }
-                text = text + token_value(tokens[pos]);
+                text = text + token_value(token_at(tokens, pos));
                 pos = pos + 1;
             }
             text = text + ">";
@@ -431,14 +479,14 @@ fn parse_params(tokens, pos: Num) {
     // Returns [names, types, pos]; types parallel to names.
     let names = [];
     let types = [];
-    let n = LEN(tokens);
+    let n = token_len(tokens);
     pos = skip(tokens, pos, "(");
     while pos < n {
         if punct(tokens, pos, ")") {
             break;
         }
         if ident_at(tokens, pos) {
-            names = APPEND(names, token_value(tokens[pos]));
+            names = APPEND(names, token_value(token_at(tokens, pos)));
             pos = pos + 1;
             let t = "";
             if punct(tokens, pos, ":") {
@@ -460,7 +508,7 @@ fn parse_params(tokens, pos: Num) {
 
 fn parse_block(tokens, pos: Num) {
     let stmts = [];
-    let n = LEN(tokens);
+    let n = token_len(tokens);
     pos = skip(tokens, pos, "{");
     while pos < n {
         if punct(tokens, pos, "}") {
@@ -480,7 +528,7 @@ fn parse_block(tokens, pos: Num) {
 
 fn parse_fn(tokens, pos: Num) {
     // fn name(params) -> Ret { }      plus  async fn,  fn with generics <T>
-    let n = LEN(tokens);
+    let n = token_len(tokens);
     let flag = "";
     if kw(tokens, pos, "async") {
         flag = "async";
@@ -489,7 +537,7 @@ fn parse_fn(tokens, pos: Num) {
     pos = pos + 1;
     let name = "";
     if pos < n {
-        name = token_value(tokens[pos]);
+        name = token_value(token_at(tokens, pos));
         pos = pos + 1;
     }
     if punct(tokens, pos, "<") {
@@ -516,11 +564,11 @@ fn parse_fn(tokens, pos: Num) {
 
 fn parse_define(tokens, pos: Num) {
     // DEFINE name WITH a, b  ... END DEFINE
-    let n = LEN(tokens);
+    let n = token_len(tokens);
     pos = pos + 1;
     let name = "";
     if pos < n {
-        name = token_value(tokens[pos]);
+        name = token_value(token_at(tokens, pos));
         pos = pos + 1;
     }
     let params = [];
@@ -528,7 +576,7 @@ fn parse_define(tokens, pos: Num) {
         pos = pos + 1;
         while pos < n {
             if ident_at(tokens, pos) {
-                params = APPEND(params, token_value(tokens[pos]));
+                params = APPEND(params, token_value(token_at(tokens, pos)));
                 pos = pos + 1;
             } else {
                 break;
@@ -558,7 +606,7 @@ fn parse_define(tokens, pos: Num) {
 
 fn parse_let(tokens, pos: Num) {
     // let [mut] [own|borrow|borrow_mut] name[: Type] = expr
-    let n = LEN(tokens);
+    let n = token_len(tokens);
     pos = pos + 1;
     if kw(tokens, pos, "mut") {
         pos = pos + 1;
@@ -574,7 +622,7 @@ fn parse_let(tokens, pos: Num) {
     }
     let name = "";
     if ident_at(tokens, pos) {
-        name = token_value(tokens[pos]);
+        name = token_value(token_at(tokens, pos));
         pos = pos + 1;
     }
     if punct(tokens, pos, ":") {
@@ -643,11 +691,11 @@ fn parse_add(tokens, pos: Num) {
 
 fn parse_type_alias(tokens, pos: Num) {
     // type Name = Type        (Modern)
-    let n = LEN(tokens);
+    let n = token_len(tokens);
     pos = pos + 1;
     let name = "";
     if pos < n {
-        name = token_value(tokens[pos]);
+        name = token_value(token_at(tokens, pos));
         pos = pos + 1;
     }
     pos = skip(tokens, pos, "=");
@@ -658,14 +706,14 @@ fn parse_type_alias(tokens, pos: Num) {
 
 fn parse_data_class(tokens, pos: Num) {
     // data class Person(name: Text, age: Num)
-    let n = LEN(tokens);
+    let n = token_len(tokens);
     pos = pos + 1;
     if kw(tokens, pos, "class") {
         pos = pos + 1;
     }
     let name = "";
     if pos < n {
-        name = token_value(tokens[pos]);
+        name = token_value(token_at(tokens, pos));
         pos = pos + 1;
     }
     let fields = [];
@@ -686,7 +734,7 @@ fn parse_data_class(tokens, pos: Num) {
 
 fn parse_sealed(tokens, pos: Num) {
     // sealed class Result<T> { Ok(value), Err(error) }
-    let n = LEN(tokens);
+    let n = token_len(tokens);
     pos = pos + 1;
     if kw(tokens, pos, "class") {
         pos = pos + 1;
@@ -696,7 +744,7 @@ fn parse_sealed(tokens, pos: Num) {
     }
     let name = "";
     if pos < n {
-        name = token_value(tokens[pos]);
+        name = token_value(token_at(tokens, pos));
         pos = pos + 1;
     }
     let variants = [];
@@ -708,7 +756,7 @@ fn parse_sealed(tokens, pos: Num) {
                 break;
             }
             if ident_at(tokens, pos) {
-                let vname = token_value(tokens[pos]);
+                let vname = token_value(token_at(tokens, pos));
                 pos = pos + 1;
                 let fields = [];
                 if punct(tokens, pos, "(") {
@@ -729,11 +777,11 @@ fn parse_sealed(tokens, pos: Num) {
 
 fn parse_trait(tokens, pos: Num) {
     // trait Show { fn show(self) -> Text }
-    let n = LEN(tokens);
+    let n = token_len(tokens);
     pos = pos + 1;
     let name = "";
     if pos < n {
-        name = token_value(tokens[pos]);
+        name = token_value(token_at(tokens, pos));
         pos = pos + 1;
     }
     let methods = [];
@@ -751,7 +799,7 @@ fn parse_trait(tokens, pos: Num) {
         }
         if kw(tokens, pos, "fn") {
             if pos + 1 < n {
-                methods = APPEND(methods, token_value(tokens[pos + 1]));
+                methods = APPEND(methods, token_value(token_at(tokens, pos + 1)));
             }
             pos = pos + 2;
         } else {
@@ -763,12 +811,12 @@ fn parse_trait(tokens, pos: Num) {
 
 fn parse_module(tokens, pos: Num) {
     // module std::math   |   module math
-    let n = LEN(tokens);
+    let n = token_len(tokens);
     pos = pos + 1;
     let name = "";
     while pos < n {
         if ident_at(tokens, pos) {
-            name = name + token_value(tokens[pos]);
+            name = name + token_value(token_at(tokens, pos));
             pos = pos + 1;
         } else {
             if punct(tokens, pos, "::") {
@@ -785,12 +833,12 @@ fn parse_module(tokens, pos: Num) {
 
 fn parse_import(tokens, pos: Num) {
     // import std::math as math   |   import math
-    let n = LEN(tokens);
+    let n = token_len(tokens);
     pos = pos + 1;
     let path = "";
     while pos < n {
         if ident_at(tokens, pos) {
-            path = path + token_value(tokens[pos]);
+            path = path + token_value(token_at(tokens, pos));
             pos = pos + 1;
         } else {
             if punct(tokens, pos, "::") {
@@ -804,7 +852,7 @@ fn parse_import(tokens, pos: Num) {
     let alias = "";
     if kw(tokens, pos, "as") {
         if pos + 1 < n {
-            alias = token_value(tokens[pos + 1]);
+            alias = token_value(token_at(tokens, pos + 1));
             pos = pos + 2;
         }
     }
@@ -815,7 +863,7 @@ fn parse_import(tokens, pos: Num) {
 // --- Patterns --------------------------------------------------------------
 
 fn parse_pattern(tokens, pos: Num) {
-    let n = LEN(tokens);
+    let n = token_len(tokens);
     if punct(tokens, pos, "_") {
         return [["pat_wild"], pos + 1];
     }
@@ -823,12 +871,12 @@ fn parse_pattern(tokens, pos: Num) {
         return [["pat_wild"], pos + 1];
     }
     if kind_is(tokens, pos, "PUNCT") {
-        if token_value(tokens[pos]) == "_" {
+        if token_value(token_at(tokens, pos)) == "_" {
             return [["pat_wild"], pos + 1];
         }
     }
     if kind_is(tokens, pos, "IDENT") {
-        let name = token_value(tokens[pos]);
+        let name = token_value(token_at(tokens, pos));
         if name == "_" {
             return [["pat_wild"], pos + 1];
         }
@@ -861,11 +909,11 @@ fn parse_pattern(tokens, pos: Num) {
         return [["pat_bind", name], pos + 1];
     }
     if kind_is(tokens, pos, "NUMBER") {
-        let lit = token_value(tokens[pos]);
+        let lit = token_value(token_at(tokens, pos));
         return [["pat_lit", ["num", TO_NUMBER(lit), lit]], pos + 1];
     }
     if kind_is(tokens, pos, "STRING") {
-        return [["pat_lit", ["str", token_value(tokens[pos])]], pos + 1];
+        return [["pat_lit", ["str", token_value(token_at(tokens, pos))]], pos + 1];
     }
     if kw(tokens, pos, "true") {
         return [["pat_lit", ["bool", true]], pos + 1];
@@ -880,10 +928,10 @@ fn parse_pattern(tokens, pos: Num) {
 }
 
 fn kind_is(tokens, pos: Num, kind: Text) -> Bool {
-    if pos >= LEN(tokens) {
+    if pos >= token_len(tokens) {
         return false;
     }
-    return token_kind(tokens[pos]) == kind;
+    return token_kind(token_at(tokens, pos)) == kind;
 }
 
 fn parse_match(tokens, pos: Num) {
@@ -893,7 +941,7 @@ fn parse_match(tokens, pos: Num) {
     let subject = r[0];
     let at = r[1];
     let arms = [];
-    let n = LEN(tokens);
+    let n = token_len(tokens);
     if punct(tokens, at, "{") {
         at = at + 1;
         while at < n {
@@ -988,7 +1036,7 @@ fn parse_match(tokens, pos: Num) {
                 at = at + 1;
                 // CASE Ok WITH data  -> bind the payload if a name follows.
                 if ident_at(tokens, at) {
-                    let bind = token_value(tokens[at]);
+                    let bind = token_value(token_at(tokens, at));
                     if pattern[0] == "pat_variant" {
                         pattern = ["pat_variant", pattern[1], [["pat_bind", bind]]];
                     }
@@ -1036,8 +1084,8 @@ fn parse_pipe_step(tokens, pos: Num) {
         at = at + 1;
     }
     let name = "";
-    if at < LEN(tokens) {
-        name = token_value(tokens[at]);
+    if at < token_len(tokens) {
+        name = token_value(token_at(tokens, at));
         at = at + 1;
     }
     let args = [];
@@ -1048,7 +1096,7 @@ fn parse_pipe_step(tokens, pos: Num) {
     } else {
         if kw(tokens, at, "WITH") {
             at = at + 1;
-            while at < LEN(tokens) {
+            while at < token_len(tokens) {
             let r = parse_expr(tokens, at);
             args = APPEND(args, r[0]);
             at = r[1];
@@ -1073,14 +1121,54 @@ fn is_type_name(name: Text) -> Bool {
     return c >= "A" && c <= "Z";
 }
 
-fn parse_primary(tokens, pos: Num) {
-    let n = LEN(tokens);
-    if pos >= n {
-        return [["eof", "end-of-input"], pos];
+// `tokens` may be a plain token array or the `[tokens, positions, eof]`
+// triple returned by tokenize. Only the fallback needs positions; callers that
+// render nodes never see them.
+fn token_at(tokens, pos: Num) {
+    if LEN(tokens) == 4 {
+        if tokens[0] == "TOKENS" {
+            return tokens[1][pos];
+        }
     }
-    let kind = token_kind(tokens[pos]);
-    let val = token_value(tokens[pos]);
-    let node = ["eof"];
+    return tokens[pos];
+}
+
+fn token_len(tokens) -> Num {
+    if LEN(tokens) == 4 {
+        if tokens[0] == "TOKENS" {
+            return LEN(tokens[1]);
+        }
+    }
+    return LEN(tokens);
+}
+
+fn eof_position(tokens) -> Text {
+    if LEN(tokens) == 4 {
+        if tokens[0] == "TOKENS" {
+            return tokens[3];
+        }
+    }
+    return "1:1";
+}
+
+// Position of a token at `pos`, used when the offending token itself is known.
+fn token_position(tokens, pos: Num) -> Text {
+    if LEN(tokens) == 4 {
+        if tokens[0] == "TOKENS" {
+            return tokens[2][pos];
+        }
+    }
+    return "1:1";
+}
+
+fn parse_primary(tokens, pos: Num) {
+    let n = token_len(tokens);
+    if pos >= n {
+        return [["eof", "end-of-input", eof_position(tokens)], pos];
+    }
+    let kind = token_kind(token_at(tokens, pos));
+    let val = token_value(token_at(tokens, pos));
+    let node = ["eof", "", eof_position(tokens)];
     if kind == "NUMBER" {
         node = ["num", TO_NUMBER(val), val];
         pos = pos + 1;
@@ -1185,7 +1273,7 @@ fn parse_primary(tokens, pos: Num) {
                                 break;
                             }
                             if ident_at(tokens, at) {
-                                names = APPEND(names, token_value(tokens[at]));
+                                names = APPEND(names, token_value(token_at(tokens, at)));
                                 at = at + 1;
                             } else {
                                 break;
@@ -1272,7 +1360,7 @@ fn parse_primary(tokens, pos: Num) {
                     if punct(tokens, pos, ".") {
                         let name = "";
                         if pos + 1 < n {
-                            name = token_value(tokens[pos + 1]);
+                            name = token_value(token_at(tokens, pos + 1));
                             pos = pos + 2;
                         }
                         if punct(tokens, pos, "(") {
@@ -1286,7 +1374,7 @@ fn parse_primary(tokens, pos: Num) {
                         if punct(tokens, pos, "?.") {
                             let name = "";
                             if pos + 1 < n {
-                                name = token_value(tokens[pos + 1]);
+                                name = token_value(token_at(tokens, pos + 1));
                                 pos = pos + 2;
                             }
                             if punct(tokens, pos, "(") {
@@ -1311,14 +1399,14 @@ fn parse_primary(tokens, pos: Num) {
     }
     if node[0] == "eof" {
         // Unconsumed token: name it, so emit_expr's unsupported marker is useful.
-        node = ["eof", kind + ":" + TO_STRING(val)];
+        node = ["eof", kind + ":" + TO_STRING(val), token_position(tokens, pos)];
     }
     return [node, pos];
 }
 
 fn parse_arguments(tokens, pos: Num) {
     let args = [];
-    let n = LEN(tokens);
+    let n = token_len(tokens);
     pos = pos + 1;
     while pos < n {
         if punct(tokens, pos, ")") {
@@ -1337,7 +1425,7 @@ fn parse_arguments(tokens, pos: Num) {
 
 fn parse_array(tokens, pos: Num) {
     let elems = [];
-    let n = LEN(tokens);
+    let n = token_len(tokens);
     pos = pos + 1;
     while pos < n {
         if punct(tokens, pos, "]") {
@@ -1352,7 +1440,7 @@ fn parse_array(tokens, pos: Num) {
             pos = pos + 1;
             let var = "";
             if pos < n {
-                var = token_value(tokens[pos]);
+                var = token_value(token_at(tokens, pos));
                 pos = pos + 1;
             }
             if kw(tokens, pos, "in") {
@@ -1381,7 +1469,7 @@ fn parse_array(tokens, pos: Num) {
 fn parse_object(tokens, pos: Num) {
     let names = [];
     let values = [];
-    let n = LEN(tokens);
+    let n = token_len(tokens);
     pos = pos + 1;
     while pos < n {
         if punct(tokens, pos, "}") {
@@ -1390,11 +1478,11 @@ fn parse_object(tokens, pos: Num) {
         }
         let key = "";
         if ident_at(tokens, pos) {
-            key = token_value(tokens[pos]);
+            key = token_value(token_at(tokens, pos));
             pos = pos + 1;
         } else {
             if kind_is(tokens, pos, "STRING") {
-                key = token_value(tokens[pos]);
+                key = token_value(token_at(tokens, pos));
                 pos = pos + 1;
             }
         }
@@ -1421,8 +1509,8 @@ fn parse_comprehension(tokens, pos: Num) {
         at = at + 1;
     }
     let var = "";
-    if at < LEN(tokens) {
-        var = token_value(tokens[at]);
+    if at < token_len(tokens) {
+        var = token_value(token_at(tokens, at));
         at = at + 1;
     }
     if kw(tokens, at, "IN") {
@@ -1470,7 +1558,8 @@ fn string_node(val: Text) -> Array {
                     parts = APPEND(parts, ["str", buffer]);
                     buffer = "";
                 }
-                let sub = parse_expr(tokenize(inner), 0);
+                let subtokens = tokenize(inner);
+                let sub = parse_expr(subtokens, 0);
                 parts = APPEND(parts, sub[0]);
                 i = at;
             } else {
@@ -1537,13 +1626,13 @@ fn level_ops(tokens, pos: Num, level: Num, ops: Text, keywords: Text) {
     let r = level_next(tokens, pos, level);
     let node = r[0];
     pos = r[1];
-    let n = LEN(tokens);
+    let n = token_len(tokens);
     let go = true;
     while go {
         let matched = false;
         if pos < n {
-            if token_kind(tokens[pos]) == "PUNCT" {
-                let op = token_value(tokens[pos]);
+            if token_kind(token_at(tokens, pos)) == "PUNCT" {
+                let op = token_value(token_at(tokens, pos));
                 let i = 0;
                 while i < LEN(allowed) {
                     if allowed[i] == op {
@@ -1555,8 +1644,8 @@ fn level_ops(tokens, pos: Num, level: Num, ops: Text, keywords: Text) {
                     i = i + 1;
                 }
             } else {
-                if token_kind(tokens[pos]) == "KEYWORD" {
-                    let word = token_value(tokens[pos]);
+                if token_kind(token_at(tokens, pos)) == "KEYWORD" {
+                    let word = token_value(token_at(tokens, pos));
                     let i = 0;
                     while i < LEN(words) {
                         if words[i] == word {
@@ -1710,7 +1799,7 @@ fn parse_if(tokens, pos: Num) {
     if kw(tokens, at, "THEN") {
         at = at + 1;
     }
-    let n = LEN(tokens);
+    let n = token_len(tokens);
     let in_else = false;
     while at < n {
         if kw(tokens, at, "END") {
@@ -1749,7 +1838,7 @@ fn parse_while(tokens, pos: Num) {
         return [["while", cond, b[0]], b[1]];
     }
     let body = [];
-    let n = LEN(tokens);
+    let n = token_len(tokens);
     while at < n {
         if kw(tokens, at, "END") {
             at = at + 1;
@@ -1770,11 +1859,11 @@ fn parse_while(tokens, pos: Num) {
 }
 
 fn parse_for(tokens, pos: Num) {
-    let n = LEN(tokens);
+    let n = token_len(tokens);
     let at = pos + 1;
     let name = "";
     if at < n {
-        name = token_value(tokens[at]);
+        name = token_value(token_at(tokens, at));
         at = at + 1;
     }
     if kw(tokens, at, "in") {
@@ -1794,7 +1883,7 @@ fn parse_repeat(tokens, pos: Num) {
         at = at + 1;
     }
     let body = [];
-    let n = LEN(tokens);
+    let n = token_len(tokens);
     while at < n {
         if kw(tokens, at, "END") {
             at = at + 1;
@@ -1815,7 +1904,7 @@ fn parse_repeat(tokens, pos: Num) {
 }
 
 fn parse_return(tokens, pos: Num) {
-    let n = LEN(tokens);
+    let n = token_len(tokens);
     let value = ["null"];
     let at = pos + 1;
     if at < n {
@@ -1833,7 +1922,7 @@ fn parse_return(tokens, pos: Num) {
 
 fn parse_print(tokens, pos: Num) {
     let label = "println";
-    let word = token_value(tokens[pos]);
+    let word = token_value(token_at(tokens, pos));
     if word == "print" {
         label = "print";
     }
@@ -1856,11 +1945,11 @@ fn parse_print(tokens, pos: Num) {
 }
 
 fn parse_call_stmt(tokens, pos: Num) {
-    let n = LEN(tokens);
+    let n = token_len(tokens);
     let at = pos + 1;
     let name = "";
     if at < n {
-        name = token_value(tokens[at]);
+        name = token_value(token_at(tokens, at));
         at = at + 1;
     }
     let args = [];
@@ -1910,7 +1999,7 @@ fn parse_assignment(tokens, pos: Num) {
 }
 
 fn parse_stmt(tokens, pos: Num) {
-    let n = LEN(tokens);
+    let n = token_len(tokens);
     if pos >= n {
         return [["expr", ["null"]], pos];
     }
@@ -1920,7 +2009,7 @@ fn parse_stmt(tokens, pos: Num) {
         return [["empty"], pos + 1];
     }
     if kind_is(tokens, pos, "KEYWORD") {
-        let word = token_value(tokens[pos]);
+        let word = token_value(token_at(tokens, pos));
         if word == "fn" {
             return parse_fn(tokens, pos);
         }
@@ -2015,7 +2104,7 @@ fn parse_stmt(tokens, pos: Num) {
 fn parse_program(tokens) {
     let stmts = [];
     let pos = 0;
-    let n = LEN(tokens);
+    let n = token_len(tokens);
     while pos < n {
         let r = parse_stmt(tokens, pos);
         stmts = APPEND(stmts, r[0]);
@@ -2708,7 +2797,13 @@ fn emit_expr(node, path: Text) -> Array {
     if LEN(node) > 1 {
         detail = ":" + TO_STRING(node[1]);
     }
-    return [irx(255, "unsupported:" + tag + detail, "lang", "todo")];
+    let where = "";
+    if tag == "eof" {
+        if LEN(node) > 2 {
+            where = "@" + TO_STRING(node[2]);
+        }
+    }
+    return [irx(255, "unsupported:" + tag + detail + where, "lang", "todo")];
 }
 
 // `match` lowers to a real compare-and-branch chain. The subject is evaluated
@@ -2991,6 +3086,35 @@ fn compile_errors(rows) -> Array {
     return out;
 }
 
+// `unsupported:eof:PUNCT:;@2:9` carries the token position from parse_primary.
+// Split it off so the construct name stays unchanged for existing consumers.
+fn error_location(message: Text) -> Text {
+    let at = index_of_char(message, "@");
+    if at == LEN(message) {
+        return "";
+    }
+    return SUBSTR(message, at + 1, LEN(message));
+}
+
+fn error_construct(message: Text) -> Text {
+    let at = index_of_char(message, "@");
+    if at == LEN(message) {
+        return message;
+    }
+    return SUBSTR(message, 0, at);
+}
+
+fn index_of_char(text: Text, needle: Text) -> Num {
+    let i = 0;
+    while i < LEN(text) {
+        if CHAR_AT(text, i) == needle {
+            return i;
+        }
+        i = i + 1;
+    }
+    return LEN(text);
+}
+
 // Report every compile error and return how many there were. The caller still
 // writes the IR (so a later stage cannot read a stale file), but a non-zero
 // count means the program must not be executed.
@@ -2998,7 +3122,12 @@ fn report_compile_errors(rows) -> Num {
     let errors = compile_errors(rows);
     let i = 0;
     while i < LEN(errors) {
-        println("ERROR: unsupported construct: " + errors[i]);
+        let where = error_location(errors[i]);
+        if LEN(where) > 0 {
+            println(where + ": error: unsupported construct: " + error_construct(errors[i]));
+        } else {
+            println("ERROR: unsupported construct: " + errors[i]);
+        }
         i = i + 1;
     }
     return LEN(errors);
@@ -3023,7 +3152,8 @@ fn emit_main(source: Text) -> Array {
 // bootstrap/vm.null's parse_rows accepts. It lives here, in plain source, so
 // the link step emits one call and never has to generate a newline escape.
 fn compile_to_ir_text(source: Text) -> Text {
-    let tokens = emit_program(parse_program(tokenize(source)));
+    let source_tokens = tokenize(source);
+    let tokens = emit_program(parse_program(source_tokens));
     report_compile_errors(tokens);
     let rows = [];
     let k = 0;
@@ -3034,7 +3164,8 @@ fn compile_to_ir_text(source: Text) -> Text {
     return JOIN(rows, "\n");
 }
 
-let program = parse_program(tokenize(READ_FILE("bootstrap/input.null")));
+let source_tokens = tokenize(READ_FILE("bootstrap/input.null"));
+let program = parse_program(source_tokens);
 let ir_tokens = emit_program(program);
 report_compile_errors(ir_tokens);
 let lines = [];

@@ -273,30 +273,41 @@ way to run a `.null` stage.
 
 ---
 
-## P1-8 — Diagnostics have no source location (open)
+## P1-8 — Diagnostics have no source location (fixed)
 
-**Measured** — a program with `let y = ;` now reports
-`ERROR: unsupported construct: unsupported:eof:PUNCT:;`, but nothing says which
-line it is on. `tokenize` emits tokens as `"KIND value"` with no position, and
-the AST nodes carry no span, so no stage can name a location.
+**Was** — a program with `let y = ;` reported
+`ERROR: unsupported construct: unsupported:eof:PUNCT:;` with no line number.
 
-**Scope** — Phase 1.4. Needs positional tokens (`line:col` prefix in the token
-text, or a parallel offsets array) threaded from `tokenize` to the `eof`
-fallback in `parse_primary`, then `line:col: error: message` formatting in
-`report_compile_errors`. Touching the token format touches the fixed point, so
-it must be followed by `bench/selfhost_check.sh`.
+**Fix** — `tokenize` now returns `["TOKENS", tokens, positions, eof_position]`,
+where `positions[i]` is the `line:col` of token `i` and the last field is the
+position just past the end of input. The parser reaches tokens through
+`token_at` / `token_len`, so the wrapper never leaks into token text and the
+canonical IR is unchanged. `parse_primary` stamps the position onto `eof`
+nodes, `emit_expr` appends it as `@line:col` to the unsupported marker, and
+`report_compile_errors` prints `2:9: error: unsupported construct: …`.
 
-## P1-6 — Division by zero traps instead of reporting
+**Verified** — `tests/bootstrap/test_diagnostics.py` covers both the location
+of the offending token and a clean program (no diagnostics). The fixed point
+was re-run after the change.
 
-**Reproduction** — a native program dividing by zero exits with SIGFPE, code 136,
-and no output. An out-of-bounds index, by contrast, prints `OOB PANIC!!!` and
-exits 3.
+**Remaining** — positions are attached only to the `eof` fallback. Nodes for
+constructs that parse but cannot be lowered still report without a location,
+because the AST carries no span.
 
-**Root cause** — integer division is lowered to the `idiv` instruction with no
-zero check, while array access calls `null_panic_oob`.
+## P1-6 — Division by zero traps instead of reporting (fixed)
 
-**Scope** — small, in `bootstrap/native.null`'s binary-op lowering. Needed before
-any program can be trusted with computed divisors.
+**Was** — a native program dividing by zero exited with SIGFPE (code 136) and no
+output, while an out-of-bounds index printed `OOB PANIC!!!` and exited 3.
+
+**Fix** — every integer `idiv` in `bootstrap/native.null` (binary op 13, `/` and
+`%` in `emit_tree`, and the `mod` builtin) is now preceded by a divisor test that
+branches to `null_panic_divzero` on zero. That stub writes
+`DIVISION BY ZERO!!!\n` and exits 5, mirroring the OOB panic path. A
+`redirect_divzero` pass keeps the branch targets correct.
+
+**Verified** — `tests/bootstrap/test_native_backend.py::test_source_division_by_zero_reports_instead_of_trapping`
+assembles and runs a program with a computed zero divisor and asserts exit 5,
+empty stdout and the panic text on stderr.
 
 ---
 
@@ -388,7 +399,7 @@ diff readable.
 3. **P0-1, P0-2** — correctness bugs in the only pipeline that reaches machine
    code.
 4. **P0-5** — the differential harness, which makes the remaining work verifiable.
-5. **P1-6, P2-5, P2-2** — small independent fixes.
+5. **P2-5, P2-2** — small independent fixes. (P1-6 and P1-8 are done.)
 6. **P1-1, P1-2/P1-4, P1-3** — design decisions, in that order.
 7. **P2-1** — decide whether the TypeScript tree lives.
 8. **P2-4** — regenerate performance numbers honestly.
