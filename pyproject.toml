@@ -33,6 +33,7 @@ dependencies = [
 
 [project.scripts]
 nullc = "null_system.cli:app"
+nulltool = "null_system.toolchain.commands:main"
 
 [project.optional-dependencies]
 dev = [
