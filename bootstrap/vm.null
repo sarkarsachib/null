@@ -866,19 +866,41 @@ fn run(rows) {
                     next = fn_ends[k] + 1;
                 }
             }
-            let is_guard = false;
             if op == 60 {
-                is_guard = true;
+                // Safe access. The emitter leaves only the object on the stack
+                // because there is no object member table in this stage. A
+                // null object stays null; a non-null object is returned
+                // unchanged rather than fabricating a member value.
+                handled = true;
+                let object = stack[LEN(stack) - 1];
+                if object == "NOTHING" {
+                    stack = replace_at(stack, LEN(stack) - 1, "NOTHING");
+                }
             }
             if op == 61 {
-                is_guard = true;
+                // Elvis: keep the left value when it is truthy, otherwise use
+                // the fallback the emitter pushed before this opcode.
+                handled = true;
+                let fallback = stack[LEN(stack) - 1];
+                stack = drop_last(stack);
+                let left = stack[LEN(stack) - 1];
+                stack = drop_last(stack);
+                if truthy(left) == true {
+                    stack = APPEND(stack, left);
+                } else {
+                    stack = APPEND(stack, fallback);
+                }
             }
             if op == 62 {
-                is_guard = true;
-            }
-            if is_guard {
-                // Null-safety guards keep the value already on the stack.
+                // Not-null assertion: a null value is a compile-time error in
+                // a typed program; at runtime the only honest result is a
+                // diagnostic instead of silently passing null through.
                 handled = true;
+                let value = stack[LEN(stack) - 1];
+                if value == "NOTHING" {
+                    println("NOT NULL ASSERTION FAILED!!");
+                    running = false;
+                }
             }
             if op == 255 {
                 handled = true;

@@ -314,6 +314,27 @@ CORPUS = [
         ["alpha", "4", "alpha-beta"],
         id="array-of-strings",
     ),
+    pytest.param(
+        "elvis-keeps-truthy-left-value",
+        "println(3 ?: 5);\n"
+        "println(0 ?: 5);\n"
+        'println("" ?: 5);\n'
+        "println(null ?: 5);\n",
+        ["3", "5", "5", "5"],
+        id="elvis-keeps-truthy-left-value",
+    ),
+    pytest.param(
+        "not-null-assertion-passes-a-value",
+        "println(7!!);\n",
+        ["7"],
+        id="not-null-assertion-passes-a-value",
+    ),
+    pytest.param(
+        "safe-access-on-null-yields-null",
+        "println(null?.x);\n",
+        ["NOTHING"],
+        id="safe-access-on-null-yields-null",
+    ),
 ]
 
 

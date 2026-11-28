@@ -868,6 +868,11 @@ fn op_is_lowered(op: Num) -> Bool {
     if op == 41 {
         return true;
     }
+    if op >= 60 {
+        if op <= 62 {
+            return true;
+        }
+    }
     if op >= 70 {
         if op <= 74 {
             return true;
@@ -1747,9 +1752,15 @@ fn runtime_lines() -> Array {
         "  ret",
         ".Ltr_str:",
         "  and rdi, qword ptr [rip + .Lmask]",
+        "  lea rcx, [rip + .Lnull]",
+        "  cmp rdi, rcx",
+        "  je .Ltr_false",
         "  cmp byte ptr [rdi], 0",
         "  setne al",
         "  movzx rax, al",
+        "  ret",
+        ".Ltr_false:",
+        "  xor eax, eax",
         "  ret",
         ".Ltr_yes:",
         "  mov rax, 1",
@@ -3381,6 +3392,12 @@ fn compile(rows) -> Array {
                     if is_str {
                         numeric = false;
                     }
+                    // `NOTHING` is the source-level null literal. Keep its
+                    // textual spelling but mark the slot as null so the
+                    // null-safety guards can test it without comparing strings.
+                    if operand == "NOTHING" {
+                        numeric = false;
+                    }
                     if numeric {
                         if is_float {
                             // A fractional literal is a double: load it from a
@@ -3406,10 +3423,17 @@ fn compile(rows) -> Array {
                             str_pool = APPEND(str_pool, literal);
                             sid = LEN(str_pool) - 1;
                         }
-                        out = APPEND(out, "  lea rax, [rip + .LS" + TO_STRING(sid) + "]");
-                        out = APPEND(out, "  bts rax, 62");
-                        out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + sp * 8) + "], rax");
-                        types = APPEND(types, "str");
+                        if operand == "NOTHING" {
+                            out = APPEND(out, "  lea rax, [rip + .Lnull]");
+                            out = APPEND(out, "  bts rax, 62");
+                            out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + sp * 8) + "], rax");
+                            types = APPEND(types, "null");
+                        } else {
+                            out = APPEND(out, "  lea rax, [rip + .LS" + TO_STRING(sid) + "]");
+                            out = APPEND(out, "  bts rax, 62");
+                            out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + sp * 8) + "], rax");
+                            types = APPEND(types, "str");
+                        }
                     }
                 }
                 sp = sp + 1;
@@ -3687,6 +3711,9 @@ fn compile(rows) -> Array {
                     out = APPEND(out, "  call null_dyn_print");
                     report = APPEND(report, "LOWERED 30 dyn-print");
                 } else {
+                    if t == "null" {
+                        out = APPEND(out, "  call null_print_str");
+                    } else {
                     if t == "str" {
                         out = APPEND(out, "  call null_print_str");
                     } else {
@@ -3699,6 +3726,7 @@ fn compile(rows) -> Array {
                             out = APPEND(out, "  call null_print_i64");
                         }
                         }
+                    }
                     }
                 }
                 types = drop_last(types);
@@ -3713,6 +3741,82 @@ fn compile(rows) -> Array {
             }
             if op == 41 {
                 out = APPEND(out, "  jmp .L" + operand);
+            }
+
+            // Null-safety guards. Both operands are already on the stack: the
+            // emitter pushes the left value, then the fallback, then the guard
+            // opcode. Each guard leaves exactly one value behind.
+            if op == 60 {
+                // Safe access. The emitter leaves only the object on the stack
+                // because there is no object member table in this stage. A
+                // null object stays null; a non-null object is returned
+                // unchanged rather than fabricating a member value.
+                let base = 4096 + (sp - 1) * 8;
+                out = APPEND(out, "  mov rax, qword ptr [rbp - " + TO_STRING(base) + "]");
+                out = APPEND(out, "  and rax, qword ptr [rip + .Lmask]");
+                out = APPEND(out, "  lea rdx, [rip + .Lnull]");
+                out = APPEND(out, "  cmp rax, rdx");
+                out = APPEND(out, "  je .Lnull60_" + TO_STRING(i));
+                out = APPEND(out, "  cmp qword ptr [rbp - " + TO_STRING(base) + "], 0");
+                out = APPEND(out, "  jne .Lend60_" + TO_STRING(i));
+                out = APPEND(out, ".Lnull60_" + TO_STRING(i) + ":");
+                out = APPEND(out, "  lea rax, [rip + .Lnull]");
+                out = APPEND(out, "  bts rax, 62");
+                out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(base) + "], rax");
+                out = APPEND(out, ".Lend60_" + TO_STRING(i) + ":");
+                types = set_top(types, "null");
+                report = APPEND(report, "LOWERED 60 safe-access");
+            }
+            if op == 61 {
+                // Elvis: keep the left value when it is truthy, otherwise take
+                // the fallback. `null_truthy` implements the same rules as the
+                // VM (0, false, empty string and null are falsy).
+                let base = 4096 + (sp - 2) * 8;
+                out = APPEND(out, "  mov rdi, qword ptr [rbp - " + TO_STRING(base) + "]");
+                out = APPEND(out, "  call null_truthy");
+                out = APPEND(out, "  test rax, rax");
+                out = APPEND(out, "  jne .Lkeep61_" + TO_STRING(i));
+                out = APPEND(out, "  mov rax, qword ptr [rbp - " + TO_STRING(4096 + (sp - 1) * 8) + "]");
+                out = APPEND(out, "  jmp .Lend61_" + TO_STRING(i));
+                out = APPEND(out, ".Lkeep61_" + TO_STRING(i) + ":");
+                out = APPEND(out, "  mov rax, qword ptr [rbp - " + TO_STRING(base) + "]");
+                out = APPEND(out, ".Lend61_" + TO_STRING(i) + ":");
+                out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(base) + "], rax");
+                let left_type = type_at(types, sp - 2);
+                let right_type = type_at(types, sp - 1);
+                types = drop_last(types);
+                types = drop_last(types);
+                // The branch can select either operand, so a differing static
+                // type would make the later print read the wrong representation.
+                let result_type = right_type;
+                if left_type != right_type {
+                    result_type = "any";
+                }
+                types = APPEND(types, result_type);
+                sp = sp - 1;
+                report = APPEND(report, "LOWERED 61 elvis");
+            }
+            if op == 62 {
+                // Not-null assertion: a null value is a runtime error rather
+                // than a silent pass-through.
+                let base = 4096 + (sp - 1) * 8;
+                out = APPEND(out, "  mov rax, qword ptr [rbp - " + TO_STRING(base) + "]");
+                out = APPEND(out, "  and rax, qword ptr [rip + .Lmask]");
+                out = APPEND(out, "  lea rdx, [rip + .Lnull]");
+                out = APPEND(out, "  cmp rax, rdx");
+                out = APPEND(out, "  je .Lnotnull_fail_" + TO_STRING(i));
+                out = APPEND(out, "  jmp .Lnotnull_ok_" + TO_STRING(i));
+                out = APPEND(out, ".Lnotnull_fail_" + TO_STRING(i) + ":");
+                out = APPEND(out, "  mov rax, 1");
+                out = APPEND(out, "  mov rdi, 2");
+                out = APPEND(out, "  lea rsi, [rip + .Lnotnull]");
+                out = APPEND(out, "  mov rdx, 25");
+                out = APPEND(out, "  syscall");
+                out = APPEND(out, "  mov rax, 60");
+                out = APPEND(out, "  xor rdi, rdi");
+                out = APPEND(out, "  syscall");
+                out = APPEND(out, ".Lnotnull_ok_" + TO_STRING(i) + ":");
+                report = APPEND(report, "LOWERED 62 not-null");
             }
 
             if op == 70 {
@@ -4438,6 +4542,8 @@ fn compile(rows) -> Array {
     out = APPEND(out, ".Lnl: .byte 10");
     out = APPEND(out, ".Lmask: .quad 0x3fffffffffffffff");
     out = APPEND(out, ".Larrtext: .asciz \"[array]\"");
+    out = APPEND(out, ".Lnull: .asciz \"NOTHING\"");
+    out = APPEND(out, ".Lnotnull: .ascii \"NOT NULL ASSERTION FAILED!!\\n\"");
     out = APPEND(out, ".Ltrue: .asciz \"true\"");
     out = APPEND(out, ".Lfalse: .asciz \"false\"");
     out = APPEND(out, ".Loob: .ascii \"OOB PANIC!!!\\n\"");
