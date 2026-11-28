@@ -102,7 +102,7 @@ conformance suite asserts:
 | --- | --- |
 | `+ - *` | 64-bit two's-complement wraparound |
 | `/` | truncates toward zero (`7 / 2 == 3`, `-9 / 4 == -2`); not float division |
-| `/` by zero | native traps (SIGFPE, exit 136) — still a defect, see `IMPLEMENTATION_GAPS.md` P1-6 |
+| `/` by zero | native prints `DIVISION BY ZERO!!!` and exits 5 (guarded `idiv`) |
 | float literals | stored and printed; float **arithmetic** is refused, not miscompiled |
 | comparison | signed; results are `Bool`, printed `true`/`false` |
 

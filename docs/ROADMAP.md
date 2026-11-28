@@ -72,9 +72,9 @@ There is no GC, no `mmap`, and no ownership enforcement despite `own` / `borrow`
 / `move` appearing in the lexer's keyword table.
 
 Exit criteria: a documented allocation strategy; reclamation that a long-running
-program can survive; panic paths that report instead of trapping (division by
-zero currently raises SIGFPE, exit 136, uncaught); float64 arithmetic in the
-backend rather than a fallback.
+program can survive; float64 arithmetic in the backend rather than a fallback.
+(Panic paths now report instead of trapping: out-of-bounds prints `OOB PANIC!!!`
+and exits 3, division by zero prints `DIVISION BY ZERO!!!` and exits 5.)
 
 ## Phase 4 — Self-hosting without Python
 

@@ -316,15 +316,21 @@ fn emit_tree(out, tree, dest: Num, vofs: Num) -> Array {
         }
         if op == "/" {
             o = APPEND(o, "  mov rax, qword ptr [rbp - " + TO_STRING(dest) + "]");
+            o = APPEND(o, "  cmp qword ptr [rbp - " + TO_STRING(right_dest) + "], 0");
+            o = APPEND(o, "  je .Ldivzero_" + TO_STRING(dest));
             o = APPEND(o, "  cqo");
             o = APPEND(o, "  idiv qword ptr [rbp - " + TO_STRING(right_dest) + "]");
             o = APPEND(o, "  mov qword ptr [rbp - " + TO_STRING(dest) + "], rax");
+            o = APPEND(o, ".Ldivok_" + TO_STRING(dest) + ":");
         }
         if op == "%" {
             o = APPEND(o, "  mov rax, qword ptr [rbp - " + TO_STRING(dest) + "]");
+            o = APPEND(o, "  cmp qword ptr [rbp - " + TO_STRING(right_dest) + "], 0");
+            o = APPEND(o, "  je .Ldivzero_" + TO_STRING(dest));
             o = APPEND(o, "  cqo");
             o = APPEND(o, "  idiv qword ptr [rbp - " + TO_STRING(right_dest) + "]");
             o = APPEND(o, "  mov qword ptr [rbp - " + TO_STRING(dest) + "], rdx");
+            o = APPEND(o, ".Ldivok_" + TO_STRING(dest) + ":");
         }
         if op == "==" {
             o = APPEND(o, d);
@@ -1096,6 +1102,23 @@ fn fuse_branches(lines) -> Array {
     return out;
 }
 
+// Each division site emits `je .Ldivzero_N`; the labels are local to the
+// function and the panic stub is shared. Redirect them after the peepholes so
+// a transformed `je` cannot be mistaken for a divisor check.
+fn redirect_divzero(lines) -> Array {
+    let out = [];
+    let i = 0;
+    while i < LEN(lines) {
+        if starts_with(lines[i], "  je .Ldivzero_") {
+            out = APPEND(out, "  je null_panic_divzero");
+        } else {
+            out = APPEND(out, lines[i]);
+        }
+        i = i + 1;
+    }
+    return out;
+}
+
 // Restore the callee-saved registers pushed in the prologue before every ret.
 fn add_epilogues(lines) -> Array {
     let out = [];
@@ -1658,6 +1681,16 @@ fn runtime_lines() -> Array {
         "  syscall",
         "  mov rax, 60",
         "  mov rdi, 3",
+        "  syscall",
+        "",
+        "null_panic_divzero:",
+        "  lea rsi, [rip + .Ldivzero]",
+        "  mov rdx, 20",
+        "  mov rax, 1",
+        "  mov rdi, 2",
+        "  syscall",
+        "  mov rax, 60",
+        "  mov rdi, 5",
         "  syscall",
         "",
         "null_unsupported:",
@@ -3519,9 +3552,12 @@ fn compile(rows) -> Array {
                     sp = sp - 1;
                 } else {
                 out = APPEND(out, "  mov rax, qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "]");
+                out = APPEND(out, "  cmp qword ptr [rbp - " + TO_STRING(4096 + (sp - 1) * 8) + "], 0");
+                out = APPEND(out, "  je .Ldivzero_" + TO_STRING(i));
                 out = APPEND(out, "  cqo");
                 out = APPEND(out, "  idiv qword ptr [rbp - " + TO_STRING(4096 + (sp - 1) * 8) + "]");
                 out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "], rax");
+                out = APPEND(out, ".Ldivok_" + TO_STRING(i) + ":");
                 types = drop_last(types);
                 sp = sp - 1;
                 }
@@ -3930,9 +3966,12 @@ fn compile(rows) -> Array {
                 if name == "mod" {
                     builtin = true;
                     out = APPEND(out, "  mov rax, qword ptr [rbp - " + TO_STRING(4096 + base * 8) + "]");
+                    out = APPEND(out, "  cmp qword ptr [rbp - " + TO_STRING(4096 + (base + 1) * 8) + "], 0");
+                    out = APPEND(out, "  je .Ldivzero_" + TO_STRING(i));
                     out = APPEND(out, "  cqo");
                     out = APPEND(out, "  idiv qword ptr [rbp - " + TO_STRING(4096 + (base + 1) * 8) + "]");
                     out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + base * 8) + "], rdx");
+                    out = APPEND(out, ".Ldivok_" + TO_STRING(i) + ":");
                     report = APPEND(report, "LOWERED 70 mod-idiv");
                     sp = base + 1;
                     types = drop_last(types);
@@ -4402,6 +4441,7 @@ fn compile(rows) -> Array {
     out = APPEND(out, ".Ltrue: .asciz \"true\"");
     out = APPEND(out, ".Lfalse: .asciz \"false\"");
     out = APPEND(out, ".Loob: .ascii \"OOB PANIC!!!\\n\"");
+    out = APPEND(out, ".Ldivzero: .ascii \"DIVISION BY ZERO!!!\\n\"");
     out = APPEND(out, ".Lunsup: .ascii \"UNSUPPORTED OP!!\\n\"");
     out = APPEND(out, ".Lempty: .asciz \"\"");
     out = APPEND(out, ".Lf10: .double 10.0");
@@ -4424,6 +4464,7 @@ fn compile(rows) -> Array {
     // rax, and fold compare + setCC + test into a single conditional jump.
     out = peephole(out);
     out = fuse_branches(out);
+    out = redirect_divzero(out);
     out = add_epilogues(out);
 
     // Runtime helpers (print, allocation, bounds panic, AVX2 kernels).

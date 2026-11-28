@@ -272,6 +272,23 @@ def test_source_array_write_past_the_end_traps(tmp_path, monkeypatch):
     assert run.stdout.strip() == ""
 
 
+def test_source_division_by_zero_reports_instead_of_trapping(tmp_path, monkeypatch):
+    # An unguarded idiv raised SIGFPE (exit 136) with no output. The divisor is
+    # checked before every idiv, including `mod`, and routes to a shared panic
+    # stub that writes a message and exits 5.
+    program = "let zero = 0;\nprintln(10 / zero);\n"
+    workdir, _ = _run_pipeline(tmp_path, monkeypatch, program)
+
+    asm = (workdir / "bootstrap" / "program.s").read_text()
+    assert "je null_panic_divzero" in asm
+    assert ".Ldivzero: .ascii \"DIVISION BY ZERO!!!\\n\"" in asm
+    exe = _build(workdir, "divzero")
+    run = subprocess.run([str(exe)], capture_output=True, text=True)
+    assert run.returncode == 5
+    assert run.stdout.strip() == ""
+    assert "DIVISION BY ZERO!!!" in run.stderr
+
+
 def _array_map_ir(bound: int, cmp_op: int = 21) -> str:
     """`a[i] = i; b[i] = i*2` then `total += a[i]*3 + b[i]`, as super-bit IR.
 

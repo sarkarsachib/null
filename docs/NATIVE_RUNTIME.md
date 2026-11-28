@@ -137,9 +137,9 @@ entry point, so directory listing is not implemented.
 
 `null_simd_add`, `null_simd_mul`, `null_simd_sum`
 
-**Failure paths (2)**
+**Failure paths (3)**
 
-`null_panic_oob`, `null_unsupported`
+`null_panic_oob`, `null_unsupported`, `null_panic_divzero`
 
 Note there is **no** `null_str_compare`, no map/hash function, no float
 arithmetic, and no allocation-free path.
@@ -150,11 +150,12 @@ arithmetic, and no allocation-free path.
 | --- | --- | --- |
 | Index out of bounds | writes `OOB PANIC!!!` to stderr, `exit_group(3)` | 3 |
 | Unlowered opcode reached | writes `UNSUPPORTED OP!!` to stderr, `exit_group(4)` | 4 |
-| Integer division by zero | raw `idiv` → SIGFPE, no message | 136 |
+| Integer division by zero | writes `DIVISION BY ZERO!!!` to stderr, `exit_group(5)` | 5 |
 
-Both handled paths use `syscall` directly (`rax=1` write, `rax=60` exit), so
-panics do not depend on libc stdio. Division by zero is unguarded and is a
-recorded defect ([`IMPLEMENTATION_GAPS.md`](IMPLEMENTATION_GAPS.md) P1-6).
+All three handled paths use `syscall` directly (`rax=1` write, `rax=60` exit), so
+panics do not depend on libc stdio. Every integer `idiv` is preceded by a
+divisor test (`bootstrap/native.null`), so a zero divisor can no longer reach
+the instruction and trap as SIGFPE.
 
 ## Memory model
 
@@ -258,7 +259,7 @@ the Python VM's IR byte for byte (13,665 rows). See [`BOOTSTRAP.md`](BOOTSTRAP.m
 | `let x = 3.5;` | `FALLBACK 70 unknown-call-get_member`, prints `UNSUPPORTED OP!!`, exit 4 |
 | `match n { 1=>… 2=>… }` | prints only the first arm; no branch emitted |
 | `let m = { "k": 1 };` | `FALLBACK 1`, prints `UNSUPPORTED OP!!` |
-| `x / 0` | SIGFPE, exit 136, no message |
+| `x / 0` | `DIVISION BY ZERO!!!`, exit 5 |
 | `own` / `borrow` / `move` | no enforcement |
 | `?.` `?:` `!!` | opcodes 60/61/62 emitted, no lowering |
 | `data class` | lowered as `INDEX`/`STORE_VAR`, not a struct |
