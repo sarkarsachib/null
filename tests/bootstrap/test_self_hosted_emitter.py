@@ -115,9 +115,11 @@ def test_language_features_reach_the_right_layers(tmp_path, monkeypatch):
     # null safety is explicit in the stream, not an exception path
     assert "IR 60 name @scalar" in ir
     assert "IR 61  @scalar" in ir
-    # match dispatch and control flow
-    assert "IR 50 Ok(bind value) @match" in ir
-    assert "IR 52 no_match @match" in ir
+    # match dispatch and control flow. A variant pattern cannot be destructured
+    # without a tagged union, so it surfaces as an explicit MATCH_PATTERN trap
+    # (52) rather than a 50 row that every backend used to ignore.
+    assert "IR 52 Ok(bind value) @match" in ir
+    assert "IR 50 " not in ir
     assert "IR 40 L_s6_else @control" in ir
     assert "IR 41 L_s6_end @control" in ir
     assert "LABEL L_s6_else" in ir

@@ -158,6 +158,31 @@ fn scan_number(src: Text, start: Num) {
             text = text + ch;
             i = i + 1;
         } else {
+            // A fractional part begins only at a `.` that is followed by a
+            // digit. That keeps `..` (range) and `1.foo` (member access) intact.
+            if ch == "." {
+                if i + 1 < n {
+                    if is_digit(ORD(CHAR_AT(src, i + 1))) {
+                        text = text + ch;
+                        i = i + 1;
+                        let more = true;
+                        while more {
+                            if i < n {
+                                let d = CHAR_AT(src, i);
+                                if is_digit(ORD(d)) {
+                                    text = text + d;
+                                    i = i + 1;
+                                } else {
+                                    more = false;
+                                }
+                            } else {
+                                more = false;
+                            }
+                        }
+                        return [text, i];
+                    }
+                }
+            }
             return [text, i];
         }
     }
@@ -836,7 +861,8 @@ fn parse_pattern(tokens, pos: Num) {
         return [["pat_bind", name], pos + 1];
     }
     if kind_is(tokens, pos, "NUMBER") {
-        return [["pat_lit", ["num", TO_NUMBER(token_value(tokens[pos]))]], pos + 1];
+        let lit = token_value(tokens[pos]);
+        return [["pat_lit", ["num", TO_NUMBER(lit), lit]], pos + 1];
     }
     if kind_is(tokens, pos, "STRING") {
         return [["pat_lit", ["str", token_value(tokens[pos])]], pos + 1];
@@ -1056,7 +1082,7 @@ fn parse_primary(tokens, pos: Num) {
     let val = token_value(tokens[pos]);
     let node = ["eof"];
     if kind == "NUMBER" {
-        node = ["num", TO_NUMBER(val)];
+        node = ["num", TO_NUMBER(val), val];
         pos = pos + 1;
     } else {
         if kind == "STRING" {
@@ -2359,6 +2385,17 @@ fn irx(op: Num, operand, layer: Text, meta: Text) -> Array {
 
 // A bool literal is written as the word so the IR does not depend on the
 // consumer being able to tell a raw 0/1 apart from an int.
+fn text_has_dot(text: Text) -> Bool {
+    let i = 0;
+    while i < LEN(text) {
+        if CHAR_AT(text, i) == "." {
+            return true;
+        }
+        i = i + 1;
+    }
+    return false;
+}
+
 fn bool_text(b) -> Text {
     if b == true {
         return "true";
@@ -2500,6 +2537,14 @@ fn emit_expr(node, path: Text) -> Array {
     let tag = node[0];
 
     if tag == "num" {
+        // A literal with a fractional part keeps its source text and is tagged
+        // `float`, so the backends pick a floating-point load and print path.
+        // An integer literal must keep the exact IR it produced before.
+        if LEN(node) > 2 {
+            if text_has_dot(node[2]) {
+                return [irx(1, node[2], "scalar", "float")];
+            }
+        }
         return [ir(1, node[1], "scalar")];
     }
     if tag == "str" {
@@ -2666,15 +2711,42 @@ fn emit_expr(node, path: Text) -> Array {
     return [irx(255, "unsupported:" + tag + detail, "lang", "todo")];
 }
 
+// `match` lowers to a real compare-and-branch chain. The subject is evaluated
+// once into a hidden slot, then every arm tests it with EQ (22) and leaves via
+// JUMP_IF_FALSE (40) when it does not match, so arm order is honoured.
+//
+// Literal, wildcard and bind patterns have a runtime. Variant patterns (`Ok(x)`)
+// need tagged unions, which this stage does not have, so they lower to a
+// MATCH_PATTERN (52) row that traps instead of silently running arm 0.
 fn emit_match(node, path: Text) -> Array {
+    let slot = "__match_" + path;
     let out = emit_expr(node[1], path + ".subj");
+    out = cat(out, [ir(3, slot, "scalar")]);
     let arms = node[2];
     let end_label = "L_" + path + "_end";
     let i = 0;
     while i < LEN(arms) {
         let arm = arms[i];
         let next_label = "L_" + path + "_a" + TO_STRING(i);
-        out = cat(out, [ir(50, pattern_text(arm[1]), "match")]);
+        let pattern = arm[1];
+        let ptag = pattern[0];
+        let is_wild = ptag == "pat_wild";
+        let is_bind = ptag == "pat_bind";
+        if is_bind {
+            out = cat(out, [ir(2, slot, "scalar"), ir(3, pattern[1], "scalar")]);
+        }
+        if is_wild == false {
+            if is_bind == false {
+                if ptag == "pat_lit" {
+                    out = cat(out, [ir(2, slot, "scalar")]);
+                    out = cat(out, emit_expr(pattern[1], path + ".p" + TO_STRING(i)));
+                    out = cat(out, [ir(22, "", "scalar")]);
+                } else {
+                    out = cat(out, [ir(52, pattern_text(pattern), "match")]);
+                }
+                out = cat(out, [ir(40, next_label, "control")]);
+            }
+        }
         if arm[2][0] != "null" {
             out = cat(out, emit_expr(arm[2], path + ".g" + TO_STRING(i)));
             out = cat(out, [ir(40, next_label, "control")]);
@@ -2684,7 +2756,6 @@ fn emit_match(node, path: Text) -> Array {
         out = cat(out, [label(next_label)]);
         i = i + 1;
     }
-    out = cat(out, [ir(52, "no_match", "match")]);
     return cat(out, [label(end_label)]);
 }
 

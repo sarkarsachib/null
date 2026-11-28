@@ -575,7 +575,11 @@ fn fast_partial(rows, i, regs, slot_names, sp) -> Array {
     }
     if r1[1] == 1 {
         if looks_numeric(r1[2]) {
-            return ["  mov rax, " + ra, "  " + mnem + " rax, " + r1[2], "  mov qword ptr [rbp - " + off + "], rax"];
+            // A float literal is not an integer immediate; refuse the fusion so
+            // the ordinary opcode path can finish it.
+            if is_float_row(r1) == false {
+                return ["  mov rax, " + ra, "  " + mnem + " rax, " + r1[2], "  mov qword ptr [rbp - " + off + "], rax"];
+            }
         }
     }
     return [];
@@ -612,6 +616,24 @@ fn cmp_cc(op: Num) -> Text {
         return "le";
     }
     return "";
+}
+
+// A row carrying the `float` marker is a double literal, never an integer
+// immediate, so instruction selection must leave it alone.
+fn is_float_row(row) -> Bool {
+    if LEN(row) < 5 {
+        return false;
+    }
+    let meta = row[4];
+    let parts = SPLIT(meta, " ");
+    let i = 0;
+    while i < LEN(parts) {
+        if parts[i] == "float" {
+            return true;
+        }
+        i = i + 1;
+    }
+    return false;
 }
 
 fn bin_mnemonic(op: Num) -> Text {
@@ -675,7 +697,9 @@ fn fast_pattern(rows, i, regs, slot_names) -> Array {
             }
             if r1[1] == 1 {
                 if looks_numeric(r1[2]) {
-                    return ["  cmp " + ra + ", " + r1[2], "  " + inv + " .L" + r3[2]];
+                    if is_float_row(r1) == false {
+                        return ["  cmp " + ra + ", " + r1[2], "  " + inv + " .L" + r3[2]];
+                    }
                 }
             }
         }
@@ -706,10 +730,14 @@ fn fast_pattern(rows, i, regs, slot_names) -> Array {
     }
     if r1[1] == 1 {
         if looks_numeric(r1[2]) {
-            if rc == ra {
-                return ["  " + mnem + " " + ra + ", " + r1[2]];
+            // A float literal keeps its textual form ("1.0"), which is not an
+            // integer immediate: fusing it would emit `add rax, 1.0`.
+            if is_float_row(r1) == false {
+                if rc == ra {
+                    return ["  " + mnem + " " + ra + ", " + r1[2]];
+                }
+                return ["  mov rax, " + ra, "  " + mnem + " rax, " + r1[2], "  mov " + rc + ", rax"];
             }
-            return ["  mov rax, " + ra, "  " + mnem + " rax, " + r1[2], "  mov " + rc + ", rax"];
         }
     }
     return [];
@@ -792,6 +820,80 @@ fn str_pair(types) -> Bool {
         return false;
     }
     return true;
+}
+
+// A fractional value is a double stored as raw bits; integer instructions would
+// reinterpret those bits, so arithmetic on one is refused rather than silently
+// producing a wrong answer.
+fn has_float(types, sp: Num) -> Bool {
+    if type_at(types, sp - 1) == "float" {
+        return true;
+    }
+    if type_at(types, sp - 2) == "float" {
+        return true;
+    }
+    return false;
+}
+
+// Every opcode this stage lowers. Anything else is a compiler bug or a feature
+// that has no lowering yet: report it and trap instead of emitting nothing.
+fn op_is_lowered(op: Num) -> Bool {
+    if op >= 1 {
+        if op <= 3 {
+            return true;
+        }
+    }
+    if op >= 10 {
+        if op <= 13 {
+            return true;
+        }
+    }
+    if op >= 20 {
+        if op <= 27 {
+            return true;
+        }
+    }
+    if op == 30 {
+        return true;
+    }
+    if op == 40 {
+        return true;
+    }
+    if op == 41 {
+        return true;
+    }
+    if op >= 70 {
+        if op <= 74 {
+            return true;
+        }
+    }
+    if op >= 100 {
+        if op <= 107 {
+            return true;
+        }
+    }
+    if op >= 110 {
+        if op <= 113 {
+            return true;
+        }
+    }
+    if op >= 120 {
+        if op <= 122 {
+            return true;
+        }
+    }
+    if op == 130 {
+        return true;
+    }
+    if op >= 140 {
+        if op <= 141 {
+            return true;
+        }
+    }
+    if op == 255 {
+        return true;
+    }
+    return false;
 }
 
 fn type_at(types, idx: Num) -> Text {
@@ -1183,6 +1285,95 @@ fn runtime_lines() -> Array {
         ".Lpi_out:",
         "  mov rdx, r8",
         "  sub rdx, rsi",
+        "  mov rax, 1",
+        "  mov rdi, 1",
+        "  syscall",
+        "  lea rsi, [rip + .Lnl]",
+        "  mov rdx, 1",
+        "  mov rax, 1",
+        "  mov rdi, 1",
+        "  syscall",
+        "  leave",
+        "  ret",
+        "",
+        "null_print_f64:",
+        "  push rbp",
+        "  mov rbp, rsp",
+        "  sub rsp, 256",
+        "  movq xmm0, rdi",
+        "  xor r11d, r11d",
+        "  movq rax, xmm0",
+        "  test rax, rax",
+        "  jns .Lpf64_pos",
+        "  mov r11, 1",
+        "  mov rdx, 0x8000000000000000",
+        "  xor rax, rdx",
+        "  movq xmm0, rax",
+        ".Lpf64_pos:",
+        "  lea rdi, [rbp - 256]",
+        "  xor ecx, ecx",
+        "  test r11, r11",
+        "  jz .Lpf64_nosign",
+        "  mov byte ptr [rdi], 45",
+        "  mov rcx, 1",
+        ".Lpf64_nosign:",
+        "  cvttsd2si rax, xmm0",
+        "  cvtsi2sd xmm1, rax",
+        "  subsd xmm0, xmm1",
+        "  lea rsi, [rbp - 32]",
+        "  mov r8, rsi",
+        "  mov r9, 10",
+        ".Lpf64_iloop:",
+        "  xor edx, edx",
+        "  div r9",
+        "  add dl, 48",
+        "  dec rsi",
+        "  mov byte ptr [rsi], dl",
+        "  test rax, rax",
+        "  jnz .Lpf64_iloop",
+        "  mov rdx, r8",
+        "  sub rdx, rsi",
+        "  xor r10d, r10d",
+        ".Lpf64_icopy:",
+        "  cmp r10, rdx",
+        "  jae .Lpf64_intdone",
+        "  mov al, byte ptr [rsi + r10]",
+        "  mov byte ptr [rdi + rcx], al",
+        "  inc rcx",
+        "  inc r10",
+        "  jmp .Lpf64_icopy",
+        ".Lpf64_intdone:",
+        "  xorpd xmm2, xmm2",
+        "  ucomisd xmm0, xmm2",
+        "  jbe .Lpf64_emit",
+        "  mov byte ptr [rdi + rcx], 46",
+        "  inc rcx",
+        "  mov r10, 6",
+        "  movsd xmm3, qword ptr [rip + .Lf10]",
+        ".Lpf64_floop:",
+        "  mulsd xmm0, xmm3",
+        "  cvttsd2si rax, xmm0",
+        "  cvtsi2sd xmm1, rax",
+        "  subsd xmm0, xmm1",
+        "  add al, 48",
+        "  mov byte ptr [rdi + rcx], al",
+        "  inc rcx",
+        "  dec r10",
+        "  jnz .Lpf64_floop",
+        ".Lpf64_trim:",
+        "  mov al, byte ptr [rdi + rcx - 1]",
+        "  cmp al, 48",
+        "  jne .Lpf64_emit",
+        "  dec rcx",
+        "  jmp .Lpf64_trim",
+        ".Lpf64_emit:",
+        "  mov al, byte ptr [rdi + rcx - 1]",
+        "  cmp al, 46",
+        "  jne .Lpf64_write",
+        "  dec rcx",
+        ".Lpf64_write:",
+        "  mov rsi, rdi",
+        "  mov rdx, rcx",
         "  mov rax, 1",
         "  mov rdi, 1",
         "  syscall",
@@ -3023,6 +3214,9 @@ fn compile(rows) -> Array {
     let max_sp = 0;
     let types = [];
     let str_pool = [];
+    // Fractional literals, kept in source order: `.LF<n>` in .rodata holds the
+    // assembler-parsed double, so no float arithmetic is needed to load one.
+    let float_pool = [];
     let fn_cursor = 0;
     let ret_seen = "";
     let i = 0;
@@ -3138,6 +3332,7 @@ fn compile(rows) -> Array {
                 // string literal "true".
                 let is_bool = has_meta(meta, "bool");
                 let is_str = has_meta(meta, "str");
+                let is_float = has_meta(meta, "float");
                 if is_bool {
                     // Boolean literals: 1/0 in memory, tagged `bool` so print
                     // picks the true/false formatting the VM uses. The emitter
@@ -3154,8 +3349,23 @@ fn compile(rows) -> Array {
                         numeric = false;
                     }
                     if numeric {
-                        out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + sp * 8) + "], " + operand);
-                        types = APPEND(types, "int");
+                        if is_float {
+                            // A fractional literal is a double: load it from a
+                            // .double in .rodata and keep the raw bits in the
+                            // slot. `mov qword, 3.5` would not even assemble.
+                            let fid = index_of(float_pool, operand);
+                            if fid == LEN(float_pool) {
+                                float_pool = APPEND(float_pool, operand);
+                                fid = LEN(float_pool) - 1;
+                            }
+                            out = APPEND(out, "  movsd xmm0, qword ptr [rip + .LF" + TO_STRING(fid) + "]");
+                            out = APPEND(out, "  movq rax, xmm0");
+                            out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + sp * 8) + "], rax");
+                            types = APPEND(types, "float");
+                        } else {
+                            out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + sp * 8) + "], " + operand);
+                            types = APPEND(types, "int");
+                        }
                     } else {
                         let literal = ir_unescape(operand);
                         let sid = index_of(str_pool, literal);
@@ -3225,6 +3435,13 @@ fn compile(rows) -> Array {
 
             if op == 10 {
                 let add_any = false;
+                let add_float = has_float(types, sp);
+                if add_float {
+                    report = APPEND(report, "FALLBACK 10 float-arith-not-in-this-stage");
+                    out = APPEND(out, "  call null_unsupported");
+                    types = drop_last(types);
+                    sp = sp - 1;
+                } else {
                 if type_at(types, sp - 2) == "any" || type_at(types, sp - 1) == "any" {
                     add_any = true;
                 }
@@ -3265,27 +3482,49 @@ fn compile(rows) -> Array {
                     sp = sp - 1;
                 }
                 }
+                }
             }
             if op == 11 {
+                if has_float(types, sp) {
+                    report = APPEND(report, "FALLBACK 11 float-arith-not-in-this-stage");
+                    out = APPEND(out, "  call null_unsupported");
+                    types = drop_last(types);
+                    sp = sp - 1;
+                } else {
                 out = APPEND(out, "  mov rax, qword ptr [rbp - " + TO_STRING(4096 + (sp - 1) * 8) + "]");
                 out = APPEND(out, "  sub qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "], rax");
                 types = drop_last(types);
                 sp = sp - 1;
+                }
             }
             if op == 12 {
+                if has_float(types, sp) {
+                    report = APPEND(report, "FALLBACK 12 float-arith-not-in-this-stage");
+                    out = APPEND(out, "  call null_unsupported");
+                    types = drop_last(types);
+                    sp = sp - 1;
+                } else {
                 out = APPEND(out, "  mov rax, qword ptr [rbp - " + TO_STRING(4096 + (sp - 1) * 8) + "]");
                 out = APPEND(out, "  imul rax, qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "]");
                 out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "], rax");
                 types = drop_last(types);
                 sp = sp - 1;
+                }
             }
             if op == 13 {
+                if has_float(types, sp) {
+                    report = APPEND(report, "FALLBACK 13 float-arith-not-in-this-stage");
+                    out = APPEND(out, "  call null_unsupported");
+                    types = drop_last(types);
+                    sp = sp - 1;
+                } else {
                 out = APPEND(out, "  mov rax, qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "]");
                 out = APPEND(out, "  cqo");
                 out = APPEND(out, "  idiv qword ptr [rbp - " + TO_STRING(4096 + (sp - 1) * 8) + "]");
                 out = APPEND(out, "  mov qword ptr [rbp - " + TO_STRING(4096 + (sp - 2) * 8) + "], rax");
                 types = drop_last(types);
                 sp = sp - 1;
+                }
             }
 
             if op == 20 {
@@ -3418,7 +3657,11 @@ fn compile(rows) -> Array {
                         if t == "bool" {
                             out = APPEND(out, "  call null_print_bool");
                         } else {
+                        if t == "float" {
+                            out = APPEND(out, "  call null_print_f64");
+                        } else {
                             out = APPEND(out, "  call null_print_i64");
+                        }
                         }
                     }
                 }
@@ -4118,6 +4361,14 @@ fn compile(rows) -> Array {
                 report = APPEND(report, "FALLBACK 141 dist-recv-no-network-target-in-this-stage");
                 out = APPEND(out, "  call null_unsupported");
             }
+
+            // Catch-all: an opcode this stage does not implement used to emit
+            // no instructions at all and no report line, so a missing lowering
+            // looked like working code. Every unimplemented opcode now traps.
+            if op_is_lowered(op) == false {
+                report = APPEND(report, "FALLBACK " + TO_STRING(op) + " opcode-not-lowered-in-this-stage");
+                out = APPEND(out, "  call null_unsupported");
+            }
         }
         if sp > max_sp {
             max_sp = sp;
@@ -4136,6 +4387,7 @@ fn compile(rows) -> Array {
     out = APPEND(out, ".Loob: .ascii \"OOB PANIC!!!\\n\"");
     out = APPEND(out, ".Lunsup: .ascii \"UNSUPPORTED OP!!\\n\"");
     out = APPEND(out, ".Lempty: .asciz \"\"");
+    out = APPEND(out, ".Lf10: .double 10.0");
     out = APPEND(out, ".p2align 4");
     out = APPEND(out, ".Liota0: .quad 0, 1, 2, 3");
     out = APPEND(out, ".Lfour: .quad 4, 4, 4, 4");
@@ -4144,6 +4396,11 @@ fn compile(rows) -> Array {
     while s < LEN(str_pool) {
         out = APPEND(out, ".LS" + TO_STRING(s) + ": .asciz \"" + gas_literal(str_pool[s]) + "\"");
         s = s + 1;
+    }
+    let fp = 0;
+    while fp < LEN(float_pool) {
+        out = APPEND(out, ".LF" + TO_STRING(fp) + ": .double " + float_pool[fp]);
+        fp = fp + 1;
     }
 
     // Peepholes over the emitted program: drop reloads of a value already in
